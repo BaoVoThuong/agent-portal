@@ -2745,3 +2745,14 @@ Lệch so với spec, có lý do:
 Còn dùng permission phẳng (chuyển ở Phase E): điều hướng (`Sidebar`, `layout.tsx`, `getFirstAccessiblePath`) và các cờ UI `isManager` truyền xuống client Lead/Task.
 
 **Chạy tay trên production (sau rollout Phase C):** `supabase/rollouts/2026-09-29-authz-phase-d.sql`. Trước deploy: `scripts/authz-decision-diff.ts` (read-only), kỳ vọng 0 lệch.
+
+## Phase E (nhánh `feat/authz-phase-e`)
+
+Đã làm: E1 registry điều hướng (`src/lib/authz/navigation.ts`) cho Sidebar, `getFirstAccessiblePath`, chuông, Settings; gỡ `rbac/server.ts`, `rbac/routes.ts`. E2 capability mức board cho client (`TaskBoardAccess`, `LeadBoardAccess`, `EnrollmentBoardAccess`) và `canEdit` của mặc định dashboard từ `canEditDashboardDefault` (dùng chung với API).
+
+Lệch so với spec:
+
+| Spec | Thực tế | Vì sao |
+|---|---|---|
+| E.2: danh bạ người tối thiểu (Q19) | Chưa đổi `fetchAvatarDirectory` (mọi account active, gửi cho mọi người) | Q19 chưa trả lời; `/config` đã chỉ nạp dữ liệu task khi người xem quản bảng task (`needsTaskData`) |
+| E.4: capability hai mức cho mọi màn | Làm cho Task, Lead, Enrollment, dashboard default; Registration grid vẫn cho sửa theo hàng người xem thấy (API kiểm `registration.*.update` theo scope) | Grant tương thích cấp read và update cùng scope; chỉ lệch với role tuỳ chỉnh cấp read:all mà update:own — nút hiện nhưng API từ chối |

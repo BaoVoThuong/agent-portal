@@ -6,6 +6,23 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-29 — Menu, trang đích và nút trên giao diện đi theo grant (authz Phase E)
+
+- **Một registry điều hướng** (`src/lib/authz/navigation.ts`) cho Sidebar, trang
+  đích sau đăng nhập / khi bị từ chối, chuông và link Settings. Server tính danh
+  sách mục mở được rồi gửi xuống; client không nhận grant.
+- Thay đổi người dùng thấy được:
+  - **Table Configuration** chỉ hiện cho người sửa được ít nhất một bảng (trước
+    đây mọi người giữ `task.manage` đều thấy rồi bị trang từ chối).
+  - **Chuông thông báo** hiện cả với người chỉ dùng Time Off.
+  - **Lead Management** hiện với legacy admin (vốn đã quản lead được nhưng menu
+    giấu mất).
+  - Nút **đặt mặc định bộ lọc dashboard** chỉ hiện với người sửa được (trước đây
+    ai cũng thấy, bấm thì API từ chối).
+- Client Task / Lead / Enrollment nhận capability tường minh (Overview, tạo cho mọi
+  agent, gán, import, xem toàn bộ…) thay cho một cờ `isManager` gộp nhiều nghĩa.
+  Với role hiện có, mọi nút giữ nguyên.
+
 ## 2026-09-29 — Mọi cổng quyền server đọc grant; định danh hoa hồng tách khỏi tên hiển thị (authz Phase D)
 
 - **Grant là nguồn duy nhất của quyết định ở server.** Task, Enrollment, Lead,
