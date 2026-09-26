@@ -4,8 +4,8 @@ import { parsePcPaymentWorkbook } from "@/lib/automation/pc-statement/payment-pa
 import { fetchPcPolicySnapshot } from "@/lib/automation/pc-statement/policy-source";
 import { buildPcStatementReport } from "@/lib/automation/pc-statement/report";
 import { buildPcStatementWorkbook } from "@/lib/automation/pc-statement/workbook";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { hasGrant } from "@/lib/authz/grants";
+import { grantsForSession } from "@/lib/authz/principal";
 import {
   parseWorkbooksSequentially,
   validateWorkbookUploads,
@@ -22,7 +22,7 @@ function getFiles(formData: FormData) {
 export async function POST(request: Request) {
   const session = await auth();
 
-  if (!can(session?.user?.permissions, PERMISSIONS.AUTOMATION_PC_STATEMENT)) {
+  if (!hasGrant(await grantsForSession(session), "automation.pc_statement.run")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

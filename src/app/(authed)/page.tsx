@@ -1,8 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import type { Entry } from "@/lib/domain/entry.types";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { requirePermission } from "@/lib/rbac/server";
+import { hasGrant } from "@/lib/authz/grants";
+import { requirePageAnyGrant } from "@/lib/authz/page-guards";
 import { buildVisibleEntriesFilter } from "@/lib/agent-name";
 import { fetchScopeAgentName } from "@/lib/agent-identity";
 import EntryGrid from "./customer-registration/health/EntryGrid";
@@ -10,14 +9,9 @@ import EntryGrid from "./customer-registration/health/EntryGrid";
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const session = await requirePermission(
-    PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH
-  );
-  const email = session!.user!.email!;
-  const canViewAll = can(
-    session.user.permissions,
-    PERMISSIONS.COMPANY_VIEW_ALL
-  );
+  const { session, principal } = await requirePageAnyGrant(["registration.health.read"]);
+  const email = session.user.email;
+  const canViewAll = hasGrant(principal.grants, "registration.health.read", "all");
 
   const supabase = getSupabaseAdmin();
   let query = supabase

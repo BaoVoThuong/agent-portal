@@ -217,6 +217,17 @@ export async function grantsForAccess(access: {
   return grantsForRoles(await loadRoleDefinitions(access.roleIds), access.legacyRole);
 }
 
+/**
+ * Grant của phiên mà route đã giải mã (`await auth()`), không giải mã lần hai.
+ * Không có phiên / email → không có grant nào.
+ */
+export async function grantsForSession(
+  session: { user?: SessionUserLike | null } | null | undefined
+): Promise<string[]> {
+  if (!session?.user?.email) return [];
+  return (await principalFromSessionUser(session.user))?.grants ?? [];
+}
+
 /** Principal của request hiện tại (một lần mỗi request). */
 export const getPrincipal = cache(async (): Promise<Principal | null> => {
   const session = await getSession();

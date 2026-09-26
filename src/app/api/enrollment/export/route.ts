@@ -76,7 +76,7 @@ async function exportEnrollment({
       { status: actorResult.status }
     );
   }
-  if (!canActorExport(actorResult.permissions)) {
+  if (!canActorExport(actorResult.actor.grants, "enrollment")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

@@ -1,5 +1,4 @@
-import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { requirePermission } from "@/lib/rbac/server";
+import { requirePageAnyGrant } from "@/lib/authz/page-guards";
 import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import SettingsClient from "./SettingsClient";
@@ -11,7 +10,7 @@ function isLocalPasswordHash(value: string | null | undefined): boolean {
 }
 
 export default async function SettingsPage() {
-  const session = await requirePermission(PERMISSIONS.SETTINGS);
+  const { session } = await requirePageAnyGrant(["settings.access"]);
   const email = session?.user?.email ?? "";
   const { data } = email
     ? await getSupabaseAdmin()

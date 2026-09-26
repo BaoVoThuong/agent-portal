@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchTaskAgentCandidates, fetchTaskAgents } from "@/lib/tasks/assignees";
-import { loadConfigAdmin } from "@/lib/table-config/access";
+import { loadOrgManager } from "@/lib/table-config/access";
 import { broadcastTableConfigChanged } from "@/lib/table-config/realtime";
 import { mapAssistantMembershipError } from "@/lib/tasks/membership-mutation";
 import { recordAccessAudit } from "@/lib/authz/audit";
@@ -9,7 +9,7 @@ import { recordAccessAudit } from "@/lib/authz/audit";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const admin = await loadConfigAdmin();
+  const admin = await loadOrgManager("org.assistant_delegation.manage");
   if (!admin.ok) {
     return NextResponse.json({ error: admin.error }, { status: admin.status });
   }
@@ -47,7 +47,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const admin = await loadConfigAdmin();
+  const admin = await loadOrgManager("org.assistant_delegation.manage");
   if (!admin.ok) {
     return NextResponse.json({ error: admin.error }, { status: admin.status });
   }
@@ -87,7 +87,7 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const admin = await loadConfigAdmin();
+  const admin = await loadOrgManager("org.assistant_delegation.manage");
   if (!admin.ok) {
     return NextResponse.json({ error: admin.error }, { status: admin.status });
   }

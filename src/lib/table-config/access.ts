@@ -5,13 +5,32 @@ import {
   type EnrollmentActor,
 } from "@/lib/enrollment/access";
 import { canWorkLeads, canConfigureLeadColumns } from "@/lib/leads/access";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { hasGrant } from "@/lib/authz/grants";
+import { grantsForSession } from "@/lib/authz/principal";
 import type { TableScope } from "./types";
 import { leadActorForUser } from "@/lib/leads/actor";
 
 export async function loadConfigActor() {
   return loadEnrollmentActor();
+}
+
+/**
+ * Quản roster agent / uỷ quyền assistant: đổi quan hệ tức là đổi phạm vi dữ
+ * liệu của người khác, nên có grant riêng (`org.*`, nhạy cảm). Grant tương thích
+ * cấp chúng cho đúng task admin — cùng nhóm với `loadConfigAdmin` trước đây.
+ */
+export async function loadOrgManager(
+  action: "org.agent_roster.manage" | "org.assistant_delegation.manage"
+): Promise<
+  | { ok: true; actor: EnrollmentActor }
+  | { ok: false; error: "Unauthorized" | "Forbidden"; status: 401 | 403 }
+> {
+  const actorResult = await loadEnrollmentActor();
+  if (!actorResult.ok) return actorResult;
+  if (!hasGrant(actorResult.actor.grants, action)) {
+    return { ok: false, error: "Forbidden", status: 403 };
+  }
+  return actorResult;
 }
 
 export async function loadConfigAdmin(): Promise<
@@ -68,7 +87,7 @@ async function loadProviderConfigGate(): Promise<ScopeGateResult> {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return { ok: false, error: "Unauthorized", status: 401 };
-  if (!can(session.user.permissions, PERMISSIONS.AUTOMATION_PROVIDER_FINDER)) {
+  if (!hasGrant(await grantsForSession(session), "provider.update")) {
     return { ok: false, error: "Forbidden", status: 403 };
   }
   return { ok: true, actor: { email } };

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { hasGrant } from "@/lib/authz/grants";
+import { grantsForSession } from "@/lib/authz/principal";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildProviderRow, parseCreateProviderInput } from "@/lib/providers/create";
 import { todayForColumn } from "@/lib/providers/form";
@@ -35,13 +35,12 @@ export async function POST(request: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  // Xem bảng là một chuyện; nhập cả bảng lại là chuyện khác. Đòi THÊM
-  // quyền task.import chứ không thay thế: người không được vào Provider
-  // List thì vẫn không được đụng tới dữ liệu của nó.
-  if (
-    !can(session.user.permissions, PERMISSIONS.AUTOMATION_PROVIDER_FINDER) ||
-    !can(session.user.permissions, PERMISSIONS.TASK_IMPORT)
-  ) {
+  // Sửa bảng là một chuyện; nhập cả bảng lại là chuyện khác. Đòi THÊM
+  // provider.import chứ không thay thế: người không được sửa Provider List thì
+  // vẫn không được đụng tới dữ liệu của nó. Grant đúng domain — không nhận
+  // enrollment.import (review Phase C, P1-03).
+  const grants = await grantsForSession(session);
+  if (!hasGrant(grants, "provider.update") || !hasGrant(grants, "provider.import")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

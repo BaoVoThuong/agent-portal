@@ -1,10 +1,14 @@
-import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { can } from "@/lib/rbac/client";
+import type { Action } from "@/lib/authz/catalog";
+import { hasGrant } from "@/lib/authz/grants";
+
+/** Domain có Export/Import riêng — mỗi domain một grant (audit C9, review C P1-03). */
+export type TransferDomain = "task" | "enrollment" | "provider";
 
 export function canActorExport(
-  permissions: readonly string[] | undefined
+  grants: readonly string[] | undefined,
+  domain: TransferDomain
 ): boolean {
-  return can(permissions, PERMISSIONS.TASK_EXPORT);
+  return hasGrant(grants, `${domain}.export` as Action);
 }
 
 /**
@@ -13,23 +17,15 @@ export function canActorExport(
  * Export chỉ ĐỌC; Import GHI ĐÈ hàng loạt — một file sai có thể sửa hàng trăm
  * dòng trong một lượt. Cho người ta quyền kéo dữ liệu ra không có nghĩa là cho
  * quyền đẩy dữ liệu vào.
+ *
+ * Import Enrollment ghi thẳng `.update()` theo ID — KHÔNG qua scope bản ghi,
+ * capability từng dòng hay activity log (api/enrollment/import/route.ts). Grant
+ * tương thích chỉ cấp `enrollment.import` cho task admin có `task.import` (S6);
+ * role tuỳ chỉnh chỉ nên cấp nó cho người vốn đã sửa được mọi hồ sơ.
  */
 export function canActorImport(
-  permissions: readonly string[] | undefined
+  grants: readonly string[] | undefined,
+  domain: Exclude<TransferDomain, "task">
 ): boolean {
-  return can(permissions, PERMISSIONS.TASK_IMPORT);
-}
-
-/**
- * Import Enrollment ghi thẳng `.update()` theo ID — KHÔNG qua scope bản ghi,
- * capability từng dòng hay activity log (api/enrollment/import/route.ts). Cho
- * tới khi import áp đủ các lớp đó (Phase D, Q11), chỉ task admin — người vốn
- * đã thấy và sửa được mọi hồ sơ — mới được dùng. Không nới thêm gì cho họ; chỉ
- * chặn việc cấp `task.import` cho người thường thành cửa hậu (S6).
- */
-export function canActorImportEnrollment(
-  permissions: readonly string[] | undefined,
-  actor: { isManager: boolean }
-): boolean {
-  return canActorImport(permissions) && actor.isManager;
+  return hasGrant(grants, `${domain}.import` as Action);
 }

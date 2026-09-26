@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { can, canAny } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import type { Action } from "@/lib/authz/catalog";
+import { hasGrant } from "@/lib/authz/grants";
+import { grantsForSession } from "@/lib/authz/principal";
 import { normalizeAgentName } from "@/lib/agent-name";
 import { fetchScopeAgentName } from "@/lib/agent-identity";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -28,19 +29,19 @@ export const dynamic = "force-dynamic";
 
 const MAX_QUESTION_LENGTH = 10000;
 
-// Cấu hình theo từng mảng: permission agent/company tương ứng.
+// Cấu hình theo từng mảng: grant dashboard agent/company tương ứng.
 const CONTEXT_CONFIG = {
   pc: {
-    agent: PERMISSIONS.AGENT_DASHBOARD_PC,
-    company: PERMISSIONS.COMPANY_DASHBOARD_PC,
+    agent: "dashboard.pc.agent.read",
+    company: "dashboard.pc.company.read",
     label: "P&C",
   },
   health: {
-    agent: PERMISSIONS.AGENT_DASHBOARD_HEALTH,
-    company: PERMISSIONS.COMPANY_DASHBOARD_HEALTH,
+    agent: "dashboard.health.agent.read",
+    company: "dashboard.health.company.read",
     label: "Health",
   },
-} as const;
+} as const satisfies Record<string, { agent: Action; company: Action; label: string }>;
 type DashboardContext = keyof typeof CONTEXT_CONFIG;
 
 function currentDate(): string {
@@ -127,17 +128,18 @@ export async function POST(request: Request) {
   }
 
   const config = CONTEXT_CONFIG[context];
-  const perms = session.user.permissions;
+  const grants = await grantsForSession(session);
 
   // Phải có quyền xem dashboard tương ứng (agent hoặc company).
-  if (!canAny(perms, [config.agent, config.company])) {
+  if (!hasGrant(grants, config.agent) && !hasGrant(grants, config.company)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   // Phạm vi quyền — khớp đúng cách dashboard hiển thị. KHÔNG tin scope từ client:
-  // phải có đúng permission company mới được mở rộng ra toàn công ty.
-  const canViewCompany = can(perms, config.company);
-  const canViewAll = can(perms, PERMISSIONS.COMPANY_VIEW_ALL);
+  // phải có đúng grant company mới được mở rộng ra toàn công ty. Dashboard agent
+  // xem mọi agent khi có scope `all` của CHÍNH mảng này — không suy từ mảng khác.
+  const canViewCompany = hasGrant(grants, config.company);
+  const canViewAll = hasGrant(grants, config.agent, "all");
   if (scope === "company" && !canViewCompany) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

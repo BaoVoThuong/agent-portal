@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { hasGrant } from "@/lib/authz/grants";
+import { grantsForSession } from "@/lib/authz/principal";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildProviderPatch } from "@/lib/providers/patch";
 import { PROVIDER_SELECT, PROVIDER_TABLE } from "@/lib/providers/types";
@@ -25,7 +25,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!can(session.user.permissions, PERMISSIONS.AUTOMATION_PROVIDER_FINDER)) {
+  if (!hasGrant(await grantsForSession(session), "provider.update")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   if (!UUID_RE.test(id)) {

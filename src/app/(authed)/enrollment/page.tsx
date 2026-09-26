@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
-import { requireAnyPermission } from "@/lib/rbac/server";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { requirePageAnyGrant } from "@/lib/authz/page-guards";
 import { canManageEnrollmentOptions, enrollmentActorForUser } from "@/lib/enrollment/access";
 import {
   fetchEnrollmentRecordById,
@@ -17,7 +16,7 @@ import {
 } from "@/lib/table-config/queries";
 import {
   canActorExport,
-  canActorImportEnrollment,
+  canActorImport,
 } from "@/lib/table-config/export-access";
 import {
   isRecordInScope,
@@ -38,10 +37,7 @@ export default async function EnrollmentPage({
   );
   const recordId = Array.isArray(params.record) ? params.record[0] : params.record;
 
-  const session = await requireAnyPermission([
-    PERMISSIONS.TASK_MANAGE,
-    PERMISSIONS.TASK_WORK,
-  ]);
+  const { session } = await requirePageAnyGrant(["enrollment.read"]);
   const email = session.user.email ?? "";
   const actor = await enrollmentActorForUser(session.user, email);
   // Scope is only needed by the records query. Start it together with the
@@ -69,7 +65,7 @@ export default async function EnrollmentPage({
     fetchEnrollmentOptionData(program),
     fetchTableColumns(program),
     fetchTableColumnOptions(program),
-    canActorExport(session.user.permissions),
+    canActorExport(actor.grants, "enrollment"),
     actor.isManager
       ? Promise.resolve<string[]>([])
       : fetchAssistantAgentsForCs(email),
@@ -119,7 +115,7 @@ export default async function EnrollmentPage({
       defaultToOwnAssignments={defaultToOwnAssignments}
       canManageOptions={canManageEnrollmentOptions(actor)}
       grants={actor.grants.filter((grant) => grant.startsWith("enrollment."))}
-      canImport={canActorImportEnrollment(session.user.permissions, actor)}
+      canImport={canActorImport(actor.grants, "enrollment")}
       canExport={canExport}
     />
   );

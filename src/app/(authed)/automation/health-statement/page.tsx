@@ -1,9 +1,8 @@
-import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { requirePermission } from "@/lib/rbac/server";
+import { requirePageGrant } from "@/lib/authz/page-guards";
 import HealthStatementClient from "./HealthStatementClient";
 
 export default async function HealthStatementPage() {
-  await requirePermission(PERMISSIONS.AUTOMATION_HEALTH_STATEMENT);
+  await requirePageGrant("automation.health_statement.run");
 
   return (
     <div className="px-8 py-8">

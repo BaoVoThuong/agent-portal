@@ -1,9 +1,8 @@
-import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { requirePermission } from "@/lib/rbac/server";
+import { requirePageGrant } from "@/lib/authz/page-guards";
 import PcStatementClient from "./PcStatementClient";
 
 export default async function PcStatementPage() {
-  await requirePermission(PERMISSIONS.AUTOMATION_PC_STATEMENT);
+  await requirePageGrant("automation.pc_statement.run");
 
   return (
     <div className="px-8 py-8">

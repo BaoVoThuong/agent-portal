@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { loadConfigAdmin } from "@/lib/table-config/access";
+import { loadOrgManager } from "@/lib/table-config/access";
 import { broadcastTableConfigChanged } from "@/lib/table-config/realtime";
 import { recordAccessAudit } from "@/lib/authz/audit";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const admin = await loadConfigAdmin();
+  const admin = await loadOrgManager("org.agent_roster.manage");
   if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
   const sb = getSupabaseAdmin();
@@ -28,7 +28,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const admin = await loadConfigAdmin();
+  const admin = await loadOrgManager("org.agent_roster.manage");
   if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
   const body = await request.json().catch(() => null);
@@ -58,7 +58,7 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const admin = await loadConfigAdmin();
+  const admin = await loadOrgManager("org.agent_roster.manage");
   if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
   const body = await request.json().catch(() => null);

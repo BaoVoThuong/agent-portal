@@ -3,8 +3,8 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { appendPcEntriesToSheet } from "@/lib/sheets";
 import type { PcEntryInput, PcEntry } from "@/lib/domain/pc-entry.types";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { hasGrant } from "@/lib/authz/grants";
+import { grantsForSession } from "@/lib/authz/principal";
 import { buildVisibleEntriesFilter, normalizeAgentName } from "@/lib/agent-name";
 import { fetchScopeAgentName } from "@/lib/agent-identity";
 
@@ -24,17 +24,15 @@ const REQUIRED_PC_FIELDS = [
 export async function GET() {
   const session = await auth();
   const email = session?.user?.email;
+  const grants = await grantsForSession(session);
   if (
     !email ||
-    !can(session?.user?.permissions, PERMISSIONS.CUSTOMER_REGISTRATION_PC)
+    !hasGrant(grants, "registration.pc.read")
   ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const canViewAll = can(
-    session.user.permissions,
-    PERMISSIONS.COMPANY_VIEW_ALL
-  );
+  const canViewAll = hasGrant(grants, "registration.pc.read", "all");
   const supabase = getSupabaseAdmin();
   let query = supabase
     .from("pc_entries")
@@ -80,10 +78,11 @@ function sanitizeRow(row: Partial<PcEntryInput>): PcEntryInput | null {
 export async function POST(request: Request) {
   const session = await auth();
   const email = session?.user?.email;
+  const grants = await grantsForSession(session);
   const name = session?.user?.name ?? null;
   if (
     !email ||
-    !can(session?.user?.permissions, PERMISSIONS.CUSTOMER_REGISTRATION_PC)
+    !hasGrant(grants, "registration.pc.create")
   ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

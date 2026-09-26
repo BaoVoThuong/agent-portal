@@ -1,4 +1,6 @@
 import { redirect } from "next/navigation";
+import type { Session } from "next-auth";
+import { getSession } from "@/lib/auth/session";
 import { getFirstAccessiblePath } from "@/lib/rbac/routes";
 import type { Action, GrantScope } from "./catalog";
 import { hasGrant } from "./grants";
@@ -16,4 +18,26 @@ export async function requirePageGrant(action: Action, scope?: GrantScope): Prom
     redirect(getFirstAccessiblePath(principal.permissions));
   }
   return principal;
+}
+
+export type PageAccess = {
+  session: Session & { user: NonNullable<Session["user"]> & { email: string } };
+  principal: Principal;
+};
+
+/**
+ * Cổng PAGE: có ÍT NHẤT MỘT trong các action (bất kỳ scope). Trả cả session
+ * (tên hiển thị, email) lẫn principal (grant). Cả hai đi qua `cache()` của
+ * React nên không giải mã phiên lần hai.
+ */
+export async function requirePageAnyGrant(actions: readonly Action[]): Promise<PageAccess> {
+  const session = await getSession();
+  const email = session?.user?.email;
+  if (!session?.user || !email) redirect("/signin");
+  const principal = await getPrincipal();
+  if (!principal) redirect("/signin");
+  if (!actions.some((action) => hasGrant(principal.grants, action))) {
+    redirect(getFirstAccessiblePath(principal.permissions));
+  }
+  return { session: session as PageAccess["session"], principal };
 }

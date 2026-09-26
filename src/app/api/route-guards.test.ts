@@ -25,6 +25,7 @@ const AUTHN = [
   "getTimeOffActor(",
   "loadEnrollmentActor(",
   "loadConfigAdmin(",
+  "loadOrgManager(",
   "loadConfigAdminForScope(",
   "loadConfigActorForScope(",
   "authorizeTaskReactionAccess(",
@@ -34,6 +35,7 @@ const AUTHN = [
 
 const ACTION = [
   "requireApiGrant(",
+  "hasGrant(",
   "can(",
   "canAny(",
   "canAccessBoard(",
@@ -64,6 +66,7 @@ const ACTION = [
   "getTimeOffActor(",
   "loadEnrollmentActor(",
   "loadConfigAdmin(",
+  "loadOrgManager(",
   "loadConfigAdminForScope(",
   "loadConfigActorForScope(",
   "authorizeTaskReactionAccess(",

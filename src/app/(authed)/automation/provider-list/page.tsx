@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { requireAnyPermission } from "@/lib/rbac/server";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { hasGrant } from "@/lib/authz/grants";
+import { requirePageAnyGrant } from "@/lib/authz/page-guards";
 import {
   canActorExport,
   canActorImport,
@@ -19,8 +19,8 @@ export const metadata: Metadata = { title: "Provider List" };
 export default async function ProviderListPage() {
   const timing = new RouteTiming("provider-list-page");
   // Dùng chung quyền với Provider Finder: cùng dữ liệu, cùng nhóm người dùng.
-  const session = await timing.measure("auth", () =>
-    requireAnyPermission([PERMISSIONS.AUTOMATION_PROVIDER_FINDER]),
+  const { session, principal } = await timing.measure("auth", () =>
+    requirePageAnyGrant(["provider.read"]),
   );
 
   const supabase = getSupabaseAdmin();
@@ -51,8 +51,11 @@ export default async function ProviderListPage() {
       // "Zoe Nguyen" — chen một địa chỉ email vào là cột đó có hai kiểu dữ liệu.
       // Cùng điều kiện với API. Hai quyền TÁCH RIÊNG: Export chỉ đọc, Import
       // ghi đè hàng loạt — cho quyền kéo ra không có nghĩa là cho quyền đẩy vào.
-      canExport={canActorExport(session.user.permissions)}
-      canImport={canActorImport(session.user.permissions)}
+      canExport={canActorExport(principal.grants, "provider")}
+      canImport={
+        canActorImport(principal.grants, "provider") &&
+        hasGrant(principal.grants, "provider.update")
+      }
       viewerName={personLabel(
         session.user.email ?? "",
         session.user.name ? new Map([[session.user.email ?? "", session.user.name]]) : undefined,

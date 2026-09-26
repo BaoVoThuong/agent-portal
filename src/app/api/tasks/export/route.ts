@@ -53,7 +53,7 @@ async function exportTasksResponse({
       { status: actorResult.status }
     );
   }
-  if (!canActorExport(actorResult.permissions)) {
+  if (!canActorExport(actorResult.actor.grants, "task")) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

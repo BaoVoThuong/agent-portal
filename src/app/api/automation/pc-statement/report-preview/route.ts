@@ -11,8 +11,8 @@ import {
   statementValues,
   unclaimFeeValues,
 } from "@/lib/automation/pc-statement/table-data";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { hasGrant } from "@/lib/authz/grants";
+import { grantsForSession } from "@/lib/authz/principal";
 import {
   parseWorkbooksSequentially,
   validateWorkbookUploads,
@@ -29,7 +29,7 @@ function getFiles(formData: FormData) {
 export async function POST(request: Request) {
   const session = await auth();
 
-  if (!can(session?.user?.permissions, PERMISSIONS.AUTOMATION_PC_STATEMENT)) {
+  if (!hasGrant(await grantsForSession(session), "automation.pc_statement.run")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

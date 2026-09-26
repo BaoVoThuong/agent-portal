@@ -1,7 +1,6 @@
-import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { fetchScopeAgentName } from "@/lib/agent-identity";
-import { can } from "@/lib/rbac/client";
-import { requireAnyPermission } from "@/lib/rbac/server";
+import { hasGrant } from "@/lib/authz/grants";
+import { requirePageAnyGrant } from "@/lib/authz/page-guards";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   DASHBOARD_FILTER_KEYS,
@@ -31,18 +30,18 @@ type DashboardPageProps = {
 type ChartLevel = "month" | "quarter" | "year";
 
 const HEALTH_MART_PAGE_SIZE = 1000;
-const HEALTH_DASHBOARD_PERMISSIONS = [
-  PERMISSIONS.AGENT_DASHBOARD_HEALTH,
-  PERMISSIONS.COMPANY_DASHBOARD_HEALTH,
-];
+const HEALTH_DASHBOARD_ACTIONS = [
+  "dashboard.health.agent.read",
+  "dashboard.health.company.read",
+] as const;
 
 export default async function DashboardPage({
   searchParams,
 }: DashboardPageProps) {
   const params = searchParams ? await searchParams : {};
-  const session = await requireAnyPermission(HEALTH_DASHBOARD_PERMISSIONS);
-  const canViewAgent = can(session.user.permissions, PERMISSIONS.AGENT_DASHBOARD_HEALTH);
-  const canViewSales = can(session.user.permissions, PERMISSIONS.COMPANY_DASHBOARD_HEALTH);
+  const { session, principal } = await requirePageAnyGrant(HEALTH_DASHBOARD_ACTIONS);
+  const canViewAgent = hasGrant(principal.grants, "dashboard.health.agent.read");
+  const canViewSales = hasGrant(principal.grants, "dashboard.health.company.read");
   const activeView = resolveDashboardView(
     parseDashboardView(params.view),
     canViewAgent,
@@ -63,7 +62,7 @@ export default async function DashboardPage({
     defaultReportMonthRange
   );
   const chartLevel = parseChartLevel(params.chartLevel);
-  const canViewAll = can(session.user.permissions, PERMISSIONS.COMPANY_VIEW_ALL);
+  const canViewAll = hasGrant(principal.grants, "dashboard.health.agent.read", "all");
   const agentName = await fetchScopeAgentName(session.user.email);
   const selectedCarriers = parseCarrierParams(params.carrier);
   const selectedPrimaryMemberId = parseRawParam(params.primaryMemberId);

@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
-import { requireAnyPermission } from "@/lib/rbac/server";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { requirePageAnyGrant } from "@/lib/authz/page-guards";
 import { fetchTasksForActor } from "@/lib/tasks/queries";
 import {
   fetchTaskAgentCandidates,
@@ -27,10 +26,7 @@ export const metadata: Metadata = {
 };
 
 export default async function TasksPage() {
-  const session = await requireAnyPermission([
-    PERMISSIONS.TASK_MANAGE,
-    PERMISSIONS.TASK_WORK,
-  ]);
+  const { session } = await requirePageAnyGrant(["task.read"]);
   const email = session.user.email ?? "";
   const actor = await taskActorForUser(session.user, email);
 
@@ -63,7 +59,7 @@ export default async function TasksPage() {
       .order("name", { ascending: true })
       .then((r) => (r.data ?? []) as TaskCategory[]),
     fetchTableColumnsWithOptions("cs"),
-    canActorExport(session.user.permissions),
+    canActorExport(actor.grants, "task"),
     // Due Date đi theo quyền XEM task, nên client cần đúng cờ hàng đợi
     // company-wide mà server dùng; tự suy ra ở client sẽ khoá ô nhập của CS
     // thường trong khi API vẫn nhận patch.

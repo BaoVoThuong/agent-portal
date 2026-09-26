@@ -7,8 +7,8 @@ import {
   normalizeMonthDate,
   normalizeReportMonthRange,
 } from "@/lib/dashboard-filter-defaults";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { hasGrant } from "@/lib/authz/grants";
+import { grantsForSession } from "@/lib/authz/principal";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 type Payload = {
@@ -23,12 +23,12 @@ const REPORT_MONTH_FILTER_KEY = "report_month_range";
 
 export async function PATCH(req: Request) {
   const session = await auth();
-  const permissions = session?.user?.permissions ?? [];
+  const grants = await grantsForSession(session);
 
   try {
     const payload = normalizePayload((await req.json()) as Payload);
 
-    if (!canEditDashboardDefault(permissions, payload.dashboardKey)) {
+    if (!canEditDashboardDefault(grants, payload.dashboardKey)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -130,22 +130,21 @@ function parseRollingMonths(value: unknown) {
   return numberValue;
 }
 
+// Grant tương thích: Role Manager giữ cả ba; company dashboard giữ mặc định
+// của chính dashboard đó; company.view_all giữ mặc định dashboard agent.
 function canEditDashboardDefault(
-  permissions: string[],
+  grants: readonly string[],
   dashboardKey: DashboardFilterKey
 ) {
-  if (can(permissions, PERMISSIONS.ROLE_MANAGER)) return true;
-
   if (dashboardKey === DASHBOARD_FILTER_KEYS.COMPANY_DASHBOARD_HEALTH) {
-    return can(permissions, PERMISSIONS.COMPANY_DASHBOARD_HEALTH);
+    return hasGrant(grants, "dashboard.health.company.defaults.manage");
   }
 
   if (dashboardKey === DASHBOARD_FILTER_KEYS.COMPANY_DASHBOARD_PC) {
-    return can(permissions, PERMISSIONS.COMPANY_DASHBOARD_PC);
+    return hasGrant(grants, "dashboard.pc.company.defaults.manage");
   }
 
-  // Agent dashboard defaults — only managers (company.view_all) or role_manager can edit
-  return can(permissions, PERMISSIONS.COMPANY_VIEW_ALL);
+  return hasGrant(grants, "dashboard.agent.defaults.manage");
 }
 
 function asString(value: unknown) {

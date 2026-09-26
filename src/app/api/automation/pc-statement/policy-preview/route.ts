@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { fetchPcPolicySnapshot } from "@/lib/automation/pc-statement/policy-source";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { hasGrant } from "@/lib/authz/grants";
+import { grantsForSession } from "@/lib/authz/principal";
 
 export const runtime = "nodejs";
 
@@ -20,7 +20,7 @@ function parsePreviewLimit(request: Request) {
 export async function GET(request: Request) {
   const session = await auth();
 
-  if (!can(session?.user?.permissions, PERMISSIONS.AUTOMATION_PC_STATEMENT)) {
+  if (!hasGrant(await grantsForSession(session), "automation.pc_statement.run")) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildLeadActor, isLeadViewAdmin } from "./legacy/lead-access";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { canActorExport, canActorImport } from "@/lib/table-config/export-access";
+import { canActorExport, canActorImport } from "./legacy/export-access";
 import { buildTaskActor, isTaskViewAdmin } from "./legacy/task-access";
 import { ACTIONS } from "./catalog";
 import { deriveCompatGrants } from "./compat";

@@ -1,12 +1,11 @@
-import { can } from "@/lib/rbac/client";
 import { fetchScopeAgentName } from "@/lib/agent-identity";
 import {
   DASHBOARD_FILTER_KEYS,
   fetchDashboardMonthDefault,
   resolveDashboardMonthDefaultRange,
 } from "@/lib/dashboard-filter-defaults";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { requireAnyPermission } from "@/lib/rbac/server";
+import { hasGrant } from "@/lib/authz/grants";
+import { requirePageAnyGrant } from "@/lib/authz/page-guards";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   DashboardViewSwitch,
@@ -34,10 +33,10 @@ type PcDashboardPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-const PC_DASHBOARD_PERMISSIONS = [
-  PERMISSIONS.AGENT_DASHBOARD_PC,
-  PERMISSIONS.COMPANY_DASHBOARD_PC,
-];
+const PC_DASHBOARD_ACTIONS = [
+  "dashboard.pc.agent.read",
+  "dashboard.pc.company.read",
+] as const;
 const PC_AGENT_PAGE_SIZE = 1000;
 const EXPIRED_POLICY_MONTH_COUNT = 12;
 
@@ -50,10 +49,10 @@ export default async function PcDashboardPage({
   searchParams,
 }: PcDashboardPageProps) {
   const params = searchParams ? await searchParams : {};
-  const session = await requireAnyPermission(PC_DASHBOARD_PERMISSIONS);
-  const canViewAgent = can(session.user.permissions, PERMISSIONS.AGENT_DASHBOARD_PC);
-  const canViewSales = can(session.user.permissions, PERMISSIONS.COMPANY_DASHBOARD_PC);
-  const canViewAllAgents = can(session.user.permissions, PERMISSIONS.COMPANY_VIEW_ALL);
+  const { session, principal } = await requirePageAnyGrant(PC_DASHBOARD_ACTIONS);
+  const canViewAgent = hasGrant(principal.grants, "dashboard.pc.agent.read");
+  const canViewSales = hasGrant(principal.grants, "dashboard.pc.company.read");
+  const canViewAllAgents = hasGrant(principal.grants, "dashboard.pc.agent.read", "all");
   const activeView = resolveDashboardView(
     parseDashboardView(params.view),
     canViewAgent,

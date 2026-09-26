@@ -3,8 +3,8 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { updatePcEntryInSheet, deletePcEntryFromSheet } from "@/lib/sheets";
 import type { PcEntryInput, PcEntry } from "@/lib/domain/pc-entry.types";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { hasGrant } from "@/lib/authz/grants";
+import { grantsForSession } from "@/lib/authz/principal";
 import { fetchScopeAgentName } from "@/lib/agent-identity";
 import { normalizeAgentName } from "@/lib/agent-name";
 
@@ -64,16 +64,14 @@ export async function PATCH(
   const { id } = await params;
   const session = await auth();
   const email = session?.user?.email;
+  const grants = await grantsForSession(session);
   if (
     !email ||
-    !can(session?.user?.permissions, PERMISSIONS.CUSTOMER_REGISTRATION_PC)
+    !hasGrant(grants, "registration.pc.update")
   ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const canManageAll = can(
-    session.user.permissions,
-    PERMISSIONS.COMPANY_VIEW_ALL
-  );
+  const canManageAll = hasGrant(grants, "registration.pc.update", "all");
 
   const body = await request.json().catch(() => null);
   if (!body) return NextResponse.json({ error: "Invalid body" }, { status: 400 });
@@ -135,16 +133,14 @@ export async function DELETE(
   const { id } = await params;
   const session = await auth();
   const email = session?.user?.email;
+  const grants = await grantsForSession(session);
   if (
     !email ||
-    !can(session?.user?.permissions, PERMISSIONS.CUSTOMER_REGISTRATION_PC)
+    !hasGrant(grants, "registration.pc.update")
   ) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const canManageAll = can(
-    session.user.permissions,
-    PERMISSIONS.COMPANY_VIEW_ALL
-  );
+  const canManageAll = hasGrant(grants, "registration.pc.update", "all");
 
   const supabase = getSupabaseAdmin();
 

@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
-import { requireAnyPermission } from "@/lib/rbac/server";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { requirePageAnyGrant } from "@/lib/authz/page-guards";
 import { fetchLeadAssignees } from "@/lib/leads/assignees";
 import {
   fetchAllLeads,
@@ -27,10 +26,7 @@ export default async function LeadsPage({
   // not two separate screens.
   const rawProduct = Array.isArray(params.product) ? params.product[0] : params.product;
   const productFilter = isLeadProduct(rawProduct) ? rawProduct : null;
-  const session = await requireAnyPermission([
-    PERMISSIONS.LEAD_MANAGE,
-    PERMISSIONS.LEAD_WORK,
-  ]);
+  const { session } = await requirePageAnyGrant(["lead.read"]);
   const email = session.user.email ?? "";
   const actor = await leadActorForUser(session.user, email);
   const view = Array.isArray(params.view) ? params.view[0] : params.view;

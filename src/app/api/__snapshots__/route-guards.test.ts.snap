@@ -77,8 +77,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "can(",
-      "canAny(",
+      "hasGrant(",
     ],
     "authn": [
       "auth()",
@@ -94,7 +93,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "can(",
+      "hasGrant(",
     ],
     "authn": [
       "auth()",
@@ -104,7 +103,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "can(",
+      "hasGrant(",
     ],
     "authn": [
       "auth()",
@@ -114,7 +113,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "can(",
+      "hasGrant(",
     ],
     "authn": [
       "auth()",
@@ -124,7 +123,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "can(",
+      "hasGrant(",
     ],
     "authn": [
       "auth()",
@@ -134,7 +133,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "can(",
+      "hasGrant(",
     ],
     "authn": [
       "auth()",
@@ -144,7 +143,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "can(",
+      "hasGrant(",
     ],
     "authn": [
       "auth()",
@@ -154,7 +153,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "can(",
+      "hasGrant(",
     ],
     "authn": [
       "auth()",
@@ -164,7 +163,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "can(",
+      "hasGrant(",
     ],
     "authn": [
       "auth()",
@@ -174,7 +173,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "can(",
+      "hasGrant(",
     ],
     "authn": [
       "auth()",
@@ -184,7 +183,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "can(",
+      "hasGrant(",
     ],
     "authn": [
       "auth()",
@@ -194,7 +193,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "can(",
+      "hasGrant(",
     ],
     "authn": [
       "auth()",
@@ -204,7 +203,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "can(",
+      "hasGrant(",
     ],
     "authn": [
       "auth()",
@@ -214,20 +213,20 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "loadConfigAdmin(",
+      "loadOrgManager(",
     ],
     "authn": [
-      "loadConfigAdmin(",
+      "loadOrgManager(",
     ],
     "object": [],
     "route": "config/agents/route.ts",
   },
   {
     "action": [
-      "loadConfigAdmin(",
+      "loadOrgManager(",
     ],
     "authn": [
-      "loadConfigAdmin(",
+      "loadOrgManager(",
     ],
     "object": [],
     "route": "config/assistants/route.ts",
@@ -352,7 +351,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "can(",
+      "hasGrant(",
     ],
     "authn": [
       "auth()",
@@ -522,7 +521,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "canActorImportEnrollment(",
+      "canActorImport(",
       "loadEnrollmentActor(",
     ],
     "authn": [
@@ -592,7 +591,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "can(",
+      "hasGrant(",
     ],
     "authn": [
       "auth()",
@@ -604,7 +603,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "can(",
+      "hasGrant(",
     ],
     "authn": [
       "auth()",
@@ -779,7 +778,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "can(",
+      "hasGrant(",
     ],
     "authn": [
       "auth()",
@@ -791,7 +790,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "can(",
+      "hasGrant(",
     ],
     "authn": [
       "auth()",
@@ -811,7 +810,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "can(",
+      "hasGrant(",
     ],
     "authn": [
       "auth()",
@@ -821,7 +820,7 @@ exports[`registry gác route > bản đồ cổng khớp snapshot — route mớ
   },
   {
     "action": [
-      "can(",
+      "hasGrant(",
     ],
     "authn": [
       "auth()",

@@ -11,8 +11,8 @@ import { canConfigureLeadColumns } from "@/lib/leads/access";
 import { fetchLeadVocabulary } from "@/lib/leads/queries";
 import { loadConfigAdmin } from "@/lib/table-config/access";
 import { configScopesFor } from "@/lib/table-config/scope-access";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { hasGrant } from "@/lib/authz/grants";
+import { grantsForSession } from "@/lib/authz/principal";
 import {
   fetchAllTableColumnOptions,
   fetchAllTableColumns,
@@ -80,10 +80,7 @@ export default async function ConfigPage() {
 
   // Provider List dùng chung quyền với Provider Finder: ai mở được màn đó thì
   // cũng tự thêm/sửa cột của bảng provider.
-  const isProviderManager = can(
-    session?.user?.permissions,
-    PERMISSIONS.AUTOMATION_PROVIDER_FINDER
-  );
+  const isProviderManager = hasGrant(await grantsForSession(session), "provider.update");
 
   const scopes = configScopesFor({
     isTaskAdmin: admin.ok,

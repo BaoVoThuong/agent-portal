@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { hasGrant } from "@/lib/authz/grants";
+import { grantsForSession } from "@/lib/authz/principal";
 import bcrypt from "bcryptjs";
 
 function isLocalPasswordHash(value: string | null | undefined): value is string {
@@ -15,7 +15,7 @@ export async function PATCH(req: Request) {
     const session = await auth();
     const email = session?.user?.email;
 
-    if (!email || !can(session?.user?.permissions, PERMISSIONS.SETTINGS)) {
+    if (!email || !hasGrant(await grantsForSession(session), "settings.access")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

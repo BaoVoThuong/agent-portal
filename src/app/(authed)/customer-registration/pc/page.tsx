@@ -1,8 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import type { PcEntry } from "@/lib/domain/pc-entry.types";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { requirePermission } from "@/lib/rbac/server";
+import { hasGrant } from "@/lib/authz/grants";
+import { requirePageAnyGrant } from "@/lib/authz/page-guards";
 import { buildVisibleEntriesFilter } from "@/lib/agent-name";
 import { fetchScopeAgentName } from "@/lib/agent-identity";
 import PcEntryGrid from "./PcEntryGrid";
@@ -10,12 +9,9 @@ import PcEntryGrid from "./PcEntryGrid";
 export const dynamic = "force-dynamic";
 
 export default async function PcRegistrationPage() {
-  const session = await requirePermission(PERMISSIONS.CUSTOMER_REGISTRATION_PC);
-  const email = session!.user!.email!;
-  const canViewAll = can(
-    session.user.permissions,
-    PERMISSIONS.COMPANY_VIEW_ALL
-  );
+  const { session, principal } = await requirePageAnyGrant(["registration.pc.read"]);
+  const email = session.user.email;
+  const canViewAll = hasGrant(principal.grants, "registration.pc.read", "all");
 
   const supabase = getSupabaseAdmin();
   let query = supabase

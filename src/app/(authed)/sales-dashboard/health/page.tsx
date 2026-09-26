@@ -3,9 +3,8 @@ import {
   fetchDashboardMonthDefault,
   resolveDashboardMonthDefaultRange,
 } from "@/lib/dashboard-filter-defaults";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { requirePermission } from "@/lib/rbac/server";
+import { hasGrant } from "@/lib/authz/grants";
+import { requirePageAnyGrant } from "@/lib/authz/page-guards";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { DashboardViewSwitch } from "../../_dashboard-shared/DashboardViewSwitch";
 import {
@@ -67,9 +66,9 @@ const HEALTH_SALES_PAGE_SIZE = 1000;
 export default async function HealthSalesDashboardPage({
   searchParams,
 }: HealthSalesDashboardPageProps) {
-  const session = await requirePermission(PERMISSIONS.COMPANY_DASHBOARD_HEALTH);
+  const { principal } = await requirePageAnyGrant(["dashboard.health.company.read"]);
   const params = searchParams ? await searchParams : {};
-  const canViewAgent = can(session.user.permissions, PERMISSIONS.AGENT_DASHBOARD_HEALTH);
+  const canViewAgent = hasGrant(principal.grants, "dashboard.health.agent.read");
   const monthDefaultConfig = await fetchDashboardMonthDefault(
     DASHBOARD_FILTER_KEYS.COMPANY_DASHBOARD_HEALTH
   );

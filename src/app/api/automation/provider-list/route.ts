@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { hasGrant } from "@/lib/authz/grants";
+import { grantsForSession } from "@/lib/authz/principal";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildProviderRow, parseCreateProviderInput } from "@/lib/providers/create";
 import { PROVIDER_SELECT, PROVIDER_TABLE, PROVIDER_TEXT_FIELDS } from "@/lib/providers/types";
@@ -16,16 +16,17 @@ import { RouteTiming } from "@/lib/server-timing";
 export const dynamic = "force-dynamic";
 
 /**
- * Provider List dùng chung quyền với Provider Finder — cùng một dữ liệu, cùng
- * một nhóm người dùng trong Automation Tool.
+ * Provider List dùng chung dữ liệu với Provider Finder: đọc = `provider.read`,
+ * thêm/sửa = `provider.update` (grant tương thích cấp cả hai cho
+ * automation.provider_finder, như trước).
  */
-async function gate(timing?: RouteTiming) {
+async function gate(action: "provider.read" | "provider.update", timing?: RouteTiming) {
   const session = timing
     ? await timing.measure("auth", () => auth())
     : await auth();
   const email = session?.user?.email;
   if (!email) return { ok: false as const, status: 401, error: "Unauthorized" };
-  if (!can(session.user.permissions, PERMISSIONS.AUTOMATION_PROVIDER_FINDER)) {
+  if (!hasGrant(await grantsForSession(session), action)) {
     return { ok: false as const, status: 403, error: "Forbidden" };
   }
   return { ok: true as const, email };
@@ -41,7 +42,7 @@ export async function GET() {
   };
 
   try {
-    const actor = await gate(timing);
+    const actor = await gate("provider.read", timing);
     if (!actor.ok) return respond({ error: actor.error }, actor.status);
 
     // 458 dòng sau khi làm sạch: nạp hết một lần rồi lọc/sắp xếp ngay trong trình
@@ -74,7 +75,7 @@ export async function POST(request: Request) {
   };
 
   try {
-    const actor = await gate(timing);
+    const actor = await gate("provider.update", timing);
     if (!actor.ok) return respond({ error: actor.error }, actor.status);
 
     const parsed = parseCreateProviderInput(
