@@ -212,6 +212,12 @@ export function mapAuthzRpcError(message: string | undefined): { status: number;
       return { status: 404, error: "User not found." };
     case "LAST_RECOVERY_ADMIN":
       return { status: 400, error: "At least one active Admin account is required." };
+    case "ACCOUNT_EMAIL_REQUIRED":
+      return { status: 400, error: "Email is required." };
+    case "ACCOUNT_EMAIL_TAKEN":
+      return { status: 409, error: "An account with this email already exists." };
+    case "AGENT_ID_TAKEN":
+      return { status: 409, error: "This Agent ID is already in use." };
     case "COMMISSION_NAME_TAKEN":
       return { status: 409, error: "Another account already uses this commission name." };
     default:

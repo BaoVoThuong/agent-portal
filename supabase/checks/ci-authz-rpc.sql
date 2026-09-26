@@ -10,6 +10,7 @@ declare
   v_role uuid;
   v_version int;
   v_failed boolean;
+  v_account uuid;
 begin
   if v_admin_role is null or v_agent_role is null then raise exception 'system_key backfill thiếu'; end if;
 
@@ -113,6 +114,37 @@ begin
     raise exception 'super_admin không được chuyển';
   end if;
   if not (select grants_managed from roles where id = v_agent_role) then raise exception 'grants_managed chưa bật'; end if;
+
+  -- Tạo / sửa account nguyên tử (review C P2-04): lỗi ở bước sau thì KHÔNG còn gì.
+  v_failed := false;
+  begin
+    perform create_account_atomic('new@x.com', 'New', 'EPS-NEW', 'hash', v_agent_role, 'Jane Doe', null, 'admin1@x.com');
+    perform create_account_atomic('new2@x.com', 'New 2', 'EPS-NEW2', 'hash', v_agent_role, 'jane doe', null, 'admin1@x.com');
+  exception when others then v_failed := sqlerrm = 'COMMISSION_NAME_TAKEN';
+  end;
+  if not v_failed then raise exception 'tên hoa hồng trùng khi tạo phải bị chặn'; end if;
+  if exists (select 1 from portal_account where email = 'new2@x.com') then
+    raise exception 'tạo account lỗi giữa chừng phải rollback';
+  end if;
+  v_account := create_account_atomic('new3@x.com', 'New 3', 'EPS-NEW3', 'hash', null, null, null, 'admin1@x.com');
+  if not exists (select 1 from user_roles where user_id = v_account and role_id = v_agent_role) then
+    raise exception 'tạo account không truyền role phải nhận role mặc định';
+  end if;
+  v_version := (select access_version from portal_account where id = v_account);
+  v_failed := false;
+  begin
+    perform update_account_atomic(v_account, '{"name":"Renamed","agent_id":"EPS-NEW3"}'::jsonb, null, 'admin1@x.com');
+    perform update_account_atomic(v_account, '{"name":"Nope","role_id":"00000000-0000-0000-0000-00000000dead"}'::jsonb, null, 'admin1@x.com');
+  exception when others then v_failed := sqlerrm = 'ROLE_INACTIVE';
+  end;
+  if not v_failed then raise exception 'role không tồn tại phải bị chặn'; end if;
+  if (select name from portal_account where id = v_account) <> 'New 3' then
+    raise exception 'sửa account lỗi giữa chừng phải rollback cả tên';
+  end if;
+  perform update_account_atomic(v_account, '{"email":"new3b@x.com"}'::jsonb, null, 'admin1@x.com');
+  if (select access_version from portal_account where id = v_account) <> v_version + 1 then
+    raise exception 'đổi email phải tăng access_version';
+  end if;
 end $$;
 
 select 'authz rpc gate: ok' as result;

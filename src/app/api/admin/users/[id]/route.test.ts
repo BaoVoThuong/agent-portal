@@ -26,7 +26,6 @@ vi.mock("@/lib/authz/principal", async (importOriginal) => ({
 }));
 vi.mock("@/lib/rbac/role-management", () => roleManagement);
 vi.mock("@/lib/notifications/push-server", () => ({ revokePushSubscriptions: revokeMock }));
-vi.mock("@/lib/authz/versions", () => ({ bumpAccessVersion: vi.fn() }));
 vi.mock("@/lib/supabase", () => {
   const target = { id: "u2", email: "target@x.com", role: "agent", is_active: true };
   const chain: Record<string, unknown> = {};
@@ -92,14 +91,14 @@ describe("PATCH /api/admin/users/[id]", () => {
     expect(rpcMock).not.toHaveBeenCalled();
   });
 
-  it("trong trần: đổi role + khoá đi qua RPC nguyên tử và thu hồi push", async () => {
+  it("trong trần: đổi role + khoá + tên đi qua MỘT RPC và thu hồi push (review C P2-04)", async () => {
     roleManagement.fetchRoleDefinition.mockResolvedValue(roleDefinition("worker", ["task.read:assigned"]));
-    const response = await patch({ roleIds: ["worker"], is_active: false });
+    const response = await patch({ roleIds: ["worker"], is_active: false, name: "Target" });
     expect(response.status).toBe(200);
-    expect(rpcMock).toHaveBeenCalledWith("assign_account_access_atomic", {
+    expect(rpcMock).toHaveBeenCalledTimes(1);
+    expect(rpcMock).toHaveBeenCalledWith("update_account_atomic", {
       p_account_id: "u2",
-      p_role_id: "worker",
-      p_is_active: false,
+      p_patch: { name: "Target", role_id: "worker", is_active: false },
       p_actor_account_id: "actor",
       p_actor_email: "manager@x.com",
     });
@@ -129,9 +128,9 @@ describe("PATCH tên hoa hồng (S1)", () => {
     const response = await patch({ commissionName: "Ann Lee" });
     expect(response.status).toBe(200);
     expect(rpcMock).toHaveBeenCalledTimes(1);
-    expect(rpcMock).toHaveBeenCalledWith("set_commission_name_atomic", {
+    expect(rpcMock).toHaveBeenCalledWith("update_account_atomic", {
       p_account_id: "u2",
-      p_agent_name: "Ann Lee",
+      p_patch: { commission_name: "Ann Lee" },
       p_actor_account_id: "actor",
       p_actor_email: "manager@x.com",
     });

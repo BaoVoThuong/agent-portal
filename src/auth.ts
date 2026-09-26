@@ -7,7 +7,6 @@ import bcrypt from "bcryptjs";
 import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
 import type { UserRole } from "@/lib/domain/account.types";
 import {
-  assignDefaultRoleToUser,
   getUserAccess,
   getUserAccessByEmail,
 } from "@/lib/rbac/access";
@@ -118,34 +117,25 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         const allowedDomain = process.env.AUTH_GOOGLE_ALLOWED_DOMAIN?.trim();
         if (allowedDomain && user.email.endsWith(`@${allowedDomain}`)) {
-          const { data: createdUser } = await supabase
-            .from(PORTAL_ACCOUNT_TABLE)
-            .insert([
-              {
-                email: user.email,
-                name: user.name,
-                password_hash: "google-auth", // Đánh dấu đây là user dùng Google
-                role: "agent",
-                is_active: true,
-              },
-            ])
-            .select("id")
-            .single();
-
-          if (createdUser?.id) {
-            try {
-              await assignDefaultRoleToUser(createdUser.id, "agent");
-            } catch (error) {
-              // Không để lại account không có role (S19): bỏ account vừa tạo và
-              // từ chối đăng nhập lần này.
-              console.error("[auth] default role assignment failed", {
-                error: error instanceof Error ? error.message : String(error),
-              });
-              await supabase.from(PORTAL_ACCOUNT_TABLE).delete().eq("id", createdUser.id);
-              return false;
-            }
+          // MỘT transaction: tạo account + role mặc định (theo system_key, phải
+          // đang hoạt động) + audit. Lỗi thì không còn account nửa vời nào và
+          // đăng nhập lần này thất bại (S19, review C P2-01/P2-04).
+          const { error: createError } = await supabase.rpc("create_account_atomic", {
+            p_email: user.email,
+            p_name: user.name ?? null,
+            p_agent_id: null,
+            p_password_hash: "google-auth", // Đánh dấu đây là user dùng Google
+            p_role_id: null,
+            p_commission_name: null,
+            p_actor_account_id: null,
+            p_actor_email: "google-signin",
+          });
+          if (createError) {
+            console.error("[auth] google account provisioning failed", {
+              error: createError.message,
+            });
+            return false;
           }
-
           return true;
         }
 

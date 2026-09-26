@@ -133,36 +133,3 @@ export async function getUserAccessByEmails(
   return result;
 }
 
-/**
- * Gán role mặc định cho account vừa tự tạo (đăng nhập Google lần đầu). Tìm role
- * theo `system_key` và KHÔNG nuốt lỗi
- * nữa: trước đây lỗi ở đây để lại account không có role mà không ai biết (S19).
- */
-export async function assignDefaultRoleToUser(
-  userId: string,
-  legacyRole: UserRole
-) {
-  const supabase = getSupabaseAdmin();
-  const systemKey = legacyRole === "admin" ? "super_admin" : "default_new_account";
-  const { data: role, error: roleError } = await supabase
-    .from("roles")
-    .select("id,is_active")
-    .eq("system_key", systemKey)
-    .maybeSingle();
-  if (roleError) throw new Error(roleError.message);
-  const roleId = (role as { id: string; is_active: boolean } | null)?.id ?? null;
-  if (!roleId) throw new Error(`Default role "${systemKey}" not found.`);
-  // Role mặc định bị tắt thì account mới không có quyền nào — báo lỗi để đăng
-  // nhập thất bại rõ ràng thay vì tạo account rỗng (review C P2-01).
-  if (!(role as { is_active: boolean }).is_active) {
-    throw new Error(`Default role "${systemKey}" is disabled.`);
-  }
-
-  const { error: deleteError } = await supabase.from("user_roles").delete().eq("user_id", userId);
-  if (deleteError) throw new Error(deleteError.message);
-  const { error: insertError } = await supabase.from("user_roles").insert({
-    user_id: userId,
-    role_id: roleId,
-  });
-  if (insertError) throw new Error(insertError.message);
-}

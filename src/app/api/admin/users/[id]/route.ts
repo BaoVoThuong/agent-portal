@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
 import { revokePushSubscriptions } from "@/lib/notifications/push-server";
-import { bumpAccessVersion } from "@/lib/authz/versions";
 import { grantsBeyondCeiling } from "@/lib/authz/delegation";
 import { forbidden, requireApiGrant } from "@/lib/authz/guards";
 import { effectiveRoleGrants } from "@/lib/authz/principal";
@@ -415,55 +414,33 @@ export async function PATCH(req: Request, context: RouteContext) {
       );
     }
 
-    // Role và trạng thái đi qua RPC nguyên tử: khoá chung, bất biến "còn ≥ 1
-    // admin khôi phục", cột legacy, tăng access_version và audit trong CÙNG
-    // transaction (S19, C18).
-    if (nextRoleId || nextActive !== null) {
-      const { error: rpcError } = await supabase.rpc("assign_account_access_atomic", {
-        p_account_id: id,
-        p_role_id: nextRoleId,
-        p_is_active: nextActive,
-        p_actor_account_id: principal.accountId,
-        p_actor_email: principal.email,
-      });
-      if (rpcError) return rpcFailure(rpcError.message);
-    }
+    // MỘT transaction cho mọi thay đổi (review C P2-04, B P2-01): hồ sơ, role +
+    // trạng thái (khoá chung, bất biến admin khôi phục), tên hoa hồng, tăng
+    // access_version khi đổi email/role/trạng thái, và audit.
+    const patch: Record<string, unknown> = {};
+    if (updates.email !== undefined) patch.email = updates.email;
+    if (updates.name !== undefined) patch.name = updates.name;
+    if (updates.agent_id !== undefined) patch.agent_id = updates.agent_id;
+    if (updates.password_hash !== undefined) patch.password_hash = updates.password_hash;
+    if (nextRoleId) patch.role_id = nextRoleId;
+    if (nextActive !== null) patch.is_active = nextActive;
+    if (commissionName !== undefined) patch.commission_name = commissionName;
 
-    const { data, error } =
-      Object.keys(updates).length > 0
-        ? await supabase
-            .from(PORTAL_ACCOUNT_TABLE)
-            .update(updates)
-            .eq("id", id)
-            .select(ACCOUNT_COLUMNS)
-            .single()
-        : await supabase
-            .from(PORTAL_ACCOUNT_TABLE)
-            .select(ACCOUNT_COLUMNS)
-            .eq("id", id)
-            .single();
+    const { error: updateError } = await supabase.rpc("update_account_atomic", {
+      p_account_id: id,
+      p_patch: patch,
+      p_actor_account_id: principal.accountId,
+      p_actor_email: principal.email,
+    });
+    if (updateError) return rpcFailure(updateError.message);
 
+    const { data, error } = await supabase
+      .from(PORTAL_ACCOUNT_TABLE)
+      .select(ACCOUNT_COLUMNS)
+      .eq("id", id)
+      .single();
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    // Tên hoa hồng quyết định dữ liệu Registration/Dashboard/AI người này thấy:
-    // RPC chuẩn hoá, kiểm trùng dưới khoá và ghi audit cùng transaction (S1).
-    // Không cần tăng access_version — phạm vi đọc tươi mỗi request.
-    if (commissionName !== undefined) {
-      const { error: commissionError } = await supabase.rpc("set_commission_name_atomic", {
-        p_account_id: id,
-        p_agent_name: commissionName,
-        p_actor_account_id: principal.accountId,
-        p_actor_email: principal.email,
-      });
-      if (commissionError) return rpcFailure(commissionError.message);
-    }
-
-    // Đổi email → phiên của người này làm mới quyền ngay (role/trạng thái đã
-    // được RPC tăng version).
-    if (updates.email !== undefined) {
-      await bumpAccessVersion([id]);
     }
 
     if (nextActive === false) {

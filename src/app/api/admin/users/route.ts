@@ -7,7 +7,6 @@ import { effectiveRoleGrants } from "@/lib/authz/principal";
 import {
   fetchRoleDefinition,
   fetchSystemRoleId,
-  isSuperAdminRole,
   mapAuthzRpcError,
   SYSTEM_ROLE_KEYS,
 } from "@/lib/rbac/role-management";
@@ -16,8 +15,6 @@ import { normalizeAgentName } from "@/lib/agent-name";
 import bcrypt from "bcryptjs";
 
 export async function POST(req: Request) {
-  let createdUserId: string | null = null;
-
   try {
     const guard = await requireApiGrant("account.manage");
     if (!guard.ok) return guard.response;
@@ -113,66 +110,33 @@ export async function POST(req: Request) {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const { data, error } = await supabase
-      .from(PORTAL_ACCOUNT_TABLE)
-      .insert([
-        {
-          email: normalizedEmail,
-          name,
-          agent_id: normalizedAgentId,
-          password_hash: hashedPassword,
-          role: isSuperAdminRole({ name: role.name, system_key: role.systemKey })
-            ? "admin"
-            : "agent",
-          is_active: true,
-        },
-      ])
-      .select("id,email,name,agent_id,role,is_active,created_at")
-      .single();
-
-    if (error) {
-      console.error("[account-manager:create] insert failed", {
-        email: normalizedEmail,
-        error: error.message,
-      });
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    createdUserId = data.id;
-    const { error: assignError } = await supabase.rpc("assign_account_access_atomic", {
-      p_account_id: data.id,
+    // MỘT transaction: tạo account, gán role (khoá chung + audit), tên hoa hồng.
+    // Lỗi ở bất kỳ bước nào thì không còn gì (review C P2-04) — hết cảnh xoá bù.
+    const { data: createdId, error: createError } = await supabase.rpc("create_account_atomic", {
+      p_email: normalizedEmail,
+      p_name: name,
+      p_agent_id: normalizedAgentId,
+      p_password_hash: hashedPassword,
       p_role_id: role.id,
-      p_is_active: null,
+      p_commission_name: commissionName ?? null,
       p_actor_account_id: principal.accountId,
       p_actor_email: principal.email,
     });
-    if (assignError) {
-      // Không để lại account không có role (S19): lỗi thì bỏ account vừa tạo.
-      await supabase.from(PORTAL_ACCOUNT_TABLE).delete().eq("id", data.id);
-      createdUserId = null;
-      const mapped = mapAuthzRpcError(assignError.message);
+    if (createError) {
+      const mapped = mapAuthzRpcError(createError.message);
       return NextResponse.json(
-        { error: mapped?.error ?? assignError.message },
+        { error: mapped?.error ?? createError.message },
         { status: mapped?.status ?? 500 }
       );
     }
 
-    if (commissionName) {
-      const { error: commissionError } = await supabase.rpc("set_commission_name_atomic", {
-        p_account_id: data.id,
-        p_agent_name: commissionName,
-        p_actor_account_id: principal.accountId,
-        p_actor_email: principal.email,
-      });
-      if (commissionError) {
-        await supabase.from(PORTAL_ACCOUNT_TABLE).delete().eq("id", data.id);
-        createdUserId = null;
-        const mapped = mapAuthzRpcError(commissionError.message);
-        return NextResponse.json(
-          { error: mapped?.error ?? commissionError.message },
-          { status: mapped?.status ?? 500 }
-        );
-      }
+    const { data, error } = await supabase
+      .from(PORTAL_ACCOUNT_TABLE)
+      .select("id,email,name,agent_id,role,is_active,created_at")
+      .eq("id", createdId as string)
+      .single();
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     console.info("[account-manager:create] success", {
@@ -184,14 +148,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ user: data }, { status: 201 });
   } catch (error) {
     console.error("[account-manager:create] failed", {
-      createdUserId,
       error: error instanceof Error ? error.message : String(error),
     });
-
-    if (createdUserId) {
-      const supabase = getSupabaseAdmin();
-      await supabase.from(PORTAL_ACCOUNT_TABLE).delete().eq("id", createdUserId);
-    }
 
     return NextResponse.json(
       {
