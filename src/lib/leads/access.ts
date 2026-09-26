@@ -75,6 +75,33 @@ export function canConfigureLeadColumns(actor: LeadActor): boolean {
   return hasGrant(actor.grants, "lead.config.manage");
 }
 
+/**
+ * Capability MỨC MODULE cho client (D9): server tính từ grant rồi gửi xuống,
+ * thay cho một cờ `isManager` gộp năm nghĩa.
+ */
+export type LeadBoardAccess = {
+  /** `lead.read:all` — lọc theo mọi người được giao. */
+  readsAll: boolean;
+  /** `lead.overview.read` */
+  overview: boolean;
+  /** `lead.create` */
+  create: boolean;
+  /** `lead.assign` — gán, chia pool, chọn hàng loạt. */
+  assign: boolean;
+  /** `lead.import` */
+  import: boolean;
+};
+
+export function leadBoardAccessFor(actor: LeadActor): LeadBoardAccess {
+  return {
+    readsAll: actor.isManager,
+    overview: canReadLeadOverview(actor),
+    create: canCreateLeads(actor),
+    assign: canAssignLeads(actor),
+    import: canImportLeads(actor),
+  };
+}
+
 /** True when the actor's own email is the one the lead is assigned to. */
 export function isLeadOwner(
   actor: LeadActor,

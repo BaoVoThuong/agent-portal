@@ -119,3 +119,21 @@ export function normalizeEnrollmentActorEmail(
 ): string {
   return email?.trim().toLowerCase() ?? "";
 }
+
+/** Capability MỨC BOARD cho client (D9), server tính từ grant. */
+export type EnrollmentBoardAccess = {
+  /** `enrollment.overview.read` */
+  overview: boolean;
+  /** `enrollment.create:all` — tạo hồ sơ cho mọi agent. */
+  createsAny: boolean;
+  /** `enrollment.options.manage` */
+  manageOptions: boolean;
+};
+
+export function enrollmentBoardAccessFor(actor: EnrollmentActor): EnrollmentBoardAccess {
+  return {
+    overview: canReadEnrollmentOverview(actor),
+    createsAny: hasGrant(actor.grants, "enrollment.create", "all"),
+    manageOptions: canManageEnrollmentOptions(actor),
+  };
+}

@@ -76,7 +76,7 @@ const FILTER_SELECT_BUTTON_CLASS =
 export function TaskToolbar({
   view,
   onViewChange,
-  isManager,
+  canViewOverview,
   overviewRefreshing = false,
   onOverviewRefresh,
   labelByEmail,
@@ -117,7 +117,8 @@ export function TaskToolbar({
 }: {
   view: BoardView;
   onViewChange: (view: BoardView) => void;
-  isManager: boolean;
+  /** task.overview.read */
+  canViewOverview: boolean;
   overviewRefreshing?: boolean;
   onOverviewRefresh?: () => void;
   labelByEmail: Map<string, string>;
@@ -207,7 +208,7 @@ export function TaskToolbar({
     );
 
   const views: { key: BoardView; label: string }[] = [
-    ...(isManager ? [{ key: "overview" as const, label: "Overview" }] : []),
+    ...(canViewOverview ? [{ key: "overview" as const, label: "Overview" }] : []),
     { key: "board", label: "Board" },
     { key: "list", label: "List" },
   ];

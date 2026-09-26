@@ -1,5 +1,6 @@
 "use client";
 
+import type { LeadBoardAccess } from "@/lib/leads/access";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CircleAlert, Plus, Search, Shuffle, Upload, X } from "lucide-react";
@@ -74,7 +75,8 @@ import { LeadTableSettingsButton } from "./LeadTableSettingsButton";
 type LeadsClientProps = {
   /** null = every product. A filter now, not a separate screen. */
   productFilter: "pc" | "health" | null;
-  isManager: boolean;
+  /** Capability mức module do server tính từ grant. */
+  access: LeadBoardAccess;
   /**
    * Emails whose leads this person may edit and log against: their own plus
    * every agent they assist. null = a manager, i.e. all of them. Resolved on
@@ -145,7 +147,7 @@ function sourceNonce(): string {
 
 export function LeadsClient({
   productFilter,
-  isManager,
+  access,
   editableOwnerEmails,
   alertSettings,
   initialLeads,
@@ -261,7 +263,7 @@ export function LeadsClient({
    * Chỉ manager có Overview, nên `?view=overview` từ người khác rơi về list.
    */
   const [view, setView] = useState<"list" | "overview">(() =>
-    searchParams.get("view") === "overview" && isManager ? "overview" : "list",
+    searchParams.get("view") === "overview" && access.overview ? "overview" : "list",
   );
 
   // Nút Back/Forward đổi URL mà không chạy lại component — phải tự đồng bộ,
@@ -269,11 +271,11 @@ export function LeadsClient({
   useEffect(() => {
     const syncFromUrl = () => {
       const next = new URLSearchParams(window.location.search).get("view");
-      setView(next === "overview" && isManager ? "overview" : "list");
+      setView(next === "overview" && access.overview ? "overview" : "list");
     };
     window.addEventListener("popstate", syncFromUrl);
     return () => window.removeEventListener("popstate", syncFromUrl);
-  }, [isManager]);
+  }, [access.overview]);
   const rawAlert = searchParams.get("alert");
   const activeAlert: LeadAlert | null =
     rawAlert &&
@@ -1061,7 +1063,7 @@ export function LeadsClient({
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              {isManager && (
+              {access.create && (
                 <button
                   className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
                   type="button"
@@ -1070,7 +1072,7 @@ export function LeadsClient({
                   <Plus className="h-4 w-4" /> Add lead
                 </button>
               )}
-              {isManager && (
+              {access.assign && (
                 <button
                   className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:cursor-not-allowed disabled:opacity-50"
                   type="button"
@@ -1080,7 +1082,7 @@ export function LeadsClient({
                   <Shuffle className="h-4 w-4" /> Distribute pool
                 </button>
               )}
-              {isManager && (
+              {access.import && (
                 <button
                   className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
                   type="button"
@@ -1096,7 +1098,7 @@ export function LeadsClient({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
                 <div className="inline-flex shrink-0 rounded bg-[#f4f5f7] p-0.5">
-                  {isManager && (
+                  {access.overview && (
                     <button
                       type="button"
                       aria-current={view === "overview" ? "page" : undefined}
@@ -1175,7 +1177,7 @@ export function LeadsClient({
                   }
                 />
 
-                {isManager ? (
+                {access.readsAll ? (
                   <TaskSelect
                     value={filters.assignedTo ?? ALL_FILTER}
                     options={assigneeFilterOptions}
@@ -1264,7 +1266,7 @@ export function LeadsClient({
         </div>
       </div>
 
-      {view === "overview" && isManager ? (
+      {view === "overview" && access.overview ? (
         <div className="min-w-0 flex-1 px-6 pb-6">
           <div className="mx-auto max-w-[1760px]">
             <LeadOverview
@@ -1276,7 +1278,7 @@ export function LeadsClient({
         </div>
       ) : null}
 
-      {view === "list" && isManager && selected.size > 0 && (
+      {view === "list" && access.assign && selected.size > 0 && (
         <div className="min-w-0 shrink-0 px-6 pb-3">
           <div className="mx-auto max-w-[1760px] rounded border border-[#b8d4ff] bg-[#e9f2ff] px-4 py-3 text-sm shadow-[0_1px_2px_rgba(9,30,66,0.08)]">
             <div className="flex flex-wrap items-center gap-3">
@@ -1378,7 +1380,7 @@ export function LeadsClient({
               interactionTypes={interactionTypes}
               columnOptions={columnOptions}
               nameByEmail={nameByEmail}
-              isManager={isManager}
+              canAssign={access.assign}
               selected={selected}
               allVisibleSelected={allVisibleSelected}
               onToggleLead={toggleLead}
@@ -1398,7 +1400,7 @@ export function LeadsClient({
           columnOptions={columnOptions}
           interactionTypes={interactionTypes}
           editableOwnerEmails={editableOwnerEmails}
-          isManager={isManager}
+          canAssign={access.assign}
           assignees={assignees}
           nameByEmail={nameByEmail}
           onClose={() => setSelectedLead(null)}

@@ -36,6 +36,7 @@ const AUTHN = [
 const ACTION = [
   "requireApiGrant(",
   "hasGrant(",
+  "canEditDashboardDefault(",
   "can(",
   "canAny(",
   "canAccessBoard(",

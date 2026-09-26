@@ -1,3 +1,4 @@
+import { hasGrant } from "@/lib/authz/grants";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const DASHBOARD_FILTER_KEYS = {
@@ -27,7 +28,38 @@ export type DashboardMonthRangeDefault = {
   start: string | null;
   end: string | null;
   rollingMonths: number | null;
+  /** Người xem sửa được mặc định này — cùng luật với PATCH /api/dashboard-filter-defaults. */
+  canEdit?: boolean;
 };
+
+/**
+ * Ai sửa được mặc định bộ lọc của một dashboard. Grant tương thích: Role
+ * Manager giữ cả ba; company dashboard giữ mặc định của chính nó;
+ * company.view_all giữ mặc định dashboard agent. API và trang cùng gọi hàm này.
+ */
+export function canEditDashboardDefault(
+  grants: readonly string[],
+  dashboardKey: DashboardFilterKey
+): boolean {
+  if (dashboardKey === DASHBOARD_FILTER_KEYS.COMPANY_DASHBOARD_HEALTH) {
+    return hasGrant(grants, "dashboard.health.company.defaults.manage");
+  }
+  if (dashboardKey === DASHBOARD_FILTER_KEYS.COMPANY_DASHBOARD_PC) {
+    return hasGrant(grants, "dashboard.pc.company.defaults.manage");
+  }
+  return hasGrant(grants, "dashboard.agent.defaults.manage");
+}
+
+/** Mặc định của dashboard kèm cờ người xem có sửa được không. */
+export async function fetchDashboardMonthDefaultFor(
+  dashboardKey: DashboardFilterKey,
+  grants: readonly string[]
+): Promise<DashboardMonthRangeDefault> {
+  return {
+    ...(await fetchDashboardMonthDefault(dashboardKey)),
+    canEdit: canEditDashboardDefault(grants, dashboardKey),
+  };
+}
 
 type DashboardDefaultRow = {
   dashboard_key: string;

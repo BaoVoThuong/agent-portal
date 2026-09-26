@@ -17,6 +17,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchTableColumnsWithOptions } from "@/lib/table-config/queries";
 import { canActorExport } from "@/lib/table-config/export-access";
 import type { TaskCategory } from "@/lib/tasks/types";
+import { taskBoardAccessFor } from "@/lib/tasks/access";
 import { taskActorForUser } from "@/lib/tasks/actor";
 
 export const dynamic = "force-dynamic";
@@ -92,7 +93,7 @@ export default async function TasksPage() {
       initialTasksTruncated={taskPage.truncated}
       initialNowIso={initialNowIso}
       boardTitle={boardTitle}
-      isManager={actor.isManager}
+      access={taskBoardAccessFor(actor)}
       seesAllTasks={seesAllTasks}
       currentEmail={email}
       grants={actor.grants.filter((grant) => grant.startsWith("task."))}

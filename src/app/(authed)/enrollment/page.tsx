@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { requirePageAnyGrant } from "@/lib/authz/page-guards";
-import { canManageEnrollmentOptions, enrollmentActorForUser } from "@/lib/enrollment/access";
+import { enrollmentActorForUser, enrollmentBoardAccessFor } from "@/lib/enrollment/access";
 import {
   fetchEnrollmentRecordById,
   fetchEnrollmentPeople,
@@ -113,7 +113,7 @@ export default async function EnrollmentPage({
       myAgents={myAgents}
       myAssistantAgents={myAssistantAgents}
       defaultToOwnAssignments={defaultToOwnAssignments}
-      canManageOptions={canManageEnrollmentOptions(actor)}
+      access={enrollmentBoardAccessFor(actor)}
       grants={actor.grants.filter((grant) => grant.startsWith("enrollment."))}
       canImport={canActorImport(actor.grants, "enrollment")}
       canExport={canExport}

@@ -1,7 +1,7 @@
 import { fetchScopeAgentName } from "@/lib/agent-identity";
 import {
   DASHBOARD_FILTER_KEYS,
-  fetchDashboardMonthDefault,
+  fetchDashboardMonthDefaultFor,
   resolveDashboardMonthDefaultRange,
 } from "@/lib/dashboard-filter-defaults";
 import { hasGrant } from "@/lib/authz/grants";
@@ -63,8 +63,9 @@ export default async function PcDashboardPage({
     return <PcSalesDashboardPage searchParams={Promise.resolve(params)} />;
   }
 
-  const monthDefaultConfig = await fetchDashboardMonthDefault(
-    DASHBOARD_FILTER_KEYS.DASHBOARD_PC
+  const monthDefaultConfig = await fetchDashboardMonthDefaultFor(
+    DASHBOARD_FILTER_KEYS.DASHBOARD_PC,
+    principal.grants
   );
   const defaultReportMonthRange =
     resolveDashboardMonthDefaultRange(monthDefaultConfig);

@@ -1,6 +1,6 @@
 import {
   DASHBOARD_FILTER_KEYS,
-  fetchDashboardMonthDefault,
+  fetchDashboardMonthDefaultFor,
   resolveDashboardMonthDefaultRange,
 } from "@/lib/dashboard-filter-defaults";
 import { hasGrant } from "@/lib/authz/grants";
@@ -66,8 +66,9 @@ export default async function PcSalesDashboardPage({
   const { principal } = await requirePageAnyGrant(["dashboard.pc.company.read"]);
   const params = searchParams ? await searchParams : {};
   const canViewAgent = hasGrant(principal.grants, "dashboard.pc.agent.read");
-  const monthDefaultConfig = await fetchDashboardMonthDefault(
-    DASHBOARD_FILTER_KEYS.COMPANY_DASHBOARD_PC
+  const monthDefaultConfig = await fetchDashboardMonthDefaultFor(
+    DASHBOARD_FILTER_KEYS.COMPANY_DASHBOARD_PC,
+    principal.grants
   );
   const defaultReportMonthRange =
     resolveDashboardMonthDefaultRange(monthDefaultConfig);

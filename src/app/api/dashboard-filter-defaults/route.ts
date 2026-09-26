@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import {
+  canEditDashboardDefault,
   DASHBOARD_FILTER_KEYS,
   type DashboardFilterKey,
   type DashboardMonthDefaultType,
   normalizeMonthDate,
   normalizeReportMonthRange,
 } from "@/lib/dashboard-filter-defaults";
-import { hasGrant } from "@/lib/authz/grants";
 import { grantsForSession } from "@/lib/authz/principal";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
@@ -130,22 +130,6 @@ function parseRollingMonths(value: unknown) {
   return numberValue;
 }
 
-// Grant tương thích: Role Manager giữ cả ba; company dashboard giữ mặc định
-// của chính dashboard đó; company.view_all giữ mặc định dashboard agent.
-function canEditDashboardDefault(
-  grants: readonly string[],
-  dashboardKey: DashboardFilterKey
-) {
-  if (dashboardKey === DASHBOARD_FILTER_KEYS.COMPANY_DASHBOARD_HEALTH) {
-    return hasGrant(grants, "dashboard.health.company.defaults.manage");
-  }
-
-  if (dashboardKey === DASHBOARD_FILTER_KEYS.COMPANY_DASHBOARD_PC) {
-    return hasGrant(grants, "dashboard.pc.company.defaults.manage");
-  }
-
-  return hasGrant(grants, "dashboard.agent.defaults.manage");
-}
 
 function asString(value: unknown) {
   return typeof value === "string" && value ? value : null;

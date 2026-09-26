@@ -41,7 +41,11 @@ import {
   SLA_CONFIG_TOPIC,
   TABLE_CONFIG_TOPIC,
 } from "@/lib/table-config/realtime-topics";
-import { resolveTaskCapabilities, taskActorFromGrants } from "@/lib/tasks/access";
+import {
+  resolveTaskCapabilities,
+  taskActorFromGrants,
+  type TaskBoardAccess,
+} from "@/lib/tasks/access";
 import { ChevronDown, Download, Loader2, Plus } from "lucide-react";
 import {
   TASK_PRIORITIES,
@@ -142,7 +146,7 @@ export function TaskBoardClient({
   initialTasksTruncated = false,
   initialNowIso,
   boardTitle,
-  isManager,
+  access,
   seesAllTasks,
   currentEmail,
   grants,
@@ -165,7 +169,8 @@ export function TaskBoardClient({
   initialTasksTruncated?: boolean;
   initialNowIso: string;
   boardTitle: string;
-  isManager: boolean;
+  /** Capability mức board do server tính từ grant. */
+  access: TaskBoardAccess;
   /** CS thường nhìn hàng đợi company-wide — cùng cờ server dùng cho quyền xem. */
   seesAllTasks: boolean;
   currentEmail: string;
@@ -213,7 +218,7 @@ export function TaskBoardClient({
   const [agentFilter, setAgentFilter] = useState<string[]>([]);
   const [assigneeFilter, setAssigneeFilter] = useState<string[]>(() => {
     const ownsAgent = agents.some((agent) => agent.email === currentEmail);
-    const plainCs = !isManager && !ownsAgent && myAssistantAgents.length === 0;
+    const plainCs = !access.readsAll && !ownsAgent && myAssistantAgents.length === 0;
     return plainCs ? [currentEmail] : [];
   });
   const [presets, setPresets] = useState<QuickFilter[]>([]);
@@ -641,7 +646,7 @@ export function TaskBoardClient({
   }, []);
 
   const loadOverview = useCallback(async (background = false) => {
-    if (!isManager) return;
+    if (!access.overview) return;
     if (background) setOverviewRefreshing(true);
     else setOverviewLoading(true);
     try {
@@ -670,7 +675,7 @@ export function TaskBoardClient({
       if (background) setOverviewRefreshing(false);
       else setOverviewLoading(false);
     }
-  }, [dateRange.from, dateRange.to, isManager]);
+  }, [dateRange.from, dateRange.to, access.overview]);
 
   useEffect(() => {
     loadOverviewRef.current = loadOverview;
@@ -712,7 +717,7 @@ export function TaskBoardClient({
   );
 
   useEffect(() => {
-    if (!isManager || view !== "overview") return;
+    if (!access.overview || view !== "overview") return;
     const rangeKey = `${dateRange.from}|${dateRange.to}`;
     if (overviewSnapshot && overviewRangeKeyRef.current === rangeKey) return;
     overviewRangeKeyRef.current = rangeKey;
@@ -721,13 +726,13 @@ export function TaskBoardClient({
       0
     );
     return () => window.clearTimeout(timer);
-  }, [dateRange.from, dateRange.to, isManager, loadOverview, overviewSnapshot, view]);
+  }, [dateRange.from, dateRange.to, access.overview, loadOverview, overviewSnapshot, view]);
 
   useEffect(() => {
-    if (!isManager || view !== "overview" || !overviewSnapshot) return;
+    if (!access.overview || view !== "overview" || !overviewSnapshot) return;
     const timer = window.setInterval(() => void loadOverview(true), SLA_TICK_MS);
     return () => window.clearInterval(timer);
-  }, [isManager, loadOverview, overviewSnapshot, view]);
+  }, [access.overview, loadOverview, overviewSnapshot, view]);
 
   const reconcileTaskData = useCallback((
     requestedScope: TaskReconcileScope = "full",
@@ -748,7 +753,7 @@ export function TaskBoardClient({
         taskReconcileQueuedScopeRef.current = null;
         const refreshes: Promise<unknown>[] = [refetchTasks()];
         if (scope === "full") refreshes.push(reloadCategories());
-        if (isManager && viewRef.current === "overview") {
+        if (access.overview && viewRef.current === "overview") {
           const overviewRefresh = loadOverviewRef.current?.(true);
           if (overviewRefresh) refreshes.push(overviewRefresh);
         }
@@ -762,7 +767,7 @@ export function TaskBoardClient({
     });
     taskReconcileInFlightRef.current = operation;
     return operation;
-  }, [isManager, refetchTasks, reloadCategories]);
+  }, [access.overview, refetchTasks, reloadCategories]);
 
   const scheduleTaskReconcile = useCallback((
     requestedScope: TaskReconcileScope = "full",
@@ -1121,7 +1126,7 @@ export function TaskBoardClient({
     ? [...new Set([currentEmail, ...myAssistantAgents])]
     : myAssistantAgents;
   const canManageOwnAgentGroup = manageableAgentEmails.length > 0;
-  const shouldLimitPlainCsTasks = !isManager && !canManageOwnAgentGroup;
+  const shouldLimitPlainCsTasks = !access.readsAll && !canManageOwnAgentGroup;
   const displayNewAssignedTaskIds = useMemo(() => {
     const ids = new Set<string>();
     if (!shouldLimitPlainCsTasks) return ids;
@@ -1145,22 +1150,22 @@ export function TaskBoardClient({
   // Non-admins only fetch their own scope, so derive the Agent/Assignee filter
   // options from the tasks they can see. This scopes the dropdowns to their own
   // agents + team and never exposes the full company lists.
-  const isAgentOrAssistant = !isManager && canManageOwnAgentGroup;
+  const isAgentOrAssistant = !access.readsAll && canManageOwnAgentGroup;
   // Agent/admin get the oversight order; plain CS keep the work-queue order.
-  const managerView = isManager || isAgentOrAssistant;
+  const managerView = access.readsAll || isAgentOrAssistant;
   const scopedAgentStats = useMemo(() => {
-    if (isManager) return agentStats;
+    if (access.readsAll) return agentStats;
     const inScope = new Set(tasks.map((task) => task.agent_email ?? NO_AGENT));
     return agentStats.filter((stat) => inScope.has(stat.key));
-  }, [isManager, agentStats, tasks]);
+  }, [access.readsAll, agentStats, tasks]);
   const filterAssignees = useMemo(() => {
-    if (isManager) return assignees;
+    if (access.readsAll) return assignees;
     const inScope = new Set<string>();
     for (const task of tasks) {
       for (const email of task.assignees) inScope.add(email);
     }
     return assignees.filter((assignee) => inScope.has(assignee.email));
-  }, [isManager, assignees, tasks]);
+  }, [access.readsAll, assignees, tasks]);
 
   // Which filters make sense for the current view + role. Hidden filters are also
   // forced inert here so a stale value can't silently filter a view that hides it.
@@ -1170,13 +1175,13 @@ export function TaskBoardClient({
   //  - Status: List only (Board columns already are statuses; Backlog is all backlog).
   //  - Category: hidden for plain CS users.
   const showAgentFilter = scopedAgentStats.length > 0;
-  const showAssigneeFilter = isManager || isAgentOrAssistant;
+  const showAssigneeFilter = access.readsAll || isAgentOrAssistant;
   const showInlineAssigneeFilter = shouldLimitPlainCsTasks;
   const enableAssigneeFilter = showAssigneeFilter || showInlineAssigneeFilter;
   const effectivePresets = useMemo(
     () =>
-      isManager ? presets.filter((preset) => preset === "overdue") : presets,
-    [isManager, presets]
+      access.readsAll ? presets.filter((preset) => preset === "overdue") : presets,
+    [access.readsAll, presets]
   );
   const showStatusFilter = view === "list";
   const showPriorityFilter = true;
@@ -2008,14 +2013,14 @@ export function TaskBoardClient({
   const canEditDueDateOpen = Boolean(openTaskCapabilities?.canEditDueDate);
   const canDeleteOpen = Boolean(openTaskCapabilities?.canDelete);
   const canViewOpenNonCommentDetail = Boolean(
-    openTask && (isManager || isAgentOwnerOrAssistantOf(openTask.agent_email))
+    openTask && (access.activityAll || isAgentOwnerOrAssistantOf(openTask.agent_email))
   );
-  const canCreateTasks = isManager || canManageOwnAgentGroup;
+  const canCreateTasks = access.createsAny || canManageOwnAgentGroup;
   const frameView = view === "list";
   const shellClassName = frameView
     ? "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#f7f9fc] text-[#172b4d]"
     : "flex min-h-full min-w-0 flex-col bg-[#f7f9fc] text-[#172b4d]";
-  const overviewHeader = view === "overview" && isManager;
+  const overviewHeader = view === "overview" && access.overview;
   const pageTitle = overviewHeader ? "CS Workload Overview" : boardTitle;
 
   return (
@@ -2111,7 +2116,7 @@ export function TaskBoardClient({
           <TaskToolbar
             view={view}
             onViewChange={setView}
-            isManager={isManager}
+            canViewOverview={access.overview}
             overviewRefreshing={overviewRefreshing}
             onOverviewRefresh={() => void loadOverview(Boolean(overviewSnapshot))}
             labelByEmail={searchLabelByEmail}
@@ -2205,7 +2210,7 @@ export function TaskBoardClient({
         />
       )}
 
-      {view === "overview" && isManager && (
+      {view === "overview" && access.overview && (
         <CSWorkloadOverview
           snapshot={overviewSnapshot}
           loading={overviewLoading}
@@ -2225,7 +2230,7 @@ export function TaskBoardClient({
         <NewTaskDialog
           open={creating}
           mutationSourceId={boardInvalidationSourceId}
-          isManager={isManager}
+          createsAny={access.createsAny}
           currentEmail={currentEmail}
           myAssistantAgents={myAssistantAgents}
           assignees={assignees}

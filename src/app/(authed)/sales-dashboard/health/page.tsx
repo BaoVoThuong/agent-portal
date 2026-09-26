@@ -1,6 +1,6 @@
 import {
   DASHBOARD_FILTER_KEYS,
-  fetchDashboardMonthDefault,
+  fetchDashboardMonthDefaultFor,
   resolveDashboardMonthDefaultRange,
 } from "@/lib/dashboard-filter-defaults";
 import { hasGrant } from "@/lib/authz/grants";
@@ -69,8 +69,9 @@ export default async function HealthSalesDashboardPage({
   const { principal } = await requirePageAnyGrant(["dashboard.health.company.read"]);
   const params = searchParams ? await searchParams : {};
   const canViewAgent = hasGrant(principal.grants, "dashboard.health.agent.read");
-  const monthDefaultConfig = await fetchDashboardMonthDefault(
-    DASHBOARD_FILTER_KEYS.COMPANY_DASHBOARD_HEALTH
+  const monthDefaultConfig = await fetchDashboardMonthDefaultFor(
+    DASHBOARD_FILTER_KEYS.COMPANY_DASHBOARD_HEALTH,
+    principal.grants
   );
   const defaultReportMonthRange =
     resolveDashboardMonthDefaultRange(monthDefaultConfig);

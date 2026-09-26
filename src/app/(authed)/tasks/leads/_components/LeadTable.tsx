@@ -91,7 +91,8 @@ type LeadTableProps = {
   interactionTypes: LeadInteractionType[];
   columnOptions: TableColumnOption[];
   nameByEmail: Map<string, string>;
-  isManager: boolean;
+  /** lead.assign — cột chọn hàng loạt và đổi người được giao. */
+  canAssign: boolean;
   /** Agents the manager can hand a lead to; empty for a non-manager. */
   assignees: { email: string; name: string | null }[];
   /** Owner emails this person may edit; null = every lead (a manager). */
@@ -128,7 +129,7 @@ export function LeadTable({
   interactionTypes,
   columnOptions,
   nameByEmail,
-  isManager,
+  canAssign,
   selected,
   allVisibleSelected,
   onToggleLead,
@@ -172,7 +173,7 @@ export function LeadTable({
     [assignees, nameByEmail],
   );
 
-  const staticColumnWidth = isManager ? SELECTION_COLUMN_WIDTH : 0;
+  const staticColumnWidth = canAssign ? SELECTION_COLUMN_WIDTH : 0;
   const pinnedOffsetByKey = useMemo(
     () => buildPinnedOffsetByKey(columns, staticColumnWidth),
     [columns, staticColumnWidth],
@@ -226,7 +227,7 @@ export function LeadTable({
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
         <div style={{ minWidth }}>
           <div className="sticky top-0 z-20 flex items-stretch whitespace-nowrap border-b border-[#dfe1e6] bg-[#fafbfc] text-[11px] font-bold uppercase tracking-wide text-[#6b778c] shadow-[0_1px_0_#dfe1e6]">
-            {isManager ? (
+            {canAssign ? (
               <div
                 style={{ width: SELECTION_COLUMN_WIDTH, left: 0 }}
                 className="sticky z-[30] flex shrink-0 items-center border-r border-[#dfe1e6] bg-[#fafbfc] px-3 py-2"
@@ -283,7 +284,7 @@ export function LeadTable({
                   nameByEmail={nameByEmail}
                   statusChoices={statusChoices}
                   assigneeChoices={assigneeChoices}
-                  isManager={isManager}
+                  canAssign={canAssign}
                   canEdit={leadIsInScope(lead, editableOwnerEmails)}
                   alerts={alertsByLeadId.get(lead.id) ?? EMPTY_ALERTS}
                   selected={selected.has(lead.id)}
@@ -390,7 +391,7 @@ const LeadRow = memo(function LeadRow({
   nameByEmail,
   statusChoices,
   assigneeChoices,
-  isManager,
+  canAssign,
   canEdit,
   alerts,
   selected,
@@ -410,7 +411,7 @@ const LeadRow = memo(function LeadRow({
   nameByEmail: Map<string, string>;
   statusChoices: readonly { value: string; label: string }[];
   assigneeChoices: readonly { value: string; label: string; keywords?: string[] }[];
-  isManager: boolean;
+  canAssign: boolean;
   canEdit: boolean;
   alerts: readonly LeadAlert[];
   selected: boolean;
@@ -455,7 +456,7 @@ const LeadRow = memo(function LeadRow({
       className="group flex min-h-11 min-w-max cursor-pointer items-stretch gap-0 whitespace-nowrap bg-white px-0 py-0 transition hover:bg-[#f7f8f9] [&>*]:flex [&>*]:items-center [&>*]:whitespace-nowrap [&>*]:px-3 [&>*]:py-2.5"
       onClick={handleOpen}
     >
-      {isManager ? (
+      {canAssign ? (
         <StaticCell width={SELECTION_COLUMN_WIDTH} left={0}>
           <input
             className="h-4 w-4 rounded border-[#c1c7d0] text-[#0c66e4] focus:ring-[#0c66e4]"
@@ -481,7 +482,7 @@ const LeadRow = memo(function LeadRow({
           statusChoices={statusChoices}
           assigneeChoices={assigneeChoices}
           canEdit={canEdit}
-          canAssign={isManager}
+          canAssign={canAssign}
           alerts={alerts}
           pinnedOffset={pinnedOffsetByKey.get(column.key)}
           onOpen={handleOpen}

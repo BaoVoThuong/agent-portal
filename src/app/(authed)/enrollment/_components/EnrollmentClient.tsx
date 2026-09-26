@@ -78,6 +78,7 @@ import { buildEnrollmentSearchHaystack } from "@/lib/enrollment/filtering";
 import {
   enrollmentActorFromGrants,
   resolveEnrollmentCapabilities,
+  type EnrollmentBoardAccess,
 } from "@/lib/enrollment/policy";
 import {
   compareEnrollmentOptionText,
@@ -757,7 +758,7 @@ export function EnrollmentClient({
   myAgents,
   myAssistantAgents,
   defaultToOwnAssignments,
-  canManageOptions,
+  access,
   grants,
   canExport,
   canImport,
@@ -773,7 +774,8 @@ export function EnrollmentClient({
   myAgents: string[];
   myAssistantAgents: string[];
   defaultToOwnAssignments: boolean;
-  canManageOptions: boolean;
+  /** Capability mức board do server tính từ grant. */
+  access: EnrollmentBoardAccess;
   /** Grant `enrollment.*` của người xem — client tính capability bằng cùng resolver với server. */
   grants: readonly string[];
   canExport: boolean;
@@ -786,7 +788,7 @@ export function EnrollmentClient({
   const [view, setView] = useState<"list" | "overview">("list");
   // Keep the client-side view fail-closed as well as the API. Enrollment
   // overview is manager-only, matching the CS board's hidden Overview tab.
-  const visibleView = canManageOptions ? view : "list";
+  const visibleView = access.overview ? view : "list";
   const filtersStorageKey = enrollmentFiltersStorageKey(program);
   const initialYearColumn = yearColumnFor(enrollmentColumnsForProgram(program, tableColumns));
   const initialYearOptionLabels = optionLabelsForColumn(
@@ -1147,16 +1149,16 @@ export function EnrollmentClient({
     [myAgents, myAssistantAgents]
   );
   const createAgentsByEmail = useMemo(() => {
-    if (canManageOptions) return agentsByEmail;
+    if (access.createsAny) return agentsByEmail;
     const allowed = new Set(ownedAgentEmails.map(normalizeEnrollmentEmail));
     return new Map(
       [...agentsByEmail].filter(([email]) =>
         allowed.has(normalizeEnrollmentEmail(email))
       )
     );
-  }, [agentsByEmail, canManageOptions, ownedAgentEmails]);
+  }, [agentsByEmail, access.createsAny, ownedAgentEmails]);
   const canCreateRecords =
-    canManageOptions || myAgents.length > 0 || myAssistantAgents.length > 0;
+    access.createsAny || myAgents.length > 0 || myAssistantAgents.length > 0;
   const mentionMembers = useMemo<TaskAssignee[]>(
     () =>
       people.map((person) => ({
@@ -1872,7 +1874,7 @@ export function EnrollmentClient({
           <EnrollmentToolbar
             program={program}
             view={visibleView}
-            canViewOverview={canManageOptions}
+            canViewOverview={access.overview}
             onViewChange={setView}
             filters={filters}
             setFilters={setFilters}
@@ -1902,7 +1904,7 @@ export function EnrollmentClient({
               program={program}
               from={overviewDateRange.from}
               to={overviewDateRange.to}
-              isManager={canManageOptions}
+              isManager={access.overview}
               onOpenRecord={openRecordById}
             />
           </div>

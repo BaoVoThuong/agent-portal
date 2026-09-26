@@ -230,6 +230,30 @@ export function canReadTaskActivity(actor: TaskActor, isAgentOwner: boolean): bo
   return scopeMatches(actor.grants, "task.activity.read", ownerFacts(isAgentOwner));
 }
 
+/**
+ * Capability MỨC BOARD cho client (D9): server tính từ grant rồi gửi xuống, để
+ * client không tự suy "persona" từ một cờ `isManager` gộp nhiều nghĩa.
+ */
+export type TaskBoardAccess = {
+  /** `task.read:all` — danh sách, bộ lọc, thống kê toàn công ty. */
+  readsAll: boolean;
+  /** `task.overview.read` — tab Overview (workload mọi người). */
+  overview: boolean;
+  /** `task.create:all` — tạo task cho mọi agent, chọn người được giao tự do. */
+  createsAny: boolean;
+  /** `task.activity.read:all` — xem activity của mọi task. */
+  activityAll: boolean;
+};
+
+export function taskBoardAccessFor(actor: TaskActor): TaskBoardAccess {
+  return {
+    readsAll: hasGrant(actor.grants, "task.read", "all"),
+    overview: canReadTaskOverview(actor),
+    createsAny: canCreateTask(actor),
+    activityAll: holdsTaskScopeAll(actor, "task.activity.read"),
+  };
+}
+
 export type TaskCapabilities = {
   canView: boolean;
   canEditContent: boolean;

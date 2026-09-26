@@ -117,7 +117,8 @@ type LeadDetailDrawerProps = {
   /** Owner emails this person may log against; null = every lead (a manager). */
   editableOwnerEmails: string[] | null;
   /** Managers can reassign; workers receive an empty list. */
-  isManager: boolean;
+  /** lead.assign */
+  canAssign: boolean;
   assignees: { email: string; name: string | null }[];
   onClose: () => void;
   onPatchLead: (id: string, patch: Record<string, unknown>) => Promise<void>;
@@ -167,7 +168,7 @@ export function LeadDetailDrawer({
   columnOptions,
   interactionTypes,
   editableOwnerEmails,
-  isManager,
+  canAssign: canAssignLeads,
   assignees,
   nameByEmail,
   onClose,
@@ -353,7 +354,7 @@ export function LeadDetailDrawer({
   const assigneeEmails = currentLead.assigned_to_email
     ? [currentLead.assigned_to_email]
     : [];
-  const canAssign = isManager && canEdit;
+  const canAssign = canAssignLeads && canEdit;
   // A missing config row is kept visible for backwards-compatible database
   // rollouts, exactly as Task detail does. Once configured, Hidden controls it.
   const showField = (key: string) =>

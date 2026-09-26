@@ -11,7 +11,7 @@ import { fetchTableColumnsWithOptions } from "@/lib/table-config/queries";
 import { isLeadProduct } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { LeadsClient } from "./_components/LeadsClient";
-import { canAssignLeads, canReadLeadOverview } from "@/lib/leads/access";
+import { canAssignLeads, canReadLeadOverview, leadBoardAccessFor } from "@/lib/leads/access";
 import { leadActorForUser } from "@/lib/leads/actor";
 
 export const dynamic = "force-dynamic";
@@ -59,7 +59,7 @@ export default async function LeadsPage({
       productFilter={productFilter}
       editableOwnerEmails={ownerEmails}
       alertSettings={alertSettings}
-      isManager={actor.isManager}
+      access={leadBoardAccessFor(actor)}
       initialLeads={page.rows}
       initialTotal={page.total}
       initialTruncated={page.truncated}

@@ -15,6 +15,8 @@ export type ReportMonthDefaultConfig = {
   start: string | null;
   end: string | null;
   rollingMonths: number | null;
+  /** Server tính từ grant; thiếu = không sửa được (API cũng sẽ từ chối). */
+  canEdit?: boolean;
 };
 
 type DraftDefault = {
@@ -51,7 +53,17 @@ const DEFAULT_TYPE_OPTIONS: Array<{
   },
 ];
 
+/** Chỉ hiện với người sửa được mặc định (API cũng kiểm lại). */
 export function ReportMonthDefaultEditor({
+  defaultConfig,
+}: {
+  defaultConfig: ReportMonthDefaultConfig;
+}) {
+  if (!defaultConfig.canEdit) return null;
+  return <ReportMonthDefaultEditorPanel defaultConfig={defaultConfig} />;
+}
+
+function ReportMonthDefaultEditorPanel({
   defaultConfig,
 }: {
   defaultConfig: ReportMonthDefaultConfig;

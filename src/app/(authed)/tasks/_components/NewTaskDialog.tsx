@@ -71,7 +71,7 @@ const ASSIGNED_STATUS_OPTIONS = TASK_STATUSES.filter((status) => status !== "bac
 export function NewTaskDialog({
   open,
   mutationSourceId,
-  isManager,
+  createsAny,
   currentEmail,
   myAssistantAgents,
   assignees,
@@ -91,7 +91,8 @@ export function NewTaskDialog({
 }: {
   open: boolean;
   mutationSourceId?: string;
-  isManager: boolean;
+  /** task.create:all — tạo cho mọi agent, chọn người được giao tự do. */
+  createsAny: boolean;
   currentEmail: string;
   myAssistantAgents: string[];
   assignees: TaskAssignee[];
@@ -163,7 +164,7 @@ export function NewTaskDialog({
       label: category.name,
     }));
   const visibleAgents = (() => {
-    if (isManager) return agents;
+    if (createsAny) return agents;
     const byEmail = new Map<string, TaskAgent>();
     for (const agent of [...agents, ...agentCandidates]) {
       byEmail.set(agent.email, agent);
@@ -200,7 +201,7 @@ export function NewTaskDialog({
     agentEmail &&
       (agentEmail === currentEmail || myAssistantAgents.includes(agentEmail))
   );
-  const canPickAssignee = isManager || hasAgentScope;
+  const canPickAssignee = createsAny || hasAgentScope;
   // Mirrors resolveCreateAssignment()'s server-side rule exactly: unassigned
   // tasks are always Backlog, assigned tasks are never Backlog. Non-elevated
   // users (canPickAssignee false) always end up self-assigned server-side —

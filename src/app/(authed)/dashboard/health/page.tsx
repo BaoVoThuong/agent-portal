@@ -4,7 +4,7 @@ import { requirePageAnyGrant } from "@/lib/authz/page-guards";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   DASHBOARD_FILTER_KEYS,
-  fetchDashboardMonthDefault,
+  fetchDashboardMonthDefaultFor,
   resolveDashboardMonthDefaultRange,
 } from "@/lib/dashboard-filter-defaults";
 import {
@@ -52,8 +52,9 @@ export default async function DashboardPage({
     return <HealthSalesDashboardPage searchParams={Promise.resolve(params)} />;
   }
 
-  const monthDefaultConfig = await fetchDashboardMonthDefault(
-    DASHBOARD_FILTER_KEYS.DASHBOARD_HEALTH
+  const monthDefaultConfig = await fetchDashboardMonthDefaultFor(
+    DASHBOARD_FILTER_KEYS.DASHBOARD_HEALTH,
+    principal.grants
   );
   const defaultReportMonthRange =
     resolveDashboardMonthDefaultRange(monthDefaultConfig);
