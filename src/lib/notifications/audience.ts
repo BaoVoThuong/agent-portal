@@ -28,6 +28,34 @@ function normalize(email: string | null | undefined): string {
   return email?.trim().toLowerCase() ?? "";
 }
 
+/**
+ * `.in()` đi trong URL: ~39 byte mỗi UUID, proxy thường chặn ở 8–16 KB. Cron ghi
+ * thông báo cho hàng trăm task một lượt, nên đọc theo lô.
+ */
+const IN_CHUNK = 100;
+
+async function selectIn<T>(
+  table: string,
+  columns: string,
+  column: string,
+  values: readonly string[],
+  optional?: (error: { code?: string; message?: string }) => boolean
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let i = 0; i < values.length; i += IN_CHUNK) {
+    const { data, error } = await getSupabaseAdmin()
+      .from(table)
+      .select(columns)
+      .in(column, values.slice(i, i + IN_CHUNK));
+    if (error) {
+      if (optional?.(error)) return [];
+      throw new Error(error.message);
+    }
+    out.push(...((data ?? []) as unknown as T[]));
+  }
+  return out;
+}
+
 type Viewer = {
   grants: string[];
   isAgent: boolean;
@@ -88,21 +116,21 @@ export async function taskViewersAmong(pairs: readonly AudiencePair[]): Promise<
   const allowed = new Set<string>();
   if (pairs.length === 0) return allowed;
   const taskIds = [...new Set(pairs.map((pair) => pair.entityId))];
-  const supabase = getSupabaseAdmin();
 
-  const [viewers, metaRes, assigneeRes, participantRes] = await Promise.all([
+  const [viewers, metaRows, assigneeRows, participantRows] = await Promise.all([
     loadViewers(pairs.map((pair) => pair.email)),
-    supabase.from("tasks").select("id,agent_email,assignee_email,reporter_email").in("id", taskIds),
-    supabase.from("task_assignees").select("task_id,email").in("task_id", taskIds),
-    supabase.from("task_participants").select("task_id,email").in("task_id", taskIds),
+    selectIn<TaskMeta>("tasks", "id,agent_email,assignee_email,reporter_email", "id", taskIds),
+    selectIn<{ task_id: string; email: string }>("task_assignees", "task_id,email", "task_id", taskIds),
+    selectIn<{ task_id: string; email: string }>(
+      "task_participants",
+      "task_id,email",
+      "task_id",
+      taskIds,
+      isMissingTaskParticipantsError
+    ),
   ]);
-  if (metaRes.error) throw new Error(metaRes.error.message);
-  if (assigneeRes.error) throw new Error(assigneeRes.error.message);
-  if (participantRes.error && !isMissingTaskParticipantsError(participantRes.error)) {
-    throw new Error(participantRes.error.message);
-  }
 
-  const metaById = new Map(((metaRes.data ?? []) as TaskMeta[]).map((row) => [row.id, row]));
+  const metaById = new Map(metaRows.map((row) => [row.id, row]));
   const groupByTask = (rows: { task_id: string; email: string }[] | null) => {
     const out = new Map<string, Set<string>>();
     for (const row of rows ?? []) {
@@ -112,10 +140,8 @@ export async function taskViewersAmong(pairs: readonly AudiencePair[]): Promise<
     }
     return out;
   };
-  const assigneesByTask = groupByTask(assigneeRes.data as { task_id: string; email: string }[] | null);
-  const participantsByTask = groupByTask(
-    participantRes.error ? [] : (participantRes.data as { task_id: string; email: string }[] | null)
-  );
+  const assigneesByTask = groupByTask(assigneeRows);
+  const participantsByTask = groupByTask(participantRows);
 
   for (const pair of pairs) {
     const email = normalize(pair.email);
@@ -164,17 +190,16 @@ export async function enrollmentViewersAmong(
   if (pairs.length === 0) return allowed;
   const recordIds = [...new Set(pairs.map((pair) => pair.entityId))];
 
-  const [viewers, recordRes] = await Promise.all([
+  const [viewers, recordRows] = await Promise.all([
     loadViewers(pairs.map((pair) => pair.email)),
-    getSupabaseAdmin()
-      .from("enrollment_records")
-      .select("id,agent_email,caller_email,responsible_enroll_email,created_by_email")
-      .in("id", recordIds),
+    selectIn<EnrollmentMeta>(
+      "enrollment_records",
+      "id,agent_email,caller_email,responsible_enroll_email,created_by_email",
+      "id",
+      recordIds
+    ),
   ]);
-  if (recordRes.error) throw new Error(recordRes.error.message);
-  const recordById = new Map(
-    ((recordRes.data ?? []) as EnrollmentMeta[]).map((row) => [row.id, row])
-  );
+  const recordById = new Map(recordRows.map((row) => [row.id, row]));
 
   for (const pair of pairs) {
     const email = normalize(pair.email);
