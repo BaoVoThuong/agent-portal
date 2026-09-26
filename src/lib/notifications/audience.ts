@@ -56,14 +56,14 @@ async function selectIn<T>(
   return out;
 }
 
-type Viewer = {
+export type Viewer = {
   grants: string[];
   isAgent: boolean;
   assistantAgents: string[];
 };
 
 /** Grant + quan hệ tổ chức của từng người, cho cả lô. Account khoá → không grant. */
-async function loadViewers(emails: readonly string[]): Promise<Map<string, Viewer>> {
+export async function loadViewers(emails: readonly string[]): Promise<Map<string, Viewer>> {
   const unique = [...new Set(emails.map(normalize).filter(Boolean))];
   const viewers = new Map<string, Viewer>();
   if (unique.length === 0) return viewers;
@@ -148,30 +148,40 @@ export async function taskViewersAmong(pairs: readonly AudiencePair[]): Promise<
     const viewer = viewers.get(email);
     const task = metaById.get(pair.entityId);
     if (!viewer || !task) continue;
-    const actor = taskActorFromGrants(email, viewer.grants);
-    const agent = normalize(task.agent_email);
-    const isAssistant = Boolean(agent) && viewer.assistantAgents.includes(agent);
-    const facts = {
-      isAssignee:
-        normalize(task.assignee_email) === email ||
-        Boolean(assigneesByTask.get(task.id)?.has(email)),
-      isReporter: normalize(task.reporter_email) === email,
-      isParticipant: Boolean(participantsByTask.get(task.id)?.has(email)),
-      isAgentOwner: Boolean(agent) && (agent === email || isAssistant),
-      isAgentMember: isAssistant,
-      // Cùng luật resolveTaskQueueScope: hàng đợi chung chỉ cho người không
-      // phải agent roster và không là assistant.
-      seesAllTasks:
-        hasGrant(actor.grants, "task.read", "all") ||
-        (hasGrant(actor.grants, "task.read", "shared_queue") &&
-          !viewer.isAgent &&
-          viewer.assistantAgents.length === 0),
-    };
-    if (canViewTask(actor, { assignee_email: task.assignee_email, agent_email: task.agent_email }, facts)) {
-      allowed.add(audienceKey(pair.entityId, email));
-    }
+    const view = viewerSeesTask(email, viewer, task, {
+      assignees: assigneesByTask.get(task.id) ?? new Set(),
+      participants: participantsByTask.get(task.id) ?? new Set(),
+    });
+    if (view) allowed.add(audienceKey(pair.entityId, email));
   }
   return allowed;
+}
+
+/** Một người (đã nạp) xem được một task (đã biết quan hệ) không — thuần. */
+export function viewerSeesTask(
+  email: string,
+  viewer: Viewer,
+  task: Omit<TaskMeta, "id">,
+  relations: { assignees: ReadonlySet<string>; participants: ReadonlySet<string> }
+): boolean {
+  const actor = taskActorFromGrants(email, viewer.grants);
+  const agent = normalize(task.agent_email);
+  const isAssistant = Boolean(agent) && viewer.assistantAgents.includes(agent);
+  const facts = {
+    isAssignee: normalize(task.assignee_email) === email || relations.assignees.has(email),
+    isReporter: normalize(task.reporter_email) === email,
+    isParticipant: relations.participants.has(email),
+    isAgentOwner: Boolean(agent) && (agent === email || isAssistant),
+    isAgentMember: isAssistant,
+    // Cùng luật resolveTaskQueueScope: hàng đợi chung chỉ cho người không
+    // phải agent roster và không là assistant.
+    seesAllTasks:
+      hasGrant(actor.grants, "task.read", "all") ||
+      (hasGrant(actor.grants, "task.read", "shared_queue") &&
+        !viewer.isAgent &&
+        viewer.assistantAgents.length === 0),
+  };
+  return canViewTask(actor, { assignee_email: task.assignee_email, agent_email: task.agent_email }, facts);
 }
 
 type EnrollmentMeta = {
@@ -206,13 +216,22 @@ export async function enrollmentViewersAmong(
     const viewer = viewers.get(email);
     const record = recordById.get(pair.entityId);
     if (!viewer || !record) continue;
-    const actor = enrollmentActorFromGrants(email, viewer.grants);
-    if (!canAccessEnrollment(actor)) continue;
-    const scope = enrollmentScopeFor(actor, {
-      isAgent: viewer.isAgent,
-      assistantAgents: viewer.assistantAgents,
-    });
-    if (isRecordInScope(scope, record)) allowed.add(audienceKey(pair.entityId, email));
+    if (viewerSeesEnrollment(email, viewer, record)) allowed.add(audienceKey(pair.entityId, email));
   }
   return allowed;
+}
+
+/** Một người (đã nạp) mở được một hồ sơ không — thuần. */
+export function viewerSeesEnrollment(
+  email: string,
+  viewer: Viewer,
+  record: Omit<EnrollmentMeta, "id">
+): boolean {
+  const actor = enrollmentActorFromGrants(email, viewer.grants);
+  if (!canAccessEnrollment(actor)) return false;
+  const scope = enrollmentScopeFor(actor, {
+    isAgent: viewer.isAgent,
+    assistantAgents: viewer.assistantAgents,
+  });
+  return isRecordInScope(scope, record);
 }

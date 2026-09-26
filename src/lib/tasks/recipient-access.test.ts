@@ -1,16 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { UserAccess } from "@/lib/rbac/access";
 
-const { accessMock, ownerMock, queueScopeMock } = vi.hoisted(() => ({
+const { tables, accessMock } = vi.hoisted(() => ({
+  tables: new Map<string, unknown[]>(),
   accessMock: vi.fn(),
-  ownerMock: vi.fn(),
-  queueScopeMock: vi.fn(),
 }));
 
+vi.mock("@/lib/supabase", () => ({
+  getSupabaseAdmin: () => ({
+    from: (table: string) => {
+      const result = { data: tables.get(table) ?? [], error: null };
+      const chain = {
+        select: () => chain,
+        eq: () => chain,
+        in: () => chain,
+        then: (resolve: (value: typeof result) => unknown) => resolve(result),
+      };
+      return chain;
+    },
+  }),
+}));
 vi.mock("@/lib/rbac/access", () => ({ getUserAccessByEmails: accessMock }));
+// Role đã chuyển sang grant: grant = grant tương thích của permission + tên role cũ.
 vi.mock("@/lib/authz/principal", async () => {
   const { deriveCompatGrants } = await import("@/lib/authz/compat");
-  // Role chưa chuyển: grant = grant tương thích từ permission + tên role.
   return {
     grantsForAccess: async (a: UserAccess) =>
       a.isActive
@@ -18,12 +31,6 @@ vi.mock("@/lib/authz/principal", async () => {
         : [],
   };
 });
-vi.mock("./membership", () => ({
-  isAgentOwnerOrAssistant: ownerMock,
-  resolveTaskQueueScope: queueScopeMock,
-}));
-
-const { filterTaskRecipientsWithAccess } = await import("./recipient-access");
 
 function access(overrides: Partial<UserAccess> = {}): UserAccess {
   return {
@@ -39,13 +46,22 @@ function access(overrides: Partial<UserAccess> = {}): UserAccess {
   };
 }
 
+const { filterTaskRecipientsWithAccess } = await import("./recipient-access");
+
 const task = { agent_email: "agent.a@x.com", reporter_email: "reporter@x.com" };
 
 describe("filterTaskRecipientsWithAccess", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    ownerMock.mockResolvedValue(false);
-    queueScopeMock.mockResolvedValue({ agentEmails: [], assistantAgentEmails: [], seesAllTasks: false });
+    tables.clear();
+    // Agent roster: KHÔNG thấy hàng đợi chung, chỉ task của mình / được giao.
+    tables.set("task_agents", [
+      { email: "agent.a@x.com" },
+      { email: "scoped.manage@x.com" },
+      { email: "worker@x.com" },
+      { email: "reporter@x.com" },
+    ]);
+    tables.set("agent_members", [{ agent_email: "agent.a@x.com", cs_email: "assistant@x.com" }]);
   });
 
   it("giữ task manager, bỏ người giữ task.manage mà không xem được task", async () => {
@@ -68,12 +84,6 @@ describe("filterTaskRecipientsWithAccess", () => {
         ["plain@x.com", access()],
       ])
     );
-    ownerMock.mockImplementation(async (_agent: string, email: string) => email === "assistant@x.com");
-    queueScopeMock.mockImplementation(async (actor: { email: string }) => ({
-      agentEmails: [],
-      assistantAgentEmails: [],
-      seesAllTasks: actor.email === "plain@x.com",
-    }));
 
     await expect(
       filterTaskRecipientsWithAccess(task, [], ["assistant@x.com", "plain@x.com"])

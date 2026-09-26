@@ -1,20 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { UserAccess } from "@/lib/rbac/access";
 
-const { accessMock, resolveScopeMock } = vi.hoisted(() => ({
+const { tables, accessMock } = vi.hoisted(() => ({
+  tables: new Map<string, unknown[]>(),
   accessMock: vi.fn(),
-  resolveScopeMock: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase", () => ({
-  getSupabaseAdmin: () => {
-    throw new Error("test này không được chạm database");
-  },
+  getSupabaseAdmin: () => ({
+    from: (table: string) => {
+      const result = { data: tables.get(table) ?? [], error: null };
+      const chain = {
+        select: () => chain,
+        eq: () => chain,
+        in: () => chain,
+        then: (resolve: (value: typeof result) => unknown) => resolve(result),
+      };
+      return chain;
+    },
+  }),
 }));
 vi.mock("@/lib/rbac/access", () => ({ getUserAccessByEmails: accessMock }));
+// Role đã chuyển sang grant: grant = grant tương thích của permission + tên role cũ.
 vi.mock("@/lib/authz/principal", async () => {
   const { deriveCompatGrants } = await import("@/lib/authz/compat");
-  // Role chưa chuyển: grant = grant tương thích từ permission + tên role.
   return {
     grantsForAccess: async (a: UserAccess) =>
       a.isActive
@@ -22,19 +31,6 @@ vi.mock("@/lib/authz/principal", async () => {
         : [],
   };
 });
-vi.mock("./scope", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./scope")>();
-  return { ...actual, resolveEnrollmentScope: resolveScopeMock };
-});
-
-const { filterEnrollmentRecipientsWithAccess } = await import("./recipient-access");
-
-const record = {
-  agent_email: "agent.a@x.com",
-  caller_email: "caller@x.com",
-  responsible_enroll_email: null,
-  created_by_email: "creator@x.com",
-};
 
 function access(overrides: Partial<UserAccess> = {}): UserAccess {
   return {
@@ -50,8 +46,22 @@ function access(overrides: Partial<UserAccess> = {}): UserAccess {
   };
 }
 
+const { filterEnrollmentRecipientsWithAccess } = await import("./recipient-access");
+
+const record = {
+  agent_email: "agent.a@x.com",
+  caller_email: "caller@x.com",
+  responsible_enroll_email: null,
+  created_by_email: "creator@x.com",
+};
+
 describe("filterEnrollmentRecipientsWithAccess", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    tables.clear();
+    tables.set("task_agents", [{ email: "agent.a@x.com" }, { email: "agent.b@x.com" }, { email: "caller@x.com" }]);
+    tables.set("agent_members", []);
+  });
 
   it("bỏ account khoá, account không có quyền task, và người ngoài scope", async () => {
     accessMock.mockResolvedValue(
@@ -61,11 +71,6 @@ describe("filterEnrollmentRecipientsWithAccess", () => {
         ["accounting@x.com", access({ roles: ["Accounting"], permissions: ["company_dashboard.health"] })],
         ["agent.b@x.com", access({ roles: ["Health Agent"] })],
       ])
-    );
-    resolveScopeMock.mockImplementation(async (actor: { email: string }) =>
-      actor.email === "plain.cs@x.com"
-        ? { seeAll: true }
-        : { seeAll: false, agentEmails: ["agent.b@x.com"], viewerEmail: actor.email }
     );
 
     const result = await filterEnrollmentRecipientsWithAccess(record, [
@@ -81,11 +86,6 @@ describe("filterEnrollmentRecipientsWithAccess", () => {
 
   it("giữ người được giao trực tiếp dù scope theo agent không khớp", async () => {
     accessMock.mockResolvedValue(new Map([["caller@x.com", access()]]));
-    resolveScopeMock.mockResolvedValue({
-      seeAll: false,
-      agentEmails: ["someone.else@x.com"],
-      viewerEmail: "caller@x.com",
-    });
 
     await expect(
       filterEnrollmentRecipientsWithAccess(record, ["caller@x.com"])
