@@ -18,14 +18,18 @@ export function grantsBeyondCeiling(
 
 /**
  * Người này cấp được `grant` cho người khác: đang giữ đúng grant đó, hoặc giữ
- * action quản lý của một grant "thành viên" (`delegatedBy` trong catalog — vd
+ * scope `all` của cùng action, hoặc giữ action quản lý của một grant "thành viên" (`delegatedBy` trong catalog — vd
  * quản cấu hình task thì xếp được người vào hàng đợi CS dù bản thân không ở đó).
  * Dùng chung cho API và lưới Role Manager.
  */
 export function canDelegateGrant(actorGrants: readonly string[], grant: string): boolean {
   if (actorGrants.includes(grant)) return true;
   const decoded = decodeGrant(grant);
-  const manager = decoded ? getActionDefinition(decoded.action)?.delegatedBy : undefined;
+  if (!decoded) return false;
+  // `all` bao mọi scope hẹp hơn của CÙNG action: người xem mọi task cấp được
+  // "xem task được giao" (review C P2-07). Chiều ngược lại vẫn bị chặn.
+  if (decoded.scope !== "*" && hasGrant(actorGrants, decoded.action as Action, "all")) return true;
+  const manager = getActionDefinition(decoded.action)?.delegatedBy;
   return Boolean(manager && hasGrant(actorGrants, manager as Action));
 }
 

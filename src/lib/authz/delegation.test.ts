@@ -101,3 +101,13 @@ describe("canDelegateGrant", () => {
     ]);
   });
 });
+
+describe("scope all bao scope hẹp (review C P2-07)", () => {
+  it("giữ read:all cấp được read:assigned; giữ read:assigned KHÔNG cấp được read:all", () => {
+    expect(grantsBeyondCeiling(["task.read:all"], ["task.read:assigned", "task.read:reported"])).toEqual([]);
+    expect(grantsBeyondCeiling(["task.read:assigned"], ["task.read:all"])).toEqual(["task.read:all"]);
+    expect(grantsBeyondCeiling(["task.read:all"], ["task.status.update:assigned"])).toEqual([
+      "task.status.update:assigned",
+    ]);
+  });
+});
