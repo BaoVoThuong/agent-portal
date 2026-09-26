@@ -6,6 +6,25 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-30 — Hàng đợi CS và roster/uỷ quyền không còn dựa vào tên role (authz Phase G)
+
+- **Ai nhận việc từ hàng đợi CS** (bảng workload, nút giao việc ở Overview) nay là
+  grant riêng `task.queue.member` ("Receive tasks from the shared CS queue"), cấu
+  hình được trong Role Manager. Role hiện có giữ nguyên: người có `task.work` mà
+  không phải admin vẫn trong hàng đợi, admin vẫn không.
+- Hàm SQL `assign_unassigned_task` thôi đọc tên role "Admin"/"Super Admin", cột
+  `portal_account.role` và permission `task.work`; chỉ còn kiểm quan hệ (account
+  active, không phải agent roster, không là assistant, không bị tắt trong hàng
+  đợi). Grant được kiểm ở `/api/tasks/[id]/assign`.
+- Người quản cấu hình task cấp được `task.queue.member` trong Role Manager dù bản
+  thân không ở hàng đợi.
+- Thêm/bớt agent roster và uỷ quyền assistant ghi audit (kèm trạng thái trước/sau)
+  trong **cùng transaction** với thay đổi — trước đây audit ghi riêng sau đó và có
+  thể mất.
+
+**Cần chạy tay trên production (sau rollout Phase C):**
+`supabase/rollouts/2026-09-30-authz-phase-g.sql`.
+
 ## 2026-09-29 — Thông báo chỉ tới người xem được bản ghi, chuông kiểm lại lúc đọc (authz Phase F)
 
 - **Mọi thông báo Task và Enrollment** (comment, giao việc, backlog cần chú ý,

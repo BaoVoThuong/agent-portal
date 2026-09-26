@@ -2771,3 +2771,18 @@ Lệch so với spec:
 | F.4: replay theo lịch sử | Replay dùng quyền/quan hệ HIỆN TẠI | Không có lịch sử quan hệ theo thời gian; kết quả là danh sách cần duyệt |
 | F.5: outbox bền | Chưa làm | Tuỳ chọn trong spec |
 | Time Off | Không lọc lúc ghi (người nhận là người xin nghỉ / người duyệt theo grant); có kiểm lúc đọc | Người nhận đã đúng theo cấu trúc |
+
+## Phase G (nhánh `feat/authz-phase-g`)
+
+Đã làm: action `task.queue.member` (+ luật tương thích 4, `delegatedBy` trong trần uỷ quyền); `overview-data.ts` và `/api/tasks/[id]/assign` dùng grant; `assign_unassigned_task` chỉ còn điều kiện quan hệ; RPC `add/remove_task_agent_atomic`, `add/remove_assistant_delegation_atomic` có audit cùng transaction; rollout `2026-09-30-authz-phase-g.sql` + kịch bản CI.
+
+Lệch so với spec:
+
+| Spec | Thực tế | Vì sao |
+|---|---|---|
+| G.1: quản roster + delegation trong chi tiết account | Vẫn ở `/config` | Q15 chưa trả lời; chuyển UI là đổi luồng làm việc của admin |
+| G.1: eligibility trong RPC theo Q15 | Giữ eligibility cũ (agent phải active + trong roster; assistant active; chống vòng) | Q15 chưa trả lời |
+| G.2: kiểm grant trong RPC | Grant kiểm ở route; RPC kiểm quan hệ | Grant role chưa chuyển suy trong TS — chuyển vào SQL ở Phase H |
+| G.3: roster lead thay seed theo tên `Health Agent` (Q17) | Không cần đổi code chạy | Seed đó là một lần trong rollout 2026-09-02 đã chạy; ai được giao lead đã theo grant từ Phase D (`canBeAssignedLead`, holders `lead.read`) |
+
+**Chạy tay trên production (sau rollout Phase C):** `supabase/rollouts/2026-09-30-authz-phase-g.sql`.
