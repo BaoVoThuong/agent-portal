@@ -6,6 +6,29 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-02 — Sửa theo review Codex các Phase A–C (authz)
+
+- **Phiên cũ không mang account id** (cookie trước Phase B) nay bị kết thúc — người
+  dùng đăng nhập lại một lần — thay vì được gắn vào account theo email (email có
+  thể đã được cấp lại cho người khác).
+- **Tạo / sửa account là MỘT transaction** (hồ sơ, role, trạng thái, tên hoa hồng,
+  version, audit), kể cả tạo account Google lần đầu. Lỗi giữa chừng không còn để
+  lại account nửa vời.
+- **Role hệ thống** (Admin, role mặc định cho account mới) không tắt được. Rollout
+  Phase C dừng lại nếu không tìm thấy hai role đó (production đã đổi tên) thay vì
+  chạy tiếp với dữ liệu thiếu.
+- **Trần uỷ quyền**: giữ quyền ở scope `all` thì cấp được scope hẹp hơn của cùng
+  quyền (vd xem mọi task → cấp "xem task được giao").
+- **Bản chiếu permission phẳng** (chỉ còn để quay về code cũ) không bao giờ rộng hơn
+  grant thật.
+- **Rollout khoá RLS** tự báo lỗi và rollback nếu còn bảng hở; CI kiểm mọi bảng tạo
+  trong rollout đều được cổng DB áp.
+- Lọc người nhận thông báo tính theo lô (ít truy vấn hơn khi comment nhắc nhiều
+  người).
+
+**Cần chạy tay trên production (sau rollout Phase D):**
+`supabase/rollouts/2026-10-02-authz-review-fixes.sql`.
+
 ## 2026-10-01 — Quyền chỉ còn là grant của role; gỡ tên role và cột legacy khỏi quyết định (authz Phase H)
 
 - **Grant chỉ đến từ định nghĩa role.** Role hệ thống Admin (`system_key =

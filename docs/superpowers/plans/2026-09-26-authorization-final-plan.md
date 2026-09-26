@@ -2802,3 +2802,35 @@ Lệch so với spec:
 | Multi-role (Q6), tenant (Q18) | Không làm | Chưa có quyết định |
 
 **Chạy tay trên production, đúng thứ tự:** `supabase/rollouts/2026-10-01-authz-phase-h.sql` → `scripts/authz-migrate-role-grants.ts` (dry-run, rồi `--apply`) → deploy.
+
+## Xử lý 3 bản review Codex (nhánh `feat/authz-review-fixes`)
+
+Nguồn: `docs/2026-09-26-authz-phase-{a,b,c}-code-review.md` (Codex viết, không sửa file đó).
+
+| Mục | Trạng thái | Ở đâu |
+|---|---|---|
+| A P1-01 thu hồi chưa tức thời | Đã xử lý: `access_version` + cache 30 s; phiên bị khoá trả `null` | Phase B |
+| A P1-02 tên hiển thị là khoá phạm vi, trùng tên | Đã xử lý: `agent_commission_names` (tên duy nhất) | Phase D (D5) |
+| A P1-03 `backlog_attention` không lọc | Đã xử lý: lọc tại `insertNotifications` | Phase F (F1) |
+| A P1-04 bằng chứng A0/A1 | Hậu kiểm RLS nay RAISE trong transaction; truy vấn A0 + chạy rollout là việc của chủ repo | review fixes |
+| A P2-01 chuông không kiểm lại | Đã xử lý: rút gọn lúc đọc | Phase F (F2) |
+| A P2-02 N truy vấn / người nhận | Đã xử lý: theo lô | review fixes |
+| A P2-03 import Enrollment bỏ activity | CHƯA: cần định nghĩa hành vi import (Q11). Import vẫn chỉ cho người giữ `enrollment.import` | — |
+| A P2-04 registry chỉ là inventory | Giữ nguyên vai trò; đã thêm test gọi API cho role/account/assign | các phase |
+| A P2-05 danh sách rollout CI viết tay | Đã xử lý: `db-gate-manifest.test.ts` | review fixes |
+| A P2-06 task admin theo tên role | Đã xử lý | Phase D + H |
+| A P2-07 comment Enrollment dùng snapshot | Đã xử lý: lọc lần cuối đọc hồ sơ hiện tại | Phase F (F1) |
+| B P1-01 JWT cũ gắn account theo email | Đã xử lý: kết thúc phiên | review fixes |
+| B P2-01 bump lỗi bị nuốt | Đã xử lý: đổi email / role / trạng thái tăng version trong cùng transaction | Phase C + review fixes |
+| B P2-02 CI chưa áp rollout B | Đã xử lý | Phase C |
+| B P2-03 chưa đối chiếu trên dữ liệu thật | Có `scripts/authz-decision-diff.ts` (read-only) — chủ repo chạy | Phase D (D6) |
+| C P1-01..03 bản chiếu rộng hơn grant | Đã xử lý: không còn ai đọc (H) + bản chiếu an toàn | Phase D/H + review fixes |
+| C P2-01 role mặc định tắt được | Đã xử lý: SQL + UI chặn; Google lỗi rõ ràng | Phase H + review fixes |
+| C P2-02 backfill `system_key` theo tên | Đã xử lý: rollout C RAISE nếu thiếu | review fixes |
+| C P2-03 grant sai bị cắt im lặng | Đã xử lý: 400 kèm danh sách | Phase H |
+| C P2-04 account create/update không nguyên tử | Đã xử lý: `create_account_atomic` / `update_account_atomic` | review fixes |
+| C P2-05 audit roster tách khỏi mutation | Đã xử lý: RPC có audit | Phase G |
+| C P2-06 fallback schema quá rộng | Đã xử lý: bỏ fallback | Phase H |
+| C P2-07 trần uỷ quyền không hiểu `all` | Đã xử lý | review fixes |
+
+**Chạy tay trên production (sau rollout Phase D):** `supabase/rollouts/2026-10-02-authz-review-fixes.sql`.
