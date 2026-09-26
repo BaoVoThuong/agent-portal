@@ -2717,3 +2717,31 @@ Lệch so với spec, có lý do:
 | C.6: kiểm "leo quyền" trên CI DB | Leo quyền kiểm bằng test route (`admin/roles/[id]/route.test.ts`, `admin/users/[id]/route.test.ts`) vì trần nằm ở TS | Theo dòng trên |
 
 **Chạy tay trên production (sau rollout Phase B):** `supabase/rollouts/2026-09-28-authz-phase-c.sql`.
+
+## Phase D (nhánh `feat/authz-phase-d`)
+
+Đã làm (mỗi mục một commit):
+
+- **D1 Task + Enrollment:** `TaskActor`/`EnrollmentActor` mang `grants`; mọi capability qua `scopeMatches` với quan hệ tách `agent_owned` / `assistant_for_agent` (`taskRelationFacts`); ~30 route dựng actor bằng `taskActorForUser` / `enrollmentActorForUser`; `isManager` ở route thay bằng grant cụ thể; danh sách task và phạm vi Enrollment chỉ gồm scope được cấp; client nhận grant (`task.*` / `enrollment.*`) và dùng cùng resolver. Bản đóng băng quyết định cũ ở `src/lib/authz/legacy/` + `equivalence.test.ts`.
+- **D2 Lead:** `LeadActor` mang grant; `canManageLeads` tách thành `lead.create/assign/import/settings.manage/overview.read/config.manage`.
+- **D3 Cổng còn lại:** Registration, Dashboard, AI, Automation, Provider, Time off, Settings, Export/Import (mỗi domain một grant), roster/delegation (`org.*`), page gate (`requirePageAnyGrant`).
+- **D4 Holders:** `src/lib/authz/holders.ts` thay bốn truy vấn `role_permissions` và `fetchAdminEmails`.
+- **D5 Định danh hoa hồng (S1):** bảng `agent_commission_names` + RPC `set_commission_name_atomic`; rollout `2026-09-29-authz-phase-d.sql`; Account Manager có ô "Commission name".
+- **D6 Decision diff:** `src/lib/authz/decision-diff.ts` + `scripts/authz-decision-diff.ts` (read-only).
+
+Lệch so với spec, có lý do:
+
+| Spec | Thực tế | Vì sao |
+|---|---|---|
+| D.1: mỗi domain một flag | Không có flag. Rollback = revert commit của domain đó | Grant tương thích cho quyết định trùng khớp (test tương đương + decision diff), nên không có hai đường chạy để bật/tắt; flag chỉ thêm nhánh chết |
+| D.1/D.3: `authorize`/`scopeQuery` chung | Mỗi domain giữ hàm policy riêng (`resolveTaskCapabilities`, `resolveEnrollmentCapabilities`, lead…) nhưng cùng lõi `scopeMatches`; bộ lọc SQL (`buildWorkerTaskOrs`, `applyEnrollmentScope`, `resolveLeadOwnerEmails`) chỉ dựng nhánh cho scope được cấp | Giữ nguyên hình dạng hàm mà client và ~30 route đang gọi; đổi ruột, không đổi hợp đồng |
+| D.2: gom 7 bản `canViewResolved` | Chưa gom | Các bản khác nhau thật (activity không xét `seesAllTasks`); gom là đổi hành vi — để Phase E/F khi có test API cho từng route |
+| D.4: PEP trong RPC (`assign_unassigned_task`, `patch_task_atomic`…) | Chưa làm | Grant của role chưa chuyển suy trong TS; SQL không biết grant tương thích. Làm ở Phase H khi mọi role đã `grants_managed` |
+| D.4: import Enrollment theo từng dòng (Q11) | Giữ `enrollment.import` = chỉ task admin (grant tương thích) | Q11 chưa trả lời |
+| D.5: tách `registration.*.read/.update` (S16, Q23) | Grant đã tách; grant tương thích cấp read và update cùng scope như cũ | Q23 chưa trả lời — admin có thể cấp khác nhau qua Role Manager |
+| D.6: quyết role nào giữ `task.read:shared_queue` (Q2) | Giữ compat D7 (mọi worker có `shared_queue`, tắt khi là agent/assistant) | Q2 chưa trả lời |
+| Tên hoa hồng trùng | Backfill BỎ QUA tên trùng thay vì chọn một | Chọn sai là trao dữ liệu hoa hồng cho người khác; bỏ qua thì chỉ thu hẹp (fail-closed) và rollout in danh sách cho admin |
+
+Còn dùng permission phẳng (chuyển ở Phase E): điều hướng (`Sidebar`, `layout.tsx`, `getFirstAccessiblePath`) và các cờ UI `isManager` truyền xuống client Lead/Task.
+
+**Chạy tay trên production (sau rollout Phase C):** `supabase/rollouts/2026-09-29-authz-phase-d.sql`. Trước deploy: `scripts/authz-decision-diff.ts` (read-only), kỳ vọng 0 lệch.

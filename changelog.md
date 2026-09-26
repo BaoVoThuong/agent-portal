@@ -6,6 +6,37 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-29 — Mọi cổng quyền server đọc grant; định danh hoa hồng tách khỏi tên hiển thị (authz Phase D)
+
+- **Grant là nguồn duy nhất của quyết định ở server.** Task, Enrollment, Lead,
+  Registration, Dashboard, AI chat, Automation, Provider, Time off, Settings,
+  Export/Import, roster/uỷ quyền assistant đều hỏi grant `action:scope` thay vì
+  permission phẳng + tên role. Role chưa sửa ở Role Manager mới nhận grant tương
+  thích, nên **không ai đổi quyền** (test tương đương mọi persona × mọi tổ hợp quan
+  hệ, và script đối chiếu trên dữ liệu thật cho 0 lệch).
+- Scope có tác dụng thật cho role đã chuyển: danh sách task / phạm vi enrollment /
+  lead chỉ gồm các scope được cấp; `read:all` không kéo theo quyền sửa; agent tự
+  sở hữu và assistant của agent là hai scope riêng.
+- Tách các "quyền manager" gộp: overview, cấu hình task (SLA, nhắc việc, hàng đợi),
+  lead create/assign/import/settings/overview/columns, export/import **mỗi domain
+  một grant** (task, enrollment, provider), provider read/update tách riêng,
+  registration và dashboard có scope `all` riêng từng mảng (thôi dùng
+  `company.view_all` chung cho mọi mảng).
+- Người nhận thông báo giám sát và picker người được giao lấy từ "ai nắm grant X"
+  (holders). Picker lead nay có cả legacy admin (khớp luật được giao lead).
+- **Định danh hoa hồng (sửa gốc S1):** Registration, Agent Dashboard và AI chat lọc
+  theo `agent_commission_names` (mỗi account một tên, tên duy nhất, Account Manager
+  đặt ở ô "Commission name", có audit), không còn theo tên hiển thị. Rollout
+  backfill từ tên hiện tại, **bỏ qua tên trùng** và in danh sách — các account đó
+  chỉ thấy bản ghi chính họ nộp cho tới khi admin đặt tên hoa hồng riêng.
+- Phiên tạo trước Phase B (chưa có `roleIds`) suy grant tương thích từ JWT và được
+  làm mới ngay.
+
+**Cần chạy tay trên production (sau rollout Phase C):**
+`supabase/rollouts/2026-09-29-authz-phase-d.sql`, rồi xem danh sách account chưa
+có tên hoa hồng ở truy vấn cuối file. Trước khi deploy: chạy
+`scripts/authz-decision-diff.ts` (read-only) — kỳ vọng 0 lệch.
+
 ## 2026-09-28 — Role Manager cấp quyền theo phạm vi; không ai cấp được quyền mình không có (authz Phase C)
 
 - **Grant có phạm vi trong Role Manager:** mỗi role lưu grant `action:scope` (bảng
