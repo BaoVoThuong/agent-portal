@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { eligibleAssignmentEmails, groupLeadIdsByProduct } from "./auto-assign";
 
+/** Mọi product đều có nhóm, kể cả nhóm rỗng. */
+const groups = (over: Partial<Record<"pc" | "health" | "life" | "unknown", string[]>>) => ({
+  pc: [],
+  health: [],
+  life: [],
+  unknown: [],
+  ...over,
+});
+
 describe("groupLeadIdsByProduct", () => {
   // Import handles one product at a time, but "distribute the pool" does not:
   // the ratio table AND the rotation cursor are per product, so a mixed batch
@@ -11,19 +20,18 @@ describe("groupLeadIdsByProduct", () => {
         { id: "1", product: "health" },
         { id: "2", product: "pc" },
         { id: "3", product: "health" },
+        { id: "4", product: "life" },
+        { id: "5", product: "unknown" },
       ])
-    ).toEqual({ health: ["1", "3"], pc: ["2"] });
+    ).toEqual(groups({ health: ["1", "3"], pc: ["2"], life: ["4"], unknown: ["5"] }));
   });
 
-  it("returns both keys even when one product has nothing", () => {
-    expect(groupLeadIdsByProduct([{ id: "1", product: "pc" }])).toEqual({
-      pc: ["1"],
-      health: [],
-    });
+  it("returns every key even when a product has nothing", () => {
+    expect(groupLeadIdsByProduct([{ id: "1", product: "pc" }])).toEqual(groups({ pc: ["1"] }));
   });
 
   it("handles an empty batch", () => {
-    expect(groupLeadIdsByProduct([])).toEqual({ pc: [], health: [] });
+    expect(groupLeadIdsByProduct([])).toEqual(groups({}));
   });
 
   // ---- Lead mang nhiều product ----
@@ -39,7 +47,7 @@ describe("groupLeadIdsByProduct", () => {
         ],
         "health"
       )
-    ).toEqual({ pc: [], health: ["mia", "solo"] });
+    ).toEqual(groups({ health: ["mia", "solo"] }));
   });
 
   it("chia tất cả thì lead multi-product chỉ được tính MỘT lần", () => {
@@ -48,7 +56,7 @@ describe("groupLeadIdsByProduct", () => {
     const grouped = groupLeadIdsByProduct([
       { id: "mia", product: "pc", products: ["pc", "health"] },
     ]);
-    expect(grouped).toEqual({ pc: ["mia"], health: [] });
+    expect(grouped).toEqual(groups({ pc: ["mia"] }));
     expect(grouped.pc.length + grouped.health.length).toBe(1);
   });
 
@@ -57,13 +65,19 @@ describe("groupLeadIdsByProduct", () => {
     // khi mảng được ghi ngược thứ tự.
     expect(
       groupLeadIdsByProduct([{ id: "mia", product: "pc", products: ["health", "pc"] }])
-    ).toEqual({ pc: ["mia"], health: [] });
+    ).toEqual(groups({ pc: ["mia"] }));
   });
 
-  it("bỏ qua lead chưa phân loại product khi chia tất cả", () => {
+  it("lead Unknown vào nhóm Unknown khi chia tất cả", () => {
     expect(
-      groupLeadIdsByProduct([{ id: "unknown", product: null, products: [] }])
-    ).toEqual({ pc: [], health: [] });
+      groupLeadIdsByProduct([{ id: "u", product: "unknown", products: ["unknown"] }])
+    ).toEqual(groups({ unknown: ["u"] }));
+  });
+
+  it("bỏ qua dòng rỗng đọc về từ trước rollout Unknown khi chia tất cả", () => {
+    expect(
+      groupLeadIdsByProduct([{ id: "empty", product: null, products: [] }])
+    ).toEqual(groups({}));
   });
 
   it("lead chưa phân loại vẫn theo tab khi lượt chia có product cụ thể", () => {
@@ -71,7 +85,7 @@ describe("groupLeadIdsByProduct", () => {
     // nên nó KHÔNG thể là lead chưa phân loại — nhưng nếu có, tab là nguồn đúng.
     expect(
       groupLeadIdsByProduct([{ id: "x", product: null, products: [] }], "pc")
-    ).toEqual({ pc: ["x"], health: [] });
+    ).toEqual(groups({ pc: ["x"] }));
   });
 });
 describe("eligibleAssignmentEmails", () => {

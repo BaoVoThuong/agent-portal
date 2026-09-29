@@ -2,7 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RotateCcw, Shuffle, X } from "lucide-react";
-import { LEAD_PRODUCTS, type LeadProduct } from "@/lib/leads/types";
+import {
+  byLeadProduct,
+  LEAD_PRODUCT_LABEL,
+  LEAD_PRODUCTS,
+  type LeadProduct,
+} from "@/lib/leads/types";
 import { pickWeighted } from "@/lib/leads/round-robin";
 import {
   applyAgentToggle,
@@ -46,8 +51,12 @@ type DistributeResult = {
   results: Record<string, { assigned: number; unassigned: number; reason?: string }>;
 };
 
-const PRODUCT_LABEL: Record<LeadProduct, string> = { pc: "P&C", health: "Health" };
+const PRODUCT_LABEL = LEAD_PRODUCT_LABEL;
 const TABS: (LeadProduct | "agents")[] = [...LEAD_PRODUCTS, "agents"];
+/** Cột Agent + một cột tick cho mỗi product ở tab Agent config. */
+const AGENT_GRID_STYLE = {
+  gridTemplateColumns: `minmax(0,1fr) repeat(${LEAD_PRODUCTS.length}, 4.5rem)`,
+};
 /** Bao nhiêu lượt kế tiếp thì vẽ ra. Mười là số người ta giữ được trong đầu. */
 const PREVIEW_SIZE = 10;
 
@@ -108,7 +117,7 @@ export function LeadDistributeDialog({
   onClose: () => void;
   onDistributed: () => void;
 }) {
-  // Ba tab: hai product để đặt tỉ lệ, một tab để quyết AI thuộc product nào.
+  // Một tab cho mỗi product để đặt tỉ lệ, một tab để quyết AI thuộc product nào.
   // Tách ra vì đó là hai câu hỏi khác nhau — "ai" và "bao nhiêu" — và trộn
   // chúng vào một bảng là lý do trước đây phải có nút Add agent trong từng tab.
   const [tab, setTab] = useState<LeadProduct | "agents">("health");
@@ -117,20 +126,17 @@ export function LeadDistributeDialog({
   /** Riêng cho tab product đang xem — nút Distribute chỉ chia đúng product đó. */
   const [poolByProduct, setPoolByProduct] = useState<
     Record<LeadProduct, PoolPayload | null>
-  >(() => ({ pc: poolCache.pc ?? null, health: poolCache.health ?? null }));
+  >(() => byLeadProduct((key) => poolCache[key] ?? null));
   const tabPool = poolByProduct[product];
-  // Giữ CẢ HAI product. Chỉ có hai, nạp một lượt lúc mở là đổi tab tức thì —
+  // Giữ MỌI product. Chỉ có vài cái, nạp một lượt lúc mở là đổi tab tức thì —
   // trước đây mỗi lần bấm tab là một vòng mạng nữa và bảng trắng trong lúc chờ.
   // Giữ draft riêng từng product cũng có nghĩa là sửa dở bên này, xem bên kia,
   // quay lại vẫn còn nguyên.
   const [weightsByProduct, setWeightsByProduct] = useState<
     Record<LeadProduct, WeightsPayload | null>
-  >(() => ({ pc: weightsCache.pc ?? null, health: weightsCache.health ?? null }));
+  >(() => byLeadProduct((key) => weightsCache[key] ?? null));
   const [draftByProduct, setDraftByProduct] = useState<Record<LeadProduct, WeightRow[]>>(
-    () => ({
-      pc: (weightsCache.pc?.weights ?? []).map((row) => ({ ...row })),
-      health: (weightsCache.health?.weights ?? []).map((row) => ({ ...row })),
-    })
+    () => byLeadProduct((key) => (weightsCache[key]?.weights ?? []).map((row) => ({ ...row })))
   );
   const weights = weightsByProduct[product];
   const draft = draftByProduct[product];
@@ -139,10 +145,7 @@ export function LeadDistributeDialog({
   // Save ghi đè giá trị tab kia sang tab này — không ai chạm vào ô tick mà nó
   // vẫn đổi.
   const [enabledByProduct, setEnabledByProduct] = useState<Record<LeadProduct, boolean>>(
-    () => ({
-      pc: weightsCache.pc?.enabled ?? false,
-      health: weightsCache.health?.enabled ?? false,
-    })
+    () => byLeadProduct((key) => weightsCache[key]?.enabled ?? false)
   );
   const enabled = enabledByProduct[product];
   function setEnabled(next: boolean) {
@@ -164,9 +167,9 @@ export function LeadDistributeDialog({
   // request MỚI HƠN của CÙNG product. Trước đây dùng chung một bộ đếm cho cả
   // hai, nên nạp lại Health làm rơi mất response P&C đang bay, và tab P&C kẹt số
   // cũ tới khi đóng mở lại hộp thoại.
-  const weightsRequest = useRef<Record<LeadProduct, number>>({ pc: 0, health: 0 });
+  const weightsRequest = useRef<Record<LeadProduct, number>>(byLeadProduct(() => 0));
   /** Số lượt GET tỉ lệ đang bay cho từng product. */
-  const weightsInFlight = useRef<Record<LeadProduct, number>>({ pc: 0, health: 0 });
+  const weightsInFlight = useRef<Record<LeadProduct, number>>(byLeadProduct(() => 0));
 
   const loadWeights = useCallback(async (forProduct: LeadProduct) => {
     const seq = weightsRequest.current[forProduct] + 1;
@@ -663,10 +666,14 @@ export function LeadDistributeDialog({
               chính bảng task_agents mà Config → Assistant membership → Agents
               hiển thị, đọc qua cùng một hàm fetchTaskAgents(). */}
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[#dfe1e6]">
-            <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_5rem_5rem] gap-2 border-b border-[#dfe1e6] bg-[#f7f8fa] px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
+            <div
+              className="grid shrink-0 gap-2 border-b border-[#dfe1e6] bg-[#f7f8fa] px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]"
+              style={AGENT_GRID_STYLE}
+            >
               <span>Agent</span>
-              <span className="text-center">{PRODUCT_LABEL.pc}</span>
-              <span className="text-center">{PRODUCT_LABEL.health}</span>
+              {LEAD_PRODUCTS.map((key) => (
+                <span key={key} className="text-center">{PRODUCT_LABEL[key]}</span>
+              ))}
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
               {roster.length === 0 ? (
@@ -681,7 +688,8 @@ export function LeadDistributeDialog({
                   return (
                     <div
                       key={agent.email}
-                      className="grid grid-cols-[minmax(0,1fr)_5rem_5rem] items-center gap-2 border-b border-[#ebecf0] px-3 py-2 transition hover:bg-[#f7f8f9]"
+                      className="grid items-center gap-2 border-b border-[#ebecf0] px-3 py-2 transition hover:bg-[#f7f8f9]"
+                      style={AGENT_GRID_STYLE}
                     >
                       <span className="flex min-w-0 items-center gap-2">
                         <Initials email={agent.email} label={label} />
@@ -723,8 +731,7 @@ export function LeadDistributeDialog({
           <p className="shrink-0 text-xs text-[#6b778c]">
             Agents come from Config → Assistant membership → Agents. Tick a
             product to put someone into that rotation; set how much they get on
-            the{" "}
-            {PRODUCT_LABEL.pc} and {PRODUCT_LABEL.health} tabs.
+            each product&apos;s tab.
           </p>
             </>
           ) : (

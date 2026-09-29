@@ -40,7 +40,7 @@ export async function GET(request: Request) {
 
   const rawProduct = new URL(request.url).searchParams.get("product");
   if (!isLeadProduct(rawProduct)) {
-    return NextResponse.json({ error: "Unknown product." }, { status: 400 });
+    return NextResponse.json({ error: "Invalid product." }, { status: 400 });
   }
   const product: LeadProduct = rawProduct;
 
@@ -138,7 +138,7 @@ export async function PUT(request: Request) {
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!isLeadProduct(body?.product)) {
-    return NextResponse.json({ error: "Unknown product." }, { status: 400 });
+    return NextResponse.json({ error: "Invalid product." }, { status: 400 });
   }
   const product: LeadProduct = body.product;
   const parsed = parseWeights(body?.weights);
@@ -161,7 +161,7 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     if (error.message.includes("LEAD_PRODUCT_INVALID")) {
-      return NextResponse.json({ error: "Unknown product." }, { status: 400 });
+      return NextResponse.json({ error: "Invalid product." }, { status: 400 });
     }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -191,7 +191,7 @@ export async function PATCH(request: Request) {
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!isLeadProduct(body?.product)) {
-    return NextResponse.json({ error: "Unknown product." }, { status: 400 });
+    return NextResponse.json({ error: "Invalid product." }, { status: 400 });
   }
   const agentEmail =
     typeof body?.agent_email === "string" ? body.agent_email.trim().toLowerCase() : "";

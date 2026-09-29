@@ -2,7 +2,12 @@
 
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
-import type { LeadAlertSettings, LeadProduct } from "@/lib/leads/types";
+import {
+  LEAD_PRODUCT_LABEL,
+  LEAD_PRODUCTS,
+  type LeadAlertSettings,
+  type LeadProduct,
+} from "@/lib/leads/types";
 
 /**
  * Ngưỡng để một lead bị gọi tên là "cần quản lý để mắt tới".
@@ -17,10 +22,7 @@ import type { LeadAlertSettings, LeadProduct } from "@/lib/leads/types";
 
 type AlertField = "no_contact_hours" | "stale_days" | "max_attempts";
 
-const PRODUCT_LABEL: Record<LeadProduct, string> = {
-  pc: "P&C",
-  health: "Health",
-};
+const PRODUCT_LABEL = LEAD_PRODUCT_LABEL;
 
 const FIELDS: { key: AlertField; label: string; hint: string }[] = [
   {
@@ -114,7 +116,7 @@ export default function ConfigAlertSection({
       </div>
 
       <div className="grid gap-5 xl:grid-cols-2">
-        {(["pc", "health"] as const).map((product) => {
+        {LEAD_PRODUCTS.map((product) => {
           const setting = settings.find((row) => row.product === product);
           if (!setting) return null;
           return (

@@ -73,6 +73,8 @@ const lead = (over: Partial<LeadRow>): LeadRow => ({
 const settings: LeadAlertSettingsByProduct = {
   pc: { product: "pc", no_contact_hours: 24, stale_days: 3, max_attempts: 4 },
   health: { product: "health", no_contact_hours: 24, stale_days: 3, max_attempts: 4 },
+  life: { product: "life", no_contact_hours: 24, stale_days: 3, max_attempts: 4 },
+  unknown: { product: "unknown", no_contact_hours: 24, stale_days: 3, max_attempts: 4 },
 };
 
 describe("buildLeadLookups", () => {

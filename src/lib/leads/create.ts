@@ -1,5 +1,5 @@
 import { normalizePhone } from "./import-parse";
-import { isLeadProduct, type LeadProduct } from "./types";
+import { isLeadProduct, UNKNOWN_LEAD_PRODUCT, type LeadProduct } from "./types";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -94,7 +94,7 @@ export function parseCreateLeadInput(body: unknown): CreateLeadParseResult {
     return { ok: false, error: "Request body must be an object." };
   }
   const input = body as Record<string, unknown>;
-  if (!isLeadProduct(input.product)) return { ok: false, error: "Unknown product." };
+  if (!isLeadProduct(input.product)) return { ok: false, error: "Invalid product." };
 
   const phone = normalizePhone(input.phone);
   if (!phone) return { ok: false, error: "A valid phone number is required." };
@@ -188,8 +188,8 @@ export function buildNewLeadRow(input: NewLeadRowInput): Record<string, unknown>
   const actor = input.actorEmail.trim().toLowerCase();
   const nowIso = (input.now ?? new Date()).toISOString();
   return {
-    product: input.product,
-    products: input.product ? [input.product] : [],
+    product: input.product ?? UNKNOWN_LEAD_PRODUCT,
+    products: [input.product ?? UNKNOWN_LEAD_PRODUCT],
     event_id: input.eventId,
     status_id: input.statusId,
     full_name: input.fullName,

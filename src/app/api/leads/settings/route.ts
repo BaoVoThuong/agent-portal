@@ -36,7 +36,7 @@ export async function PATCH(request: Request) {
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   const product = body?.product;
-  if (!isLeadProduct(product)) return NextResponse.json({ error: "Unknown product." }, { status: 400 });
+  if (!isLeadProduct(product)) return NextResponse.json({ error: "Invalid product." }, { status: 400 });
 
   const values: Record<string, number> = {};
   for (const key of ["no_contact_hours", "stale_days", "max_attempts"] as const) {

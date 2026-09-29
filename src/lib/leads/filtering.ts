@@ -1,5 +1,5 @@
 import type { LeadHealth } from "./health";
-import type { LeadRow } from "./types";
+import type { LeadProduct, LeadRow } from "./types";
 
 export type LeadFilters = {
   /** Free text over name, phone and email. */
@@ -11,7 +11,7 @@ export type LeadFilters = {
    * types or reads; the dropdown is built from the names the rows carry.
    */
   eventName: string | null;
-  product: "pc" | "health" | null;
+  product: LeadProduct | null;
   /**
    * One bucket per lead — see lib/leads/health.ts. Single-valued on purpose so
    * the option counts add up to the whole list; a lead tripping two alerts
@@ -49,7 +49,7 @@ function digits(value: string): string {
 /** Luôn đọc `products`; `product` chỉ là phần tử đầu do DB suy ra. */
 export function leadHasProduct(
   lead: Pick<LeadRow, "product" | "products">,
-  product: "pc" | "health"
+  product: LeadProduct
 ): boolean {
   return (lead.products?.length ? lead.products : lead.product ? [lead.product] : []).includes(product);
 }

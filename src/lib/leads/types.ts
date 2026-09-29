@@ -1,10 +1,63 @@
-export const LEAD_PRODUCTS = ["pc", "health"] as const;
+/**
+ * Thứ tự này là thứ tự cố định mà trigger lead_sync_primary_product dùng để
+ * chọn `product` = phần tử đầu, và là thứ tự tab trong Distribute pool.
+ */
+export const LEAD_PRODUCTS = ["pc", "health", "life", "unknown"] as const;
 export type LeadProduct = (typeof LEAD_PRODUCTS)[number];
+
+export const LEAD_PRODUCT_LABEL: Record<LeadProduct, string> = {
+  pc: "P&C",
+  health: "Health",
+  life: "Life",
+  unknown: "Unknown",
+};
+
+/**
+ * "Chưa biết khách quan tâm gì" (2026-09-29). Nó thay cho mảng rỗng trước đây:
+ * lead không có product nào thì DB tự ghi thành Unknown, nên chỉ còn MỘT cách
+ * nói "chưa biết" và lead đó có pool riêng để chia. Unknown luôn đứng một mình.
+ */
+export const UNKNOWN_LEAD_PRODUCT = "unknown" satisfies LeadProduct;
 
 export function isLeadProduct(value: unknown): value is LeadProduct {
   return (
     typeof value === "string" &&
     (LEAD_PRODUCTS as readonly string[]).includes(value)
+  );
+}
+
+/** Một giá trị cho mỗi product, theo đúng thứ tự LEAD_PRODUCTS. */
+export function byLeadProduct<T>(make: (product: LeadProduct) => T): Record<LeadProduct, T> {
+  return Object.fromEntries(
+    LEAD_PRODUCTS.map((product) => [product, make(product)])
+  ) as Record<LeadProduct, T>;
+}
+
+/**
+ * Bản TS của luật trong trigger lead_sync_primary_product, để UI hiện đúng thứ
+ * DB sẽ lưu ngay lúc bấm: bỏ trùng, xếp theo LEAD_PRODUCTS, có product thật thì
+ * bỏ Unknown, không còn gì thì là Unknown.
+ */
+export function normalizeLeadProducts(products: readonly LeadProduct[]): LeadProduct[] {
+  const known = LEAD_PRODUCTS.filter(
+    (product) => product !== UNKNOWN_LEAD_PRODUCT && products.includes(product)
+  );
+  return known.length > 0 ? known : [UNKNOWN_LEAD_PRODUCT];
+}
+
+/**
+ * Bấm một product trong ô Product. Chọn Unknown là bỏ mọi product khác; chọn
+ * một product thật là bỏ Unknown. Bỏ tick product cuối cùng thì về Unknown.
+ */
+export function toggleLeadProduct(
+  current: readonly LeadProduct[],
+  product: LeadProduct
+): LeadProduct[] {
+  if (product === UNKNOWN_LEAD_PRODUCT) return [UNKNOWN_LEAD_PRODUCT];
+  return normalizeLeadProducts(
+    current.includes(product)
+      ? current.filter((item) => item !== product)
+      : [...current, product]
   );
 }
 
@@ -61,10 +114,11 @@ export type LeadRow = {
   display_number: number;
   /**
    * Product "chính" — phần tử đầu của `products`, do trigger trong DB suy ra.
-   * Null means the customer has not been classified yet.
+   * Từ rollout 2026-09-29 không còn null: chưa biết thì là "unknown". Kiểu vẫn
+   * giữ null cho dòng đọc về từ trước rollout.
    */
   product: LeadProduct | null;
-  /** Một lead có thể mang nhiều product; rỗng khi chưa biết product. */
+  /** Một lead có thể mang nhiều product; chưa biết thì là ["unknown"]. */
   products: LeadProduct[];
   event_id: string | null;
   /** Joined from lead_events. The uuid identifies; the name is what people read. */

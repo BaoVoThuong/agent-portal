@@ -6,6 +6,37 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-29 — Lead có thêm product Life và Unknown
+
+Lead trước đây chỉ có P&C và Health, và "không có product" (mảng rỗng) là trạng
+thái riêng, bị Distribute bỏ qua. Nay có bốn product: **P&C, Health, Life,
+Unknown**.
+
+**Unknown thay chỗ "không có product"** (chốt với user): chỉ còn một cách nói
+"chưa biết khách quan tâm gì".
+
+- Trigger `lead_sync_primary_product` ghi mảng rỗng / `product` null thành
+  `['unknown']`. Mọi lead đang rỗng được backfill sang Unknown.
+- **Unknown đứng một mình**: có product thật thì Unknown bị bỏ; chọn Unknown ở
+  ô Product là bỏ mọi product khác; bỏ tick product cuối thì về Unknown. Luật
+  này có ở cả trigger lẫn TS (`normalizeLeadProducts` / `toggleLeadProduct`
+  trong `lib/leads/types.ts`), để UI hiện đúng thứ DB sẽ lưu.
+- Import không chọn product → Unknown, và **chia tự động được** nếu Unknown
+  bật auto-assign (trước đây trả "Pick a product to auto-assign").
+- Trigger giờ **chặn** giá trị product lạ (`LEAD_PRODUCT_INVALID`) thay vì lặng
+  lẽ bỏ đi.
+
+**Distribute pool** có 4 tab product + Agent config (thêm cột tick Life/Unknown).
+Life và Unknown có vòng xoay, cờ auto-assign và ngưỡng cảnh báo riêng như P&C và
+Health. Chưa ai được tick nhận hai product này; auto-assign mặc định tắt.
+
+**Hệ quả cần biết:** lead Unknown đã có người nhận giờ **bắt đầu có cảnh báo**
+(no-contact / stale / max attempts) theo ngưỡng của Unknown (mặc định 24h / 3
+ngày / 4 lần). Trước đây lead không có product không bị chấm cảnh báo.
+
+Rollout: `supabase/rollouts/2026-09-29-lead-life-unknown-products.sql` — **chạy
+trước khi deploy code** (code mới ghi `life`/`unknown`, CHECK cũ sẽ chặn).
+
 ## 2026-09-25 — Thông báo tới trễ khi realtime lỡ ping
 
 CS phản ánh nhận thông báo assign trễ 15–20 phút dù đang mở portal.

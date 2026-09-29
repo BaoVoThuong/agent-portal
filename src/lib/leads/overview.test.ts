@@ -86,6 +86,8 @@ describe("parseOverviewProduct", () => {
 describe("settingsForLead", () => {
   const pc = { product: "pc", no_contact_hours: 1, stale_days: 1, max_attempts: 1 } as const;
   const health = { product: "health", no_contact_hours: 99, stale_days: 99, max_attempts: 99 } as const;
+  const life = { product: "life", no_contact_hours: 50, stale_days: 50, max_attempts: 50 } as const;
+  const unknown = { product: "unknown", no_contact_hours: 7, stale_days: 7, max_attempts: 7 } as const;
 
   it("returns the single row unchanged when the list is scoped to one product", () => {
     expect(settingsForLead(pc, { product: "health", products: ["health"] })).toBe(pc);
@@ -94,12 +96,17 @@ describe("settingsForLead", () => {
   // Mixing products under one threshold set is how a P&C lead ends up measured
   // against Health's numbers.
   it("picks per product when both rows are supplied", () => {
-    const byProduct = { pc, health };
+    const byProduct = { pc, health, life, unknown };
     // Một product thì trả nguyên bộ của product đó — không dựng bản mới, nên
     // toEqual chứ không toBe: hàm nay gộp ngưỡng nên luôn trả object mới.
     expect(settingsForLead(byProduct, { product: "pc", products: ["pc"] })).toEqual(pc);
     expect(settingsForLead(byProduct, { product: "health", products: ["health"] })).toEqual(
       health,
+    );
+    expect(settingsForLead(byProduct, { product: "life", products: ["life"] })).toEqual(life);
+    // Unknown có ngưỡng riêng như mọi product khác.
+    expect(settingsForLead(byProduct, { product: "unknown", products: ["unknown"] })).toEqual(
+      unknown,
     );
   });
 });
@@ -108,6 +115,8 @@ describe("settingsForLead — lead mang nhiều product", () => {
   const byProduct: Record<LeadProduct, LeadAlertSettings> = {
     pc: { product: "pc", no_contact_hours: 48, stale_days: 7, max_attempts: 6 },
     health: { product: "health", no_contact_hours: 12, stale_days: 2, max_attempts: 3 },
+    life: { product: "life", no_contact_hours: 24, stale_days: 3, max_attempts: 4 },
+    unknown: { product: "unknown", no_contact_hours: 24, stale_days: 3, max_attempts: 4 },
   };
 
   it("lead mang cả hai product bị chấm theo ngưỡng CHẶT nhất", () => {
@@ -125,7 +134,7 @@ describe("settingsForLead — lead mang nhiều product", () => {
     expect(settingsForLead(byProduct, { product: "pc", products: ["pc"] })).toEqual(byProduct.pc);
   });
 
-  it("lead chưa phân loại product không có ngưỡng nào", () => {
+  it("dòng rỗng đọc về từ trước rollout Unknown không có ngưỡng nào", () => {
     expect(settingsForLead(byProduct, { product: null, products: [] })).toBeNull();
   });
 

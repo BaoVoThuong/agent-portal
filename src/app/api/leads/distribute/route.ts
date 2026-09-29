@@ -13,7 +13,12 @@ import {
   broadcastLeadsChanged,
   readLeadMutationSourceId,
 } from "@/lib/leads/realtime";
-import { isLeadProduct, LEAD_PRODUCTS, type LeadProduct } from "@/lib/leads/types";
+import {
+  byLeadProduct,
+  isLeadProduct,
+  LEAD_PRODUCTS,
+  type LeadProduct,
+} from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -80,7 +85,7 @@ export async function GET(request: Request) {
     product,
     pending: rows.length,
     remaining,
-    byProduct: { pc: grouped.pc.length, health: grouped.health.length },
+    byProduct: byLeadProduct((key) => grouped[key].length),
   });
 }
 

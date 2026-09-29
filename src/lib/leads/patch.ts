@@ -4,7 +4,7 @@ import {
   type NormalizeResult,
 } from "./lead-fields";
 import { normalizePhone } from "./import-parse";
-import { isLeadProduct } from "./types";
+import { isLeadProduct, normalizeLeadProducts, UNKNOWN_LEAD_PRODUCT } from "./types";
 
 /**
  * The system fields the table lets someone edit in place. Everything else on a
@@ -83,15 +83,16 @@ export function buildLeadPatch(body: unknown): LeadPatchResult {
     // `products` is an internal multi-product write used by the Product cell.
     // It is intentionally not a table-config column, so it must not be sent
     // to the metadata validator as if an admin had created a column with that
-    // key. An empty array is the valid "not classified yet" state.
+    // key. An empty array means "not classified yet" and is stored as
+    // ["unknown"] — the same rule the DB trigger applies.
     if (key === "products") {
       if (
         !Array.isArray(value) ||
         value.some((product) => !isLeadProduct(product))
       ) {
-        return { ok: false, error: "Unknown product." };
+        return { ok: false, error: "Invalid product." };
       }
-      patch.products = [...new Set(value)];
+      patch.products = normalizeLeadProducts(value);
       continue;
     }
     if (key === "custom_values") {
@@ -147,10 +148,10 @@ export function buildLeadPatch(body: unknown): LeadPatchResult {
       }
       case "product":
         if (value === null || value === undefined || value === "") {
-          patch.product = null;
+          patch.product = UNKNOWN_LEAD_PRODUCT;
           break;
         }
-        if (!isLeadProduct(value)) return { ok: false, error: "Unknown product." };
+        if (!isLeadProduct(value)) return { ok: false, error: "Invalid product." };
         patch.product = value;
         break;
       case "status_id": {

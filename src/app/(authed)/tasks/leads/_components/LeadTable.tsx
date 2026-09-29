@@ -26,7 +26,11 @@ import {
   type SortDir,
 } from "@/lib/leads/sorting";
 import {
+  LEAD_PRODUCT_LABEL,
   LEAD_PRODUCTS,
+  normalizeLeadProducts,
+  toggleLeadProduct,
+  UNKNOWN_LEAD_PRODUCT,
   type LeadProduct,
   type LeadInteractionPreview,
   type LeadInteractionType,
@@ -892,11 +896,13 @@ function LeadAlertBadges({
 }
 
 
-/** The two labels the Product column's configured values are seeded with. */
+/**
+ * The labels the Product column's configured values are seeded with — the label
+ * is the key the badge joins on to find its colour. Null only survives on rows
+ * read before the 2026-09-29 rollout, and means the same thing as Unknown.
+ */
 function productOptionLabel(product: LeadRow["product"]): string {
-  if (product === "health") return "Health";
-  if (product === "pc") return "P&C";
-  return "Not set";
+  return LEAD_PRODUCT_LABEL[product ?? UNKNOWN_LEAD_PRODUCT];
 }
 
 /**
@@ -925,9 +931,9 @@ export function ProductMenu({
   showChevron?: boolean;
   buttonClassName?: string;
 }) {
-  const current = [...selected];
-  const label =
-    current.length > 0 ? current.map(productOptionLabel).join(", ") : "No product";
+  // Rỗng (dữ liệu trước rollout) hiện là Unknown — đúng thứ DB sẽ lưu.
+  const current = normalizeLeadProducts(selected);
+  const label = current.map(productOptionLabel).join(", ");
 
   return (
     <LeadChoiceField
@@ -943,38 +949,32 @@ export function ProductMenu({
       canEdit={canEdit}
       onSelect={() => undefined}
       onToggle={(value) => {
-        const product = value as LeadProduct;
-        onToggle(
-          current.includes(product)
-            ? current.filter((item) => item !== product)
-            : [...current, product],
-        );
+        // Unknown đứng một mình: chọn nó là bỏ các product khác, chọn product
+        // thật là bỏ nó. Bấm lại Unknown đang chọn thì không có gì đổi.
+        const next = toggleLeadProduct(current, value as LeadProduct);
+        if (next.join() !== current.join()) onToggle(next);
       }}
       showChevron={showChevron}
       buttonClassName={buttonClassName}
       renderValue={
-        current.length > 0 ? (
-          // Lead mang hai product thì XẾP DỌC, mỗi product một dòng — người
-          // dùng chốt vậy (2026-09-02). Xếp ngang thì hai badge tranh nhau bề
-          // rộng cột và badge dài bị cắt.
-          //
-          // `items-start` chứ không `items-center`: khi một dòng có hai badge
-          // còn dòng bên cạnh chỉ có một, canh giữa làm badge đơn lẻ trôi xuống
-          // giữa ô và không thẳng hàng với các cột khác.
-          <span className="flex min-w-0 flex-col items-start gap-1">
-            {current.map((value) => (
-              <span
-                key={value}
-                className="inline-flex max-w-full items-center truncate rounded px-2 py-1 text-[11px] font-bold uppercase leading-none tracking-wide"
-                style={productBadgeStyle(productOptionLabel(value), options)}
-              >
-                {productOptionLabel(value)}
-              </span>
-            ))}
-          </span>
-        ) : (
-          <span className="text-xs font-semibold text-[#97a0af]">No product</span>
-        )
+        // Lead mang hai product thì XẾP DỌC, mỗi product một dòng — người
+        // dùng chốt vậy (2026-09-02). Xếp ngang thì hai badge tranh nhau bề
+        // rộng cột và badge dài bị cắt.
+        //
+        // `items-start` chứ không `items-center`: khi một dòng có hai badge
+        // còn dòng bên cạnh chỉ có một, canh giữa làm badge đơn lẻ trôi xuống
+        // giữa ô và không thẳng hàng với các cột khác.
+        <span className="flex min-w-0 flex-col items-start gap-1">
+          {current.map((value) => (
+            <span
+              key={value}
+              className="inline-flex max-w-full items-center truncate rounded px-2 py-1 text-[11px] font-bold uppercase leading-none tracking-wide"
+              style={productBadgeStyle(productOptionLabel(value), options)}
+            >
+              {productOptionLabel(value)}
+            </span>
+          ))}
+        </span>
       }
     />
   );
@@ -1003,9 +1003,6 @@ function ProductBadge({
   options: TableColumnOption[];
 }) {
   const label = productOptionLabel(product);
-  if (!product) {
-    return <span className="text-[11px] font-semibold text-[#97a0af]">{label}</span>;
-  }
   const option = options.find((candidate) => candidate.label === label);
   const palette = tableColumnOptionBadgePalette(
     option ?? { id: label, label, color: null },

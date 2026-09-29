@@ -55,7 +55,11 @@ import {
 } from "@/lib/table-config/layout";
 import { TaskSelect } from "../../_components/TaskSelect";
 import {
+  isLeadProduct,
   LEAD_INTERACTION_HISTORY_LIMIT,
+  LEAD_PRODUCT_LABEL,
+  LEAD_PRODUCTS,
+  type LeadProduct,
   type LeadInteraction,
   type LeadInteractionType,
   type LeadRow,
@@ -73,7 +77,7 @@ import { LeadTableSettingsButton } from "./LeadTableSettingsButton";
 
 type LeadsClientProps = {
   /** null = every product. A filter now, not a separate screen. */
-  productFilter: "pc" | "health" | null;
+  productFilter: LeadProduct | null;
   isManager: boolean;
   /**
    * Emails whose leads this person may edit and log against: their own plus
@@ -133,8 +137,7 @@ const FILTER_SELECT_BUTTON_CLASS =
 
 const PRODUCT_FILTER_OPTIONS = [
   { value: ALL_FILTER, label: "All products" },
-  { value: "pc", label: "P&C" },
-  { value: "health", label: "Health" },
+  ...LEAD_PRODUCTS.map((value) => ({ value, label: LEAD_PRODUCT_LABEL[value] })),
 ];
 
 function sourceNonce(): string {
@@ -209,10 +212,10 @@ export function LeadsClient({
           new Set(statuses.map((status) => status.id))
         ),
         eventName: typeof raw.eventName === "string" ? raw.eventName : null,
-        product: keepKnownString(raw.product, new Set(["pc", "health"])) as
-          | "pc"
-          | "health"
-          | null,
+        product: keepKnownString(
+          raw.product,
+          new Set<string>(LEAD_PRODUCTS)
+        ) as LeadProduct | null,
         health: keepKnownString(
           raw.health,
           new Set<string>(LEAD_HEALTH_BUCKETS)
@@ -1216,8 +1219,7 @@ export function LeadsClient({
                     onChange={(value) =>
                       setFilters({
                         ...filters,
-                        product:
-                          value === "pc" || value === "health" ? value : null,
+                        product: isLeadProduct(value) ? value : null,
                       })
                     }
                   />

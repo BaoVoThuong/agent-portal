@@ -1,6 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { LEAD_PRODUCTS, type LeadProduct } from "./types";
+import {
+  byLeadProduct,
+  LEAD_PRODUCT_LABEL,
+  LEAD_PRODUCTS,
+  type LeadProduct,
+} from "./types";
 
 export type AssignmentWeightRow = {
   product: LeadProduct;
@@ -109,7 +114,7 @@ export async function autoAssignLeads(
     return {
       assigned: 0,
       unassigned: leadIds.length,
-      reason: `Nobody is set to receive ${product === "pc" ? "P&C" : "Health"} leads.`,
+      reason: `Nobody is set to receive ${LEAD_PRODUCT_LABEL[product]} leads.`,
     };
   }
 
@@ -171,7 +176,7 @@ export function groupLeadIdsByProduct(
   }[],
   scopedTo: LeadProduct | null = null
 ): Record<LeadProduct, string[]> {
-  const grouped: Record<LeadProduct, string[]> = { pc: [], health: [] };
+  const grouped = byLeadProduct<string[]>(() => []);
   for (const lead of leads) {
     if (scopedTo) {
       grouped[scopedTo].push(lead.id);
@@ -183,7 +188,9 @@ export function groupLeadIdsByProduct(
       LEAD_PRODUCTS.find((product) => lead.products?.includes(product)) ??
       lead.product ??
       null;
-    // Lead chưa phân loại product không thuộc pool nào — bỏ qua, không đoán.
+    // Mảng rỗng chỉ còn ở dữ liệu trước rollout 2026-09-29 (từ đó DB ghi
+    // "unknown"). RPC khớp theo thành viên mảng nên cũng không chia được nó —
+    // bỏ qua, không đoán.
     if (first) grouped[first].push(lead.id);
   }
   return grouped;

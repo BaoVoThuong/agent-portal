@@ -11,7 +11,9 @@ import {
 import { settingsForLead, type LeadAlertSettingsByProduct } from "./overview";
 import type { LeadActor } from "./access";
 import {
+  byLeadProduct,
   LEAD_INTERACTION_HISTORY_LIMIT,
+  LEAD_PRODUCTS,
   isLeadProduct,
   type LeadAlertSettings,
   type LeadInteractionPreview,
@@ -174,11 +176,12 @@ export async function fetchLeadsPage(
   let terminalStatusIds: string[] = [];
   if (filter.alert) {
     const context = alertContext ?? (await fetchLeadAlertContext(supabase));
-    alertSettingsByProduct = context.settingsByProduct;
+    const byProduct = context.settingsByProduct;
+    alertSettingsByProduct = byProduct;
     terminalStatusIds = context.terminalStatusIds;
     const inScope = filter.product
-      ? [alertSettingsByProduct[filter.product]]
-      : [alertSettingsByProduct.pc, alertSettingsByProduct.health];
+      ? [byProduct[filter.product]]
+      : LEAD_PRODUCTS.map((product) => byProduct[product]);
     // SQL chỉ là bộ lọc thô và phải là TẬP CHA của câu trả lời thật: lấy ngưỡng
     // lỏng nhất trong các product đang xem, rồi resolveLeadAlerts chốt lại ở
     // Node. Lấy ngưỡng chặt hơn là âm thầm giấu mất lead đáng lẽ phải hiện.
@@ -400,7 +403,7 @@ const ALERT_SETTINGS_DEFAULTS = {
 } as const;
 
 /**
- * Both threshold rows, with defaults filled in for a product whose row is
+ * One threshold row per product, with defaults filled in for a product whose row is
  * missing. Three callers needed this — the list, the Overview, and now the
  * table badges — and each was growing its own copy of the defaults.
  */
@@ -412,11 +415,10 @@ export async function fetchLeadAlertSettings(
     .select("product,no_contact_hours,stale_days,max_attempts");
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as LeadAlertSettings[];
-  return {
-    pc: rows.find((row) => row.product === "pc") ?? { product: "pc", ...ALERT_SETTINGS_DEFAULTS },
-    health:
-      rows.find((row) => row.product === "health") ?? { product: "health", ...ALERT_SETTINGS_DEFAULTS },
-  };
+  return byLeadProduct(
+    (product) =>
+      rows.find((row) => row.product === product) ?? { product, ...ALERT_SETTINGS_DEFAULTS }
+  );
 }
 
 const LEAD_STATUS_COLUMNS = "id,label,color,position,kind,archived_at";

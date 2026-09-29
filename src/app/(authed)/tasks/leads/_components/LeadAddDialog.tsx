@@ -4,7 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus, X } from "lucide-react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { resolveDialogProduct } from "@/lib/leads/create";
-import type { LeadProduct, LeadStatus } from "@/lib/leads/types";
+import {
+  isLeadProduct,
+  LEAD_PRODUCT_LABEL,
+  LEAD_PRODUCTS,
+  type LeadProduct,
+  type LeadStatus,
+} from "@/lib/leads/types";
 import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
 import { TaskSelect } from "../../_components/TaskSelect";
 import {
@@ -32,6 +38,10 @@ const INPUT_CLASS =
 const SELECT_BUTTON_CLASS =
   "!h-10 !rounded !border-2 !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
 const LABEL_CLASS = "block text-xs font-bold uppercase text-[#6b778c]";
+const PRODUCT_OPTIONS = LEAD_PRODUCTS.map((value) => ({
+  value,
+  label: LEAD_PRODUCT_LABEL[value],
+}));
 
 function formatEvent(event: LeadEvent): string {
   return event.event_date ? `${event.name} · ${event.event_date}` : event.name;
@@ -312,7 +322,7 @@ export function LeadAddDialog({
             </span>
             <div>
               <h2 className="text-xl font-semibold text-[#172b4d]">
-                Add {product ? (product === "pc" ? "P&C" : "Health") : ""} lead
+                Add {product ? LEAD_PRODUCT_LABEL[product] : ""} lead
               </h2>
               <p className="mt-1 text-sm text-[#626f86]">
                 Create one lead and optionally assign it immediately.
@@ -421,25 +431,21 @@ export function LeadAddDialog({
                 </span>
                 {productFilter ? (
                   <span className="rounded bg-[#e9f2ff] px-2 py-0.5 text-xs font-bold text-[#0c66e4]">
-                    {productFilter === "pc" ? "P&C" : "Health"}
+                    {LEAD_PRODUCT_LABEL[productFilter]}
                   </span>
                 ) : (
                   // Bắt buộc chọn: đoán ở đây là xếp nhầm lead vào sổ khác.
+                  // Chưa biết thì chọn Unknown — một lựa chọn có chủ ý.
                   <TaskSelect
                     label="Product"
                     value={chosenProduct ?? ""}
-                    options={[
-                      { value: "pc", label: "P&C" },
-                      { value: "health", label: "Health" },
-                    ]}
+                    options={PRODUCT_OPTIONS}
                     placeholder="Choose product…"
                     className="w-[13rem] max-w-[calc(100vw-3rem)]"
                     buttonClassName={SELECT_BUTTON_CLASS}
                     menuClassName="min-w-[13rem]"
                     onChange={(value) =>
-                      setChosenProduct(
-                        value === "pc" || value === "health" ? value : null,
-                      )
+                      setChosenProduct(isLeadProduct(value) ? value : null)
                     }
                   />
                 )}

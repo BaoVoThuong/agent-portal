@@ -5,6 +5,7 @@ import { personLabel } from "@/lib/tasks/people";
 import { Initials } from "../../_components/board-ui";
 import type { LeadAlert } from "@/lib/leads/alerts";
 import type { LeadSummary } from "@/lib/leads/overview";
+import type { LeadProduct } from "@/lib/leads/types";
 
 type OverviewEvent = { id: string; name: string; event_date: string | null };
 
@@ -25,7 +26,7 @@ const overviewCache = new Map<
 >();
 
 type LeadOverviewProps = {
-  productFilter: "pc" | "health" | null;
+  productFilter: LeadProduct | null;
   onAlertClick: (alert: LeadAlert) => void;
 };
 

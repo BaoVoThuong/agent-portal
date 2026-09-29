@@ -19,9 +19,20 @@ import {
   type LeadImportMapping,
 } from "@/lib/leads/import-mapping";
 import { buildLeadImportTargets } from "@/lib/leads/import-targets";
+import {
+  isLeadProduct,
+  LEAD_PRODUCT_LABEL,
+  LEAD_PRODUCTS,
+  UNKNOWN_LEAD_PRODUCT,
+  type LeadProduct,
+} from "@/lib/leads/types";
 import type { TableColumn } from "@/lib/table-config/types";
 
 const MAX_BYTES = 5 * 1024 * 1024;
+const PRODUCT_OPTIONS = LEAD_PRODUCTS.map((value) => ({
+  value,
+  label: LEAD_PRODUCT_LABEL[value],
+}));
 
 const IMPORT_SELECT_BUTTON_CLASS =
   "!h-10 !rounded !border-2 !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
@@ -51,7 +62,7 @@ export type ImportResult = {
 
 type WeightPreview = {
   /** Kèm product để một response về trễ của product cũ không hiện nhầm. */
-  product: "pc" | "health";
+  product: LeadProduct;
   enabled: boolean;
   preview: { email: string; count: number }[];
 };
@@ -59,7 +70,7 @@ type WeightPreview = {
 type LeadImportDialogProps = {
   open: boolean;
   /** null = màn hình đang xem mọi product, dialog phải hỏi. */
-  productFilter: "pc" | "health" | null;
+  productFilter: LeadProduct | null;
   /** Cột của scope `lead` trong Table Config — nguồn của bảng map. */
   columns: TableColumn[];
   sourceId: string;
@@ -96,8 +107,9 @@ export function LeadImportDialog({
   // Danh sách cột đích dựng từ Lead Table Config: admin thêm cột custom thì
   // bảng map tự dài ra, không phải sửa code.
   const targets = useMemo(() => buildLeadImportTargets(columns), [columns]);
-  const [chosenProduct, setChosenProduct] = useState<"pc" | "health" | null>(null);
-  const product = resolveDialogProduct(productFilter, chosenProduct);
+  const [chosenProduct, setChosenProduct] = useState<LeadProduct | null>(null);
+  const product =
+    resolveDialogProduct(productFilter, chosenProduct) ?? UNKNOWN_LEAD_PRODUCT;
   const [file, setFile] = useState<File | null>(null);
   const [records, setRecords] = useState<Record<string, unknown>[]>([]);
   const [headers, setHeaders] = useState<string[]>([]);
@@ -125,7 +137,7 @@ export function LeadImportDialog({
   // Xem trước tỉ lệ ngay trong dialog: người bấm import phải thấy điều sắp xảy
   // ra trước khi nó xảy ra với 2.000 dòng.
   useEffect(() => {
-    if (!open || !product) return;
+    if (!open) return;
     let cancelled = false;
     void fetch(`/api/leads/assignment-weights?product=${product}`, { cache: "no-store" })
       .then(async (response) => {
@@ -299,7 +311,7 @@ export function LeadImportDialog({
       const form = new FormData();
       form.set("file", file);
       form.set("event_id", eventId);
-      form.set("product", product ?? "");
+      form.set("product", product);
       form.set("auto_assign", autoAssign ? "true" : "false");
       form.set("mapping", JSON.stringify(mapping));
       const response = await fetch("/api/leads/import", {
@@ -397,21 +409,17 @@ export function LeadImportDialog({
                   <h3 className="text-xs font-bold uppercase tracking-[0.08em] text-[#667085]">
                     Product
                   </h3>
+                  {/* Chưa chọn = Unknown, đúng thứ server sẽ lưu. Hiện nó ra
+                      thay vì một ô trống "Not specified" như trước. */}
                   <TaskSelect
                     label="Product"
-                    value={chosenProduct ?? ""}
-                    options={[
-                      { value: "", label: "Not specified" },
-                      { value: "pc", label: "P&C" },
-                      { value: "health", label: "Health" },
-                    ]}
+                    value={product}
+                    options={PRODUCT_OPTIONS}
                     placeholder="Choose product…"
                     className="mt-2 w-full"
                     buttonClassName={IMPORT_SELECT_BUTTON_CLASS}
                     onChange={(value) =>
-                      setChosenProduct(
-                        value === "pc" || value === "health" ? value : null,
-                      )
+                      setChosenProduct(isLeadProduct(value) ? value : null)
                     }
                   />
                 </div>

@@ -15,7 +15,11 @@ import {
 } from "@/lib/leads/import-mapping";
 import { partitionImportRows } from "@/lib/leads/import-validate";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
-import { isLeadProduct, type LeadProduct } from "@/lib/leads/types";
+import {
+  isLeadProduct,
+  UNKNOWN_LEAD_PRODUCT,
+  type LeadProduct,
+} from "@/lib/leads/types";
 import { fetchDefaultLeadStatusId } from "@/lib/leads/queries";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
@@ -93,15 +97,13 @@ export async function POST(request: Request) {
     );
   }
 
+  // Không chọn product = chưa biết khách quan tâm gì = Unknown. Unknown có vòng
+  // xoay riêng, nên lead import kiểu này vẫn chia tự động được.
   const rawProduct = String(form.get("product") ?? "").trim();
-  const product: LeadProduct | null = rawProduct === ""
-    ? null
-    : isLeadProduct(rawProduct)
-      ? rawProduct
-      : null;
-  if (rawProduct !== "" && !product) {
-    return NextResponse.json({ error: "Unknown product." }, { status: 400 });
+  if (rawProduct !== "" && !isLeadProduct(rawProduct)) {
+    return NextResponse.json({ error: "Invalid product." }, { status: 400 });
   }
+  const product: LeadProduct = isLeadProduct(rawProduct) ? rawProduct : UNKNOWN_LEAD_PRODUCT;
   const rawEventId = String(form.get("event_id") ?? "").trim();
   const eventId = rawEventId || null;
   if (eventId && !UUID_RE.test(eventId)) return NextResponse.json({ error: "The event is not valid." }, { status: 400 });
@@ -237,15 +239,7 @@ export async function POST(request: Request) {
   const wantsAutoAssign = String(form.get("auto_assign") ?? "") === "true";
   let autoAssign: AutoAssignOutcome | null = null;
   if (wantsAutoAssign && insertedIds.length > 0) {
-    if (!product) {
-      // Không chọn product thì không có vòng xoay nào để chia. Lead vào pool
-      // và chờ ai đó phân loại — không phải lỗi, chỉ là chưa đủ thông tin.
-      autoAssign = {
-        assigned: 0,
-        unassigned: insertedIds.length,
-        reason: "Pick a product to auto-assign these leads.",
-      };
-    } else if (await isAutoAssignEnabled(product, supabase)) {
+    if (await isAutoAssignEnabled(product, supabase)) {
       try {
         autoAssign = await autoAssignLeads(
           insertedIds,

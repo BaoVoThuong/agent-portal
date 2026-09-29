@@ -6339,14 +6339,21 @@ create sequence if not exists leads_display_number_seq;
 create table if not exists leads (
   id uuid primary key default gen_random_uuid(),
   display_number bigint not null default nextval('leads_display_number_seq'),
-  -- Null means the lead was imported before the customer's product was known.
-  product text check (product in ('pc', 'health')),
+  -- Trigger luôn đặt cột này = products[1]; chưa biết product thì là 'unknown'
+  -- (2026-09-29-lead-life-unknown-products.sql).
+  product text,
+  constraint leads_product_valid check (product in ('pc', 'health', 'life', 'unknown')),
   -- `products` là nguồn sự thật; cột scalar `product` do trigger
-  -- lead_sync_primary_product giữ đồng bộ bằng phần tử đầu. Mảng rỗng = chưa
-  -- phân loại. Ràng buộc có TÊN để rollout 2026-09-03-lead-multi-product.sql
-  -- (dùng `drop constraint if exists leads_products_valid`) có đích để bấu vào.
+  -- lead_sync_primary_product giữ đồng bộ bằng phần tử đầu. Chưa phân loại =
+  -- ['unknown'], và Unknown luôn đứng một mình. Default VẪN là mảng rỗng: đó là
+  -- tín hiệu cho trigger "insert này chỉ set `product`, suy mảng từ nó" — đặt
+  -- default ['unknown'] thì insert kiểu cũ `product = 'pc'` sẽ thành Unknown.
   products text[] not null default '{}'::text[],
-  constraint leads_products_valid check (products <@ array['pc', 'health']::text[]),
+  constraint leads_products_valid check (
+    products <@ array['pc', 'health', 'life', 'unknown']::text[]
+    and cardinality(products) > 0
+    and (cardinality(products) = 1 or not ('unknown' = any (products)))
+  ),
   event_id uuid references lead_events(id) on delete set null,
   full_name text,
   phone text,
@@ -6417,7 +6424,9 @@ create table if not exists lead_assignment_history (
 );
 
 create table if not exists lead_alert_settings (
-  product text primary key check (product in ('pc', 'health')),
+  product text primary key
+    constraint lead_alert_settings_product_valid
+    check (product in ('pc', 'health', 'life', 'unknown')),
   no_contact_hours integer not null default 24 check (no_contact_hours > 0),
   stale_days integer not null default 3 check (stale_days > 0),
   max_attempts integer not null default 4 check (max_attempts > 0),
@@ -6428,14 +6437,17 @@ create table if not exists lead_alert_settings (
   updated_at timestamptz not null default now()
 );
 
-insert into lead_alert_settings (product) values ('pc'), ('health')
+insert into lead_alert_settings (product)
+values ('pc'), ('health'), ('life'), ('unknown')
 on conflict (product) do nothing;
 
 -- Trọng số chia pool + con trỏ smooth weighted round-robin, theo từng product
 -- (2026-09-02-lead-auto-assign.sql). `current_weight` PHẢI lưu ở đây: tính lại
 -- mỗi lượt import thì mười lần import mỗi lần một lead sẽ cùng rơi vào người đầu.
 create table if not exists lead_assignment_weights (
-  product text not null check (product in ('pc', 'health')),
+  product text not null
+    constraint lead_assignment_weights_product_valid
+    check (product in ('pc', 'health', 'life', 'unknown')),
   agent_email text not null,
   weight integer not null default 1 check (weight >= 0),
   current_weight integer not null default 0,
@@ -6751,42 +6763,54 @@ grant execute on function create_lead_comment_atomic(uuid, text, text, uuid, uui
 -- ---------------------------------------------------------------------------
 -- Lead Management: một lead có thể mang nhiều product; cột scalar `product` là
 -- phái sinh, do trigger giữ = products[1] (2026-09-03-lead-multi-product.sql).
+-- Rỗng = Unknown, Unknown đứng một mình (2026-09-29-lead-life-unknown-products.sql).
+-- Bản TS của luật này là normalizeLeadProducts() trong src/lib/leads/types.ts.
 create or replace function lead_sync_primary_product()
 returns trigger
 language plpgsql as $$
+declare
+  requested text[];
 begin
   if tg_op = 'UPDATE'
     and new.products is distinct from old.products then
-    -- `products` is authoritative when it was edited. This branch must run
-    -- for an empty array too; otherwise removing the last product would see
-    -- the old scalar `product` and immediately add it back.
-    new.products := array(
-      select p from unnest(array['pc', 'health']) as p where p = any (new.products)
-    );
-    new.product := new.products[1];
+    -- `products` is authoritative when it was edited — including an empty
+    -- array, which now means "back to Unknown".
+    requested := coalesce(new.products, '{}'::text[]);
   elsif tg_op = 'UPDATE'
-    and new.products is not distinct from old.products
     and new.product is distinct from old.product then
     -- Inline edit vẫn gửi cột `product` riêng. Một lần chọn product mới phải
     -- bỏ trạng thái multi-product cũ thay vì để trigger giữ giá trị cũ.
-    new.products := case
+    requested := case
       when new.product is null then '{}'::text[]
       else array[new.product]
     end;
   elsif new.products is null or cardinality(new.products) = 0 then
-    -- Insert kiểu cũ (chỉ set `product`) vẫn hợp lệ: suy ngược ra mảng. Cả hai
-    -- NULL/empty đều được giữ nguyên để biểu diễn "chưa biết product".
-    new.products := case
+    -- Insert kiểu cũ (chỉ set `product`, hoặc không set gì) vẫn hợp lệ.
+    requested := case
       when new.product is null then '{}'::text[]
       else array[new.product]
     end;
   else
-    -- Thứ tự cố định để `product` không đổi chỉ vì mảng được ghi khác thứ tự.
-    new.products := array(
-      select p from unnest(array['pc', 'health']) as p where p = any (new.products)
-    );
-    new.product := new.products[1];
+    requested := new.products;
   end if;
+
+  -- Giá trị lạ phải bị chặn chứ không được lặng lẽ biến thành Unknown.
+  if exists (
+    select 1 from unnest(requested) as r
+    where r not in ('pc', 'health', 'life', 'unknown')
+  ) then
+    raise exception 'LEAD_PRODUCT_INVALID';
+  end if;
+
+  -- Thứ tự cố định để `product` không đổi chỉ vì mảng được ghi khác thứ tự.
+  -- Có product thật thì bỏ Unknown; không còn gì thì là Unknown.
+  new.products := array(
+    select p from unnest(array['pc', 'health', 'life']) as p where p = any (requested)
+  );
+  if cardinality(new.products) = 0 then
+    new.products := array['unknown'];
+  end if;
+  new.product := new.products[1];
   return new;
 end $$;
 
@@ -6870,7 +6894,7 @@ begin
   if actor_value is null then
     raise exception 'LEAD_ACTOR_REQUIRED';
   end if;
-  if p_product is null or p_product not in ('pc', 'health') then
+  if p_product is null or p_product not in ('pc', 'health', 'life', 'unknown') then
     raise exception 'LEAD_PRODUCT_INVALID';
   end if;
 
@@ -6964,7 +6988,7 @@ begin
   if actor_value is null then
     raise exception 'LEAD_ACTOR_REQUIRED';
   end if;
-  if p_product is null or p_product not in ('pc', 'health') then
+  if p_product is null or p_product not in ('pc', 'health', 'life', 'unknown') then
     raise exception 'LEAD_PRODUCT_INVALID';
   end if;
 

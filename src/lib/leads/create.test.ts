@@ -38,9 +38,9 @@ describe("parseCreateLeadInput", () => {
   });
 
   it("requires a valid product and phone", () => {
-    expect(parseCreateLeadInput({ product: "life", phone: "555" })).toEqual({
+    expect(parseCreateLeadInput({ product: "aca", phone: "555" })).toEqual({
       ok: false,
-      error: "Unknown product.",
+      error: "Invalid product.",
     });
     expect(parseCreateLeadInput({ product: "pc", phone: "not a phone" })).toEqual({
       ok: false,
@@ -172,9 +172,11 @@ describe("buildNewLeadRow", () => {
     expect(row.assigned_by_email).toBeNull();
   });
 
-  it("products suy ra từ product, rỗng khi chưa phân loại", () => {
+  it("products suy ra từ product, Unknown khi chưa phân loại", () => {
     expect(buildNewLeadRow(base).products).toEqual(["health"]);
-    expect(buildNewLeadRow({ ...base, product: null }).products).toEqual([]);
+    const unclassified = buildNewLeadRow({ ...base, product: null });
+    expect(unclassified.products).toEqual(["unknown"]);
+    expect(unclassified.product).toBe("unknown");
   });
 
   it("chỉ kèm client_request_id khi có", () => {
