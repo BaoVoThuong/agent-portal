@@ -4339,6 +4339,9 @@ create table if not exists enrollment_records (
   due_date date,
   stage_id uuid references enrollment_options(id) on delete restrict,
   carrier_id uuid references enrollment_options(id) on delete restrict,
+  -- Carrier nhiều hãng; `carrier_id` luôn = carrier_ids[1] do trigger
+  -- enrollment_sync_carrier_ids giữ (2026-09-29-enrollment-multi-carrier.sql).
+  carrier_ids uuid[] not null default '{}'::uuid[],
   platform_id uuid references enrollment_options(id) on delete restrict,
   consent_id uuid references enrollment_options(id) on delete restrict,
   payment_status_id uuid references enrollment_options(id) on delete restrict,
@@ -4569,7 +4572,7 @@ begin
     and record_row.program = option_program
     and (
       record_row.stage_id = p_option_id
-      or record_row.carrier_id = p_option_id
+      or p_option_id = any (record_row.carrier_ids)
       or record_row.platform_id = p_option_id
       or record_row.consent_id = p_option_id
       or record_row.payment_status_id = p_option_id
@@ -4635,7 +4638,7 @@ as $$
   from (
     select stage_id as option_id from enrollment_records where archived_at is null
     union all
-    select carrier_id from enrollment_records where archived_at is null
+    select unnest(carrier_ids) from enrollment_records where archived_at is null
     union all
     select platform_id from enrollment_records where archived_at is null
     union all
@@ -4727,6 +4730,90 @@ alter table enrollment_records
   );
 create index if not exists enrollment_records_program_updated_idx
   on enrollment_records (program, archived_at, updated_at desc);
+
+-- Carrier nhiều hãng (2026-09-29-enrollment-multi-carrier.sql). `carrier_ids`
+-- là nguồn sự thật; trigger giữ `carrier_id` = carrier_ids[1] để khoá ngoại,
+-- ràng buộc Medicaid và mọi đường ghi một hãng kiểu cũ vẫn đúng. Bản TS của
+-- luật: src/lib/enrollment/carriers.ts.
+alter table enrollment_records
+  add column if not exists carrier_ids uuid[] not null default '{}'::uuid[];
+update enrollment_records
+set carrier_ids = array[carrier_id]
+where carrier_id is not null
+  and cardinality(carrier_ids) = 0;
+create index if not exists enrollment_records_carrier_ids_idx
+  on enrollment_records using gin (carrier_ids);
+
+create or replace function enrollment_sync_carrier_ids()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  requested uuid[];
+  previous uuid[];
+begin
+  if tg_op = 'UPDATE' and new.carrier_ids is distinct from old.carrier_ids then
+    -- Ghi mảng: mảng là nguồn sự thật, kể cả mảng rỗng (= bỏ hết hãng).
+    requested := coalesce(new.carrier_ids, '{}'::uuid[]);
+  elsif tg_op = 'UPDATE' and new.carrier_id is distinct from old.carrier_id then
+    -- Đường ghi một hãng kiểu cũ: chọn hãng mới là bỏ danh sách cũ.
+    requested := case when new.carrier_id is null then '{}'::uuid[]
+                      else array[new.carrier_id] end;
+  elsif tg_op = 'INSERT' and cardinality(coalesce(new.carrier_ids, '{}'::uuid[])) = 0 then
+    requested := case when new.carrier_id is null then '{}'::uuid[]
+                      else array[new.carrier_id] end;
+  else
+    requested := coalesce(new.carrier_ids, '{}'::uuid[]);
+  end if;
+
+  -- Bỏ null, bỏ trùng, giữ thứ tự chọn.
+  requested := array(
+    select item.id
+    from unnest(requested) with ordinality as item(id, ord)
+    where item.id is not null
+    group by item.id
+    order by min(item.ord)
+  );
+
+  -- Chỉ kiểm hãng MỚI thêm vào: hồ sơ đang giữ một hãng (kể cả đã archive)
+  -- vẫn sửa được các trường khác.
+  previous := case when tg_op = 'UPDATE'
+                   then coalesce(old.carrier_ids, '{}'::uuid[])
+                   else '{}'::uuid[] end;
+  if exists (
+    select 1
+    from unnest(requested) as item(id)
+    where not (item.id = any (previous))
+      and not exists (
+        select 1
+        from enrollment_options option_row
+        join enrollment_option_sets option_set on option_set.id = option_row.set_id
+        where option_row.id = item.id
+          and option_set.key = 'carrier'
+          and option_set.program = new.program
+      )
+  ) then
+    raise exception 'ENROLLMENT_CARRIER_INVALID';
+  end if;
+
+  new.carrier_ids := requested;
+  new.carrier_id := requested[1];
+  return new;
+end;
+$$;
+
+drop trigger if exists enrollment_sync_carrier_ids_trg on enrollment_records;
+create trigger enrollment_sync_carrier_ids_trg
+  before insert or update of carrier_ids, carrier_id on enrollment_records
+  for each row execute function enrollment_sync_carrier_ids();
+
+alter table enrollment_records
+  drop constraint if exists enrollment_records_carrier_ids_sync_check;
+alter table enrollment_records
+  add constraint enrollment_records_carrier_ids_sync_check check (
+    carrier_id is not distinct from carrier_ids[1]
+  );
 
 -- One row represents one visit to a stage. Ownership changes do not split a visit;
 -- agent_email is the owner snapshot when that visit begins. Terminal transitions
@@ -5010,7 +5097,7 @@ begin
   from jsonb_object_keys(coalesce(p_patch, '{}'::jsonb)) as k
   where k <> all (array[
     'client_name','description','fub_link','due_date',
-    'stage_id','carrier_id','platform_id','consent_id',
+    'stage_id','carrier_id','carrier_ids','platform_id','consent_id',
     'payment_status_id','aca_status_id','pcp_2025','pcp_2026',
     'agent_email','caller_email','responsible_enroll_email',
     'qc_checked_by_email','qc_checked_at','qc_stale_notified_at',
@@ -5070,6 +5157,9 @@ begin
     due_date = case when p_patch ? 'due_date' then (p_patch->>'due_date')::date else due_date end,
     stage_id = next_stage_id,
     carrier_id = case when p_patch ? 'carrier_id' then (p_patch->>'carrier_id')::uuid else carrier_id end,
+    carrier_ids = case when p_patch ? 'carrier_ids'
+      then array(select item.value::uuid from jsonb_array_elements_text(coalesce(nullif(p_patch->'carrier_ids', 'null'::jsonb), '[]'::jsonb)) with ordinality as item(value, ord) order by item.ord)
+      else carrier_ids end,
     platform_id = case when p_patch ? 'platform_id' then (p_patch->>'platform_id')::uuid else platform_id end,
     consent_id = case when p_patch ? 'consent_id' then (p_patch->>'consent_id')::uuid else consent_id end,
     payment_status_id = case when p_patch ? 'payment_status_id' then (p_patch->>'payment_status_id')::uuid else payment_status_id end,
@@ -5172,7 +5262,7 @@ begin
   from jsonb_object_keys(coalesce(p_record, '{}'::jsonb)) as k
   where k <> all (array[
     'program','client_name','description','fub_link','due_date',
-    'stage_id','carrier_id','platform_id','consent_id',
+    'stage_id','carrier_id','carrier_ids','platform_id','consent_id',
     'payment_status_id','aca_status_id','pcp_2025','pcp_2026',
     'agent_email','caller_email','responsible_enroll_email',
     'qc_checked_by_email','qc_checked_at','closed_at','custom_values'
@@ -5187,7 +5277,7 @@ begin
 
   insert into enrollment_records (
     program, client_name, description, fub_link, due_date,
-    stage_id, carrier_id, platform_id, consent_id, payment_status_id, aca_status_id,
+    stage_id, carrier_id, carrier_ids, platform_id, consent_id, payment_status_id, aca_status_id,
     pcp_2025, pcp_2026, agent_email, caller_email, responsible_enroll_email,
     qc_checked_by_email, qc_checked_at, closed_at, custom_values,
     created_by_email, created_at, updated_by_email, updated_at,
@@ -5197,6 +5287,7 @@ begin
     coalesce(p_record->>'program', 'aca'), p_record->>'client_name', p_record->>'description',
     p_record->>'fub_link', (p_record->>'due_date')::date,
     (p_record->>'stage_id')::uuid, (p_record->>'carrier_id')::uuid,
+    array(select item.value::uuid from jsonb_array_elements_text(coalesce(nullif(p_record->'carrier_ids', 'null'::jsonb), '[]'::jsonb)) with ordinality as item(value, ord) order by item.ord),
     (p_record->>'platform_id')::uuid, (p_record->>'consent_id')::uuid,
     (p_record->>'payment_status_id')::uuid, (p_record->>'aca_status_id')::uuid,
     p_record->>'pcp_2025', p_record->>'pcp_2026',
@@ -6069,7 +6160,7 @@ with system_column_seed(scope, key, label, type, position, hidden_default) as (
     ('aca', 'caller', 'Caller', 'person', 40, false),
     ('aca', 'responsible', 'Responsible Enroll', 'person', 50, false),
     ('aca', 'payment', 'Payment status', 'dropdown', 60, false),
-    ('aca', 'carrier', 'Carrier', 'dropdown', 70, false),
+    ('aca', 'carrier', 'Carrier', 'multiselect', 70, false),
     ('aca', 'aca', 'AC', 'dropdown', 80, false),
     ('aca', 'consent', 'Consent', 'checkbox', 90, false),
     ('aca', 'platform', 'Platform', 'dropdown', 100, false),
@@ -6087,7 +6178,7 @@ with system_column_seed(scope, key, label, type, position, hidden_default) as (
     ('medicare', 'agent', 'Agent', 'person', 25, false),
     ('medicare', 'stage', 'Stage', 'dropdown', 30, false),
     ('medicare', 'responsible', 'Assignee', 'person', 50, false),
-    ('medicare', 'carrier', 'Carrier', 'dropdown', 70, false),
+    ('medicare', 'carrier', 'Carrier', 'multiselect', 70, false),
     ('medicare', 'pcp2025', 'PCP', 'text', 110, false),
     ('medicare', 'due', 'Due Date', 'date', 130, false),
     ('medicare', 'fub', 'FUB Link', 'link', 140, false),

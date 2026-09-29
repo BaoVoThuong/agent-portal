@@ -2,7 +2,7 @@ import type { EnrollmentOptionsBySet } from "./options";
 
 export const ENROLLMENT_OPTION_FORM_FIELDS = [
   ["stage", "stage_id"],
-  ["carrier", "carrier_id"],
+  // Carrier không nằm ở đây: form giữ danh sách hãng trong state riêng.
   ["platform", "platform_id"],
   ["consent", "consent_id"],
   ["payment_status", "payment_status_id"],

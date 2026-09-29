@@ -24,6 +24,11 @@ import {
   broadcastEnrollmentRoom,
   readEnrollmentMutationSourceId,
 } from "@/lib/enrollment/realtime";
+import {
+  enrollmentCarrierIds,
+  readCarrierIdsInput,
+  sameCarrierIds,
+} from "@/lib/enrollment/carriers";
 import { sanitizeEnrollmentPatchForProgram } from "@/lib/enrollment/program-fields";
 import { parseEnrollmentDate } from "@/lib/enrollment/dates";
 import {
@@ -74,9 +79,9 @@ const TEXT_FIELDS = [
 
 const CONTENT_FIELDS = new Set(["client_name", "description", "fub_link"]);
 
+// Carrier không nằm ở đây: nó chọn được nhiều hãng — xem carriers.ts.
 const OPTION_FIELDS = {
   stage_id: "stage",
-  carrier_id: "carrier",
   platform_id: "platform",
   consent_id: "consent",
   payment_status_id: "payment_status",
@@ -203,6 +208,33 @@ export async function PATCH(request: Request, { params }: Ctx) {
     if (next !== current[field]) {
       patch[field] = next;
       changedFields.push(field);
+    }
+  }
+
+  const carrierInput = readCarrierIdsInput(body);
+  if (carrierInput === null) {
+    return NextResponse.json({ error: "Invalid Carrier option." }, { status: 400 });
+  }
+  if (carrierInput !== undefined) {
+    const currentCarrierIds = enrollmentCarrierIds(current);
+    // Hãng hồ sơ ĐANG có thì giữ được kể cả khi đã bị archive: tick thêm một
+    // hãng khác gửi lên cả danh sách, và từ chối cả lượt chỉ vì hãng cũ đã
+    // archive là khoá cứng Carrier của mọi hồ sơ từng dùng nó.
+    const invalid = carrierInput.find(
+      (carrierId) =>
+        !isOptionInSet(optionById, carrierId, "carrier") &&
+        !currentCarrierIds.includes(carrierId)
+    );
+    if (invalid) {
+      return NextResponse.json(
+        { error: `Invalid ${ENROLLMENT_OPTION_LABELS.carrier} option.` },
+        { status: 400 }
+      );
+    }
+    if (!sameCarrierIds(carrierInput, currentCarrierIds)) {
+      patch.carrier_ids = carrierInput;
+      // Giữ tên trường cũ trong nhật ký hoạt động: nó nói "Carrier đã đổi".
+      changedFields.push("carrier_id");
     }
   }
 
@@ -338,7 +370,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
     fub_link: "fub",
     due_date: "due",
     stage_id: "stage",
-    carrier_id: "carrier",
+    carrier_ids: "carrier",
     platform_id: "platform",
     consent_id: "consent",
     payment_status_id: "payment",
@@ -421,7 +453,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   if ("fub_link" in patch) requiredFieldValues.fub = patch.fub_link;
   if ("due_date" in patch) requiredFieldValues.due = patch.due_date;
   if ("stage_id" in patch) requiredFieldValues.stage = patch.stage_id;
-  if ("carrier_id" in patch) requiredFieldValues.carrier = patch.carrier_id;
+  if ("carrier_ids" in patch) requiredFieldValues.carrier = patch.carrier_ids;
   if ("platform_id" in patch) requiredFieldValues.platform = patch.platform_id;
   if ("consent_id" in patch) requiredFieldValues.consent = patch.consent_id;
   if ("payment_status_id" in patch) requiredFieldValues.payment = patch.payment_status_id;

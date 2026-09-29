@@ -16,8 +16,11 @@ import {
   type SupabaseLikeError,
 } from "./schema-errors";
 
-export const ENROLLMENT_RECORD_COLUMNS =
+/** Bộ cột trước khi có Carrier nhiều hãng; vẫn dùng khi DB chưa chạy rollout. */
+const ENROLLMENT_RECORD_COLUMNS_WITHOUT_CARRIER_IDS =
   "id,display_number,program,client_name,description,fub_link,due_date,stage_id,carrier_id,platform_id,consent_id,payment_status_id,aca_status_id,pcp_2025,pcp_2026,custom_values,agent_email,caller_email,responsible_enroll_email,qc_checked_by_email,qc_checked_at,due_soon_notified_at,overdue_notified_at,overdue_reminded_at,qc_stale_notified_at,closed_at,created_by_email,created_at,updated_by_email,updated_at,archived_at,stage_entered_at,stage_entered_source,last_activity_at,last_activity_by_email";
+export const ENROLLMENT_RECORD_COLUMNS =
+  `${ENROLLMENT_RECORD_COLUMNS_WITHOUT_CARRIER_IDS},carrier_ids`;
 const ENROLLMENT_RECORD_COLUMNS_WITHOUT_DESCRIPTION =
   "id,program,client_name,fub_link,due_date,stage_id,carrier_id,platform_id,consent_id,payment_status_id,aca_status_id,pcp_2025,pcp_2026,custom_values,agent_email,caller_email,responsible_enroll_email,qc_checked_by_email,qc_checked_at,due_soon_notified_at,overdue_notified_at,overdue_reminded_at,qc_stale_notified_at,closed_at,created_by_email,created_at,updated_by_email,updated_at,archived_at,stage_entered_at,stage_entered_source,last_activity_at,last_activity_by_email";
 const ENROLLMENT_RECORD_COLUMNS_LEGACY =
@@ -137,22 +140,39 @@ export function isMissingEnrollmentTrackingColumn(error: SupabaseLikeError): boo
   return isEnrollmentSchemaOutOfDate(error);
 }
 
+/**
+ * Cột `carrier_ids` chưa có — code đã deploy mà rollout
+ * 2026-09-29-enrollment-multi-carrier.sql chưa chạy. Đọc lại bằng bộ cột cũ để
+ * cả màn Enrollment không sập vì một cột mới: thiếu mảng thì
+ * enrollmentCarrierIds() rơi về `carrier_id`.
+ */
+function isMissingCarrierIdsColumn(error: SupabaseLikeError): boolean {
+  return (
+    (error?.code === "42703" || error?.code === "PGRST204") &&
+    (error?.message ?? "").toLowerCase().includes("carrier_ids")
+  );
+}
+
 export async function fetchEnrollmentRecords(
   program: EnrollmentProgram,
   scope: EnrollmentScope
 ): Promise<EnrollmentRecordWithStats[]> {
   const supabase = getSupabaseAdmin();
   const queryClient = supabase as unknown as LooseSupabaseClient;
-  const primaryQuery = queryClient
-    .from("enrollment_records")
-    .select(ENROLLMENT_RECORD_COLUMNS, { count: "exact" })
-    .eq("program", program)
-    .is("archived_at", null);
-  const { data, error, count } = await applyEnrollmentScope(
-    primaryQuery,
-    scope
-  )
-    .order("updated_at", { ascending: false });
+  const readPrimary = (columns: string) =>
+    applyEnrollmentScope(
+      queryClient
+        .from("enrollment_records")
+        .select(columns, { count: "exact" })
+        .eq("program", program)
+        .is("archived_at", null),
+      scope
+    ).order("updated_at", { ascending: false });
+  let primary = await readPrimary(ENROLLMENT_RECORD_COLUMNS);
+  if (isMissingCarrierIdsColumn(primary.error)) {
+    primary = await readPrimary(ENROLLMENT_RECORD_COLUMNS_WITHOUT_CARRIER_IDS);
+  }
+  const { data, error, count } = primary;
   let rows: unknown[] | null = data;
   let queryError: SupabaseLikeError = error;
   let rowCount: number | null | undefined = count;
@@ -238,12 +258,18 @@ export async function fetchEnrollmentRecordById(
 ): Promise<EnrollmentRecordWithStats | null> {
   const supabase = getSupabaseAdmin();
   const queryClient = supabase as unknown as LooseSupabaseClient;
-  const { data, error } = await queryClient
-    .from("enrollment_records")
-    .select(ENROLLMENT_RECORD_COLUMNS)
-    .eq("id", id)
-    .is("archived_at", null)
-    .maybeSingle();
+  const readPrimary = (columns: string) =>
+    queryClient
+      .from("enrollment_records")
+      .select(columns)
+      .eq("id", id)
+      .is("archived_at", null)
+      .maybeSingle();
+  let primary = await readPrimary(ENROLLMENT_RECORD_COLUMNS);
+  if (isMissingCarrierIdsColumn(primary.error)) {
+    primary = await readPrimary(ENROLLMENT_RECORD_COLUMNS_WITHOUT_CARRIER_IDS);
+  }
+  const { data, error } = primary;
   let row: unknown | null = data;
   let queryError: SupabaseLikeError = error;
   if (isMissingEnrollmentTrackingColumn(error)) {

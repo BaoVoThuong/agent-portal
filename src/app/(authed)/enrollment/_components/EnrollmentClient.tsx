@@ -98,6 +98,7 @@ import {
   INAPPLICABLE_FIELDS_BY_PROGRAM,
   isEnrollmentFieldApplicable,
 } from "@/lib/enrollment/program-fields";
+import { enrollmentCarrierIds, toggleCarrierId } from "@/lib/enrollment/carriers";
 import {
   browserFilterStorage,
   keepKnownStrings,
@@ -2716,13 +2717,14 @@ function EnrollmentRowItem({
           style={cellStyleFor("carrier")}
           className={cellClassName("carrier", "flex shrink-0 items-center px-3 py-2.5")}
         >
-          <EnrollmentOptionMenu
-            optionId={record.carrier_id}
+          <EnrollmentOptionMultiMenu
+            optionIds={enrollmentCarrierIds(record)}
             options={optionsBySet.carrier}
+            optionsById={optionsById}
             emptyLabel="No carrier"
             surface="list"
             canEdit={capabilities.canEditFields}
-            onChange={(value) => void onPatch(record.id, { carrier_id: value })}
+            onChange={(carrierIds) => void onPatch(record.id, { carrier_ids: carrierIds })}
           />
         </div>
       ) : null}
@@ -3141,6 +3143,132 @@ function EnrollmentOptionMenu({
                         {choice.label}
                       </span>
                     )}
+                    {state.selected ? (
+                      <Check className="ml-auto h-4 w-4 shrink-0 text-[#0c66e4]" />
+                    ) : null}
+                  </>
+                );
+              }}
+            />,
+            document.body
+          )
+        : null}
+    </span>
+  );
+}
+
+// Carrier chọn được NHIỀU hãng (xem lib/enrollment/carriers.ts). Cùng giao diện
+// với EnrollmentOptionMenu, khác hai chỗ: menu tick được nhiều dòng và không đóng
+// sau mỗi cú bấm; ô trong bảng chỉ hiện hãng đầu kèm "+N" để dòng không cao lên,
+// còn drawer/form hiện đủ và tự xuống dòng.
+function EnrollmentOptionMultiMenu({
+  optionIds,
+  options,
+  optionsById,
+  emptyLabel,
+  placeholderLabel,
+  surface = "form-bare",
+  canEdit = true,
+  onChange,
+}: {
+  optionIds: readonly string[];
+  /** Lựa chọn đang hoạt động — những gì menu cho tick. */
+  options: EnrollmentOption[];
+  /** Tra nhãn cho cả hãng đã archive mà hồ sơ vẫn đang giữ. */
+  optionsById?: ReadonlyMap<string, EnrollmentOption>;
+  emptyLabel: string;
+  placeholderLabel?: string;
+  surface?: "list" | "form-bare" | "form-field";
+  canEdit?: boolean;
+  onChange: (next: string[]) => void;
+}) {
+  const { isOpen, toggle, triggerRef, menuRef, menuStyle, closeMenuForTab } =
+    useAnchoredMenu();
+  const selected = optionIds
+    .map((id) => optionsById?.get(id) ?? options.find((item) => item.id === id) ?? null)
+    .filter((option): option is EnrollmentOption => option !== null);
+  const isList = surface === "list";
+  const drawsOwnChrome = surface === "form-field";
+  const emptyDisplayLabel = placeholderLabel ?? emptyLabel;
+  const menuLabel = emptyDisplayLabel.replace(/^(No|Select)\s+/i, "");
+  const identityBadgeClass =
+    "inline-flex max-w-full min-w-0 items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]";
+  const badge = (option: EnrollmentOption | null, label: string, key: string) => {
+    const style = enrollmentIdentityBadgeStyle(option);
+    return (
+      <span
+        key={key}
+        className={identityBadgeClass}
+        style={{ backgroundColor: style.bg, color: style.fg }}
+        title={label}
+      >
+        {label}
+      </span>
+    );
+  };
+  const shown = isList ? selected.slice(0, 1) : selected;
+  const hidden = selected.length - shown.length;
+
+  return (
+    <span className="block min-w-0">
+      <button
+        ref={triggerRef}
+        type="button"
+        disabled={!canEdit}
+        onClick={(event) => {
+          event.stopPropagation();
+          toggle();
+        }}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        title={
+          selected.length > 0
+            ? selected.map((option) => option.label).join(", ")
+            : emptyDisplayLabel
+        }
+        className={
+          drawsOwnChrome
+            ? `${DETAIL_FIELD_BUTTON_CLASS} !h-auto min-h-9`
+            : isList
+              ? "inline-flex max-w-full min-w-0 items-center gap-1 disabled:cursor-not-allowed disabled:opacity-60"
+              : "flex w-full min-w-0 items-center disabled:cursor-not-allowed disabled:opacity-60"
+        }
+      >
+        {selected.length > 0 ? (
+          <span
+            className={`flex min-w-0 items-center gap-1 ${isList ? "" : "flex-1 flex-wrap"}`}
+          >
+            {shown.map((option) => badge(option, option.label, option.id))}
+            {hidden > 0 ? badge(null, `+${hidden}`, "more") : null}
+          </span>
+        ) : isList ? (
+          // Cùng badge trung tính mà ô một giá trị dùng khi trống.
+          badge(null, emptyDisplayLabel, "empty")
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-left font-normal text-[#97a0af]">
+            {emptyDisplayLabel}
+          </span>
+        )}
+        {isList ? null : <ChevronDown className="ml-auto h-4 w-4 shrink-0 opacity-60" />}
+      </button>
+      {isOpen
+        ? createPortal(
+            <SearchableListboxPanel
+              menuRef={menuRef}
+              menuStyle={menuStyle}
+              ariaLabel={menuLabel}
+              queryPlaceholder={`Search ${menuLabel.toLowerCase()}…`}
+              emptyMessage={`No matching ${menuLabel.toLowerCase()}.`}
+              choices={options.map((item) => ({ value: item.id, label: item.label }))}
+              multi
+              selectedValues={optionIds}
+              onSelect={(value) => onChange(toggleCarrierId(optionIds, value))}
+              onTabExit={closeMenuForTab}
+              renderChoice={(choice, state) => {
+                const choiceOption = options.find((item) => item.id === choice.value) ?? null;
+                return (
+                  <>
+                    {badge(choiceOption, choice.label, choice.value)}
                     {state.selected ? (
                       <Check className="ml-auto h-4 w-4 shrink-0 text-[#0c66e4]" />
                     ) : null}
@@ -4175,13 +4303,14 @@ function EnrollmentDrawer({
                   label={columnByKey.get("carrier")?.label ?? "Carrier"}
                   required={requiredColumnKeys.has("carrier")}
                 >
-                  <EnrollmentOptionMenu
-                    optionId={record.carrier_id}
+                  <EnrollmentOptionMultiMenu
+                    optionIds={enrollmentCarrierIds(record)}
                     options={optionsBySet.carrier}
+                    optionsById={optionsById}
                     emptyLabel="No carrier"
                     surface="form-field"
                     canEdit={capabilities.canEditFields}
-                    onChange={(value) => void onPatch({ carrier_id: value })}
+                    onChange={(carrierIds) => void onPatch({ carrier_ids: carrierIds })}
                   />
                 </FieldBlock>
               ) : null}
@@ -4450,7 +4579,7 @@ const ENROLLMENT_FORM_FIELD_BY_KEY: Record<string, string> = {
   fub: "fub_link",
   due: "due_date",
   stage: "stage_id",
-  carrier: "carrier_id",
+  // Không có "carrier": Carrier nhiều hãng nằm ở state `carrierIds` riêng.
   platform: "platform_id",
   consent: "consent_id",
   payment: "payment_status_id",
@@ -4500,7 +4629,6 @@ function NewEnrollmentDialog({
     fub_link: "",
     due_date: "",
     stage_id: optionsBySet.stage[0]?.id ?? "",
-    carrier_id: "",
     platform_id: "",
     consent_id: "",
     payment_status_id: "",
@@ -4513,6 +4641,8 @@ function NewEnrollmentDialog({
     caller_email: "",
     responsible_enroll_email: "",
   });
+  /** Carrier chọn được nhiều hãng nên không nằm trong `form` (chỉ chứa chuỗi). */
+  const [carrierIds, setCarrierIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [invalidKeys, setInvalidKeys] = useState<ReadonlySet<string>>(new Set());
@@ -4547,6 +4677,19 @@ function NewEnrollmentDialog({
     return () => window.clearTimeout(timer);
   }, [form, optionsBySet]);
 
+  // Cùng luật với effect trên, cho danh sách hãng: hãng vừa bị archive trong
+  // lúc form đang mở thì gỡ ra và báo, thay vì để server từ chối lúc bấm Create.
+  useEffect(() => {
+    const active = new Set(optionsBySet.carrier.map((option) => option.id));
+    if (carrierIds.every((id) => active.has(id))) return;
+    const timer = window.setTimeout(() => {
+      setCarrierIds((current) => current.filter((id) => active.has(id)));
+      setInvalidKeys((current) => new Set([...current, "carrier"]));
+      setError("An option used by this form was archived. Please choose a replacement.");
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [carrierIds, optionsBySet]);
+
   useEffect(() => {
     ticketInputRef.current?.focus();
   }, []);
@@ -4578,22 +4721,24 @@ function NewEnrollmentDialog({
     if (value === null || value === undefined) return false;
     return String(value).trim() !== "";
   }
-  function isInvalid(key: string): boolean {
+  /** Giá trị đang nhập cho một khoá cột — cho kiểm tra Required. */
+  function valueForKey(key: string): unknown {
+    if (key === "stage") return form.stage_id || initialStage?.id || "";
+    if (key === "carrier") return carrierIds;
     const formField = ENROLLMENT_FORM_FIELD_BY_KEY[key];
-    const value =
-      key === "stage"
-        ? form.stage_id || initialStage?.id || ""
-        : formField
-          ? form[formField]
-          : customValues[key];
-    return (
-      invalidKeys.has(key) &&
-      !isFilled(value)
-    );
+    return formField ? form[formField] : customValues[key];
+  }
+
+  function isInvalid(key: string): boolean {
+    return invalidKeys.has(key) && !isFilled(valueForKey(key));
   }
 
   function update(field: string, value: string | null) {
     setForm((current) => ({ ...current, [field]: value ?? "" }));
+  }
+
+  function updateCarriers(next: string[]) {
+    setCarrierIds(next);
   }
 
   function updateCustom(key: string, value: unknown) {
@@ -4607,16 +4752,7 @@ function NewEnrollmentDialog({
   }
 
   async function submit() {
-    const missing = [...requiredColumnKeys].filter((key) => {
-      const formField = ENROLLMENT_FORM_FIELD_BY_KEY[key];
-      const value =
-        key === "stage"
-          ? form.stage_id || initialStage?.id || ""
-          : formField
-            ? form[formField]
-            : customValues[key];
-      return !isFilled(value);
-    });
+    const missing = [...requiredColumnKeys].filter((key) => !isFilled(valueForKey(key)));
     if (missing.length > 0) {
       setInvalidKeys(new Set(missing));
       setError(`Please complete the required fields: ${missing.join(", ")}.`);
@@ -4636,10 +4772,15 @@ function NewEnrollmentDialog({
       // Đừng trông vào việc UI đã ẩn ô nhập để giữ dữ liệu lạc chương trình ra
       // ngoài hồ sơ: xoá thẳng khỏi payload theo đúng bảng chính sách dùng
       // chung với API (INAPPLICABLE_FIELDS_BY_PROGRAM).
-      const payload: Record<string, unknown> = { ...form, custom_values: customValues };
+      const payload: Record<string, unknown> = {
+        ...form,
+        carrier_ids: carrierIds,
+        custom_values: customValues,
+      };
       for (const field of INAPPLICABLE_FIELDS_BY_PROGRAM[program]) {
         payload[field] = "";
       }
+      if (!isEnrollmentFieldApplicable(program, "carrier_id")) payload.carrier_ids = [];
       await onCreate(
         {
           ...payload,
@@ -4861,13 +5002,13 @@ function NewEnrollmentDialog({
                       required={requiredColumnKeys.has("carrier")}
                       invalid={isInvalid("carrier")}
                     >
-                      <EnrollmentOptionMenu
-                        optionId={form.carrier_id || null}
+                      <EnrollmentOptionMultiMenu
+                        optionIds={carrierIds}
                         options={optionsBySet.carrier}
                         emptyLabel="No carrier"
                         placeholderLabel="Select carrier"
                         surface="form-bare"
-                        onChange={(value) => update("carrier_id", value)}
+                        onChange={updateCarriers}
                       />
                     </CreatePropertyField>
                   ) : null}
@@ -5641,7 +5782,16 @@ function filterRecords(
     ) {
       return false;
     }
-    if (filters.carrier.length > 0 && !filters.carrier.includes(record.carrier_id ?? "")) return false;
+    // Hồ sơ nhiều hãng khớp khi CÓ MỘT hãng bất kỳ nằm trong bộ lọc. Hồ sơ chưa
+    // có hãng khớp giá trị rỗng "", như khi Carrier còn là một ô.
+    if (filters.carrier.length > 0) {
+      const carrierIds = enrollmentCarrierIds(record);
+      const matches =
+        carrierIds.length === 0
+          ? filters.carrier.includes("")
+          : carrierIds.some((id) => filters.carrier.includes(id));
+      if (!matches) return false;
+    }
     const createdDate = record.created_at.slice(0, 10);
     if (filters.createdFrom && createdDate < filters.createdFrom) return false;
     if (filters.createdTo && createdDate > filters.createdTo) return false;
@@ -5698,10 +5848,13 @@ function sortValue(
       return record.payment_status_id
         ? optionLabel(record.payment_status_id, optionsById).toLowerCase()
         : null;
-    case "carrier":
-      return record.carrier_id
-        ? optionLabel(record.carrier_id, optionsById).toLowerCase()
+    case "carrier": {
+      // Sắp theo toàn bộ danh sách hãng, hãng đầu đứng trước — giống thứ ô hiển thị.
+      const carrierIds = enrollmentCarrierIds(record);
+      return carrierIds.length > 0
+        ? carrierIds.map((id) => optionLabel(id, optionsById)).join(", ").toLowerCase()
         : null;
+    }
     case "aca":
       return record.aca_status_id
         ? optionLabel(record.aca_status_id, optionsById).toLowerCase()

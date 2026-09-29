@@ -83,9 +83,19 @@ export function sanitizeEnrollmentPatchForProgram<T extends Record<string, unkno
     if (field in next || current?.[field] != null) {
       next[field] = null;
     }
+    // Carrier nhiều hãng: `carrier_ids` là cột NOT NULL nên không gán null được.
+    // Bỏ hẳn nó khỏi patch — `carrier_id = null` ở trên đã đủ, trigger trong DB
+    // tự làm rỗng mảng theo.
+    const companion = ARRAY_COMPANION_FIELDS[field];
+    if (companion) delete next[companion];
   }
   return next as T;
 }
+
+/** Cột mảng đi kèm một trường của chính sách trên. */
+const ARRAY_COMPANION_FIELDS: Partial<Record<EnrollmentRecordField, string>> = {
+  carrier_id: "carrier_ids",
+};
 
 /** Mọi chương trình đều phải khai — dùng trong test để chặn việc quên. */
 export function programsMissingFieldPolicy(): EnrollmentProgram[] {

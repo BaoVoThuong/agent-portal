@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { loadEnrollmentActor } from "@/lib/enrollment/access";
+import { enrollmentCarrierIds } from "@/lib/enrollment/carriers";
 import { optionById } from "@/lib/enrollment/options";
 import {
   fetchEnrollmentOptionData,
@@ -170,7 +171,7 @@ function enrollmentExportValue(record: EnrollmentRecordWithStats, key: string): 
     case "payment":
       return record.payment_status_id;
     case "carrier":
-      return record.carrier_id;
+      return enrollmentCarrierIds(record);
     case "aca":
       return record.aca_status_id;
     case "consent":
@@ -209,6 +210,12 @@ function formatEnrollmentExportValue(
   }
 ): string {
   if (column.is_system) {
+    // Nhiều hãng thì ghi các nhãn cách nhau bằng dấu phẩy — đúng dạng Import đọc.
+    if (Array.isArray(raw)) {
+      return raw
+        .map((id) => ctx.optionLabels.get(String(id)) ?? String(id))
+        .join(", ");
+    }
     if (["stage", "payment", "carrier", "aca", "consent", "platform"].includes(column.key)) {
       return raw ? ctx.optionLabels.get(String(raw)) ?? String(raw) : "";
     }

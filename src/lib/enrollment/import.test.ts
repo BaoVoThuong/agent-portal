@@ -142,7 +142,41 @@ describe("parseEnrollmentImportRows", () => {
       CTX
     );
     expect(parsed.rows[0].values.stage).toBe("stage-1");
-    expect(parsed.rows[0].values.carrier).toBe("carrier-1");
+    // Carrier chọn được nhiều hãng nên luôn là mảng, kể cả khi chỉ có một.
+    expect(parsed.rows[0].values.carrier).toEqual(["carrier-1"]);
+  });
+
+  it("Carrier nhận nhiều hãng cách nhau bằng dấu phẩy, bỏ trùng, giữ thứ tự", () => {
+    const multiCtx: EnrollmentImportContext = {
+      ...CTX,
+      optionIdByLabel: new Map([
+        ...CTX.optionIdByLabel,
+        ["carrier", new Map([["ambetter", "carrier-1"], ["oscar", "carrier-2"]])],
+      ]),
+    };
+    const parsed = parseEnrollmentImportRows(
+      [{ "Client Name": "A", Carrier: "Oscar, Ambetter, oscar" }],
+      matched,
+      COLUMNS,
+      multiCtx
+    );
+    expect(parsed.rows[0].values.carrier).toEqual(["carrier-2", "carrier-1"]);
+  });
+
+  it("Carrier trống là xoá hết hãng; một hãng sai là bỏ cả dòng", () => {
+    const parsed = parseEnrollmentImportRows(
+      [
+        { "Client Name": "A", Carrier: "" },
+        { "Client Name": "B", Carrier: "Ambetter, Khong Ton Tai" },
+      ],
+      matched,
+      COLUMNS,
+      CTX
+    );
+    expect(parsed.rows[0].values.carrier).toEqual([]);
+    expect(parsed.skipped).toEqual([
+      { row: 3, reason: 'Carrier: unknown value "Khong Ton Tai"' },
+    ]);
   });
 
   it("nhãn option lạ thì BỎ DÒNG và nói rõ, không ghi null đè lên giá trị đang đúng", () => {
@@ -238,6 +272,12 @@ describe("enrollmentImportPayload", () => {
       stage_id: "stage-1",
       due_date: "2026-09-19",
       fub_link: "http://a",
+    });
+  });
+
+  it("Carrier gửi lên dưới tên carrier_ids", () => {
+    expect(enrollmentImportPayload({ carrier: ["c1", "c2"] }, COLUMNS)).toEqual({
+      carrier_ids: ["c1", "c2"],
     });
   });
 

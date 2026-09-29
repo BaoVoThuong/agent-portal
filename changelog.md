@@ -6,6 +6,39 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-29 — Carrier (ACA / Medicare) chọn được nhiều hãng
+
+Trước đây Carrier là một ô `carrier_id` (một khoá ngoại). Đổi kiểu cột trong
+Table Configuration không làm được: cột hệ thống bị khoá kiểu, và dữ liệu chỉ
+chứa được một id.
+
+**Cách lưu** (cùng mẫu `leads.products` / `leads.product`):
+
+- Cột mới `enrollment_records.carrier_ids uuid[]` là nguồn sự thật, giữ **thứ tự
+  người dùng chọn**.
+- `carrier_id` vẫn giữ và luôn = `carrier_ids[1]`, do trigger
+  `enrollment_sync_carrier_ids` duy trì, có CHECK chặn lệch. Nhờ vậy khoá ngoại,
+  ràng buộc Medicaid, Overview ("đã điền Carrier chưa" — Overview không chia
+  theo hãng nên không phải đổi) và mọi đường ghi một hãng kiểu cũ vẫn đúng.
+- Trigger chặn hãng không thuộc bộ Carrier của đúng chương trình
+  (`ENROLLMENT_CARRIER_INVALID`), nhưng chỉ kiểm hãng MỚI thêm: hồ sơ đang giữ
+  một hãng đã archive vẫn sửa được. API cũng giữ lại hãng đã archive mà hồ sơ
+  đang có khi người dùng tick thêm hãng khác.
+- `enrollment_option_usage_count(s)` đếm cả hãng thứ hai trở đi — chúng không
+  có khoá ngoại nào che, nên Config phải biết chúng đang được dùng.
+
+**API**: tạo / sửa / import nhận `carrier_ids` (mảng); vẫn nhận `carrier_id`
+một giá trị từ tab cũ đang mở trong lúc deploy. Import/Export: ô Carrier ghi các
+nhãn cách nhau bằng dấu phẩy. Bộ lọc Carrier khớp khi hồ sơ có **một hãng bất
+kỳ** trong bộ lọc.
+
+**Rollout** `supabase/rollouts/2026-09-29-enrollment-multi-carrier.sql` — chạy
+TRƯỚC khi deploy. Hai hàm ghi được **vá tại chỗ theo từng đoạn chữ** (mỗi đoạn
+phải xuất hiện đúng 1 lần, không thì dừng cả file) vì repo có hai phiên bản hàm
+và không biết chắc production chạy bản nào. Đã chạy thử trên PGlite với CẢ HAI
+phiên bản, và trên DB dựng từ `schema.sql` mới. Code lỡ lên trước rollout thì
+danh sách vẫn đọc được (tự bỏ cột `carrier_ids`), chỉ sửa Carrier là lỗi.
+
 ## 2026-09-29 — Lead Management: 3 lỗi chặn go live
 
 Tìm ra khi rà toàn bộ luồng Lead trước go live.

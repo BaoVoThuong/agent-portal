@@ -17,15 +17,27 @@ export function toOptimisticEnrollmentPatch(
   actorEmail: string,
   nowIso: string
 ): Record<string, unknown> {
+  const withCarrier = mirrorPrimaryCarrier(patch);
   // The server acts only on a real boolean, so anything else falls through
   // untouched and the two sides agree on what counts as a QC change.
-  if (typeof patch.qc_checked !== "boolean") return patch;
+  if (typeof withCarrier.qc_checked !== "boolean") return withCarrier;
 
-  const { qc_checked: qcChecked, ...rest } = patch;
+  const { qc_checked: qcChecked, ...rest } = withCarrier;
   return {
     ...rest,
     qc_checked_at: qcChecked ? nowIso : null,
     qc_checked_by_email: qcChecked ? actorEmail : null,
     qc_stale_notified_at: null,
   };
+}
+
+/**
+ * `carrier_id` = hãng đầu của `carrier_ids`, như trigger trong DB làm. Thiếu
+ * bước này thì bỏ tick hãng cuối cùng để lại `carrier_id` cũ trên dòng lạc
+ * quan, và mọi chỗ rơi về `carrier_id` hiện lại đúng hãng vừa bỏ.
+ */
+function mirrorPrimaryCarrier(patch: Record<string, unknown>): Record<string, unknown> {
+  if (!Array.isArray(patch.carrier_ids)) return patch;
+  const first = patch.carrier_ids.find((id): id is string => typeof id === "string");
+  return { ...patch, carrier_id: first ?? null };
 }

@@ -30,6 +30,7 @@ import {
   parseEnrollmentProgram,
   type EnrollmentRecordWithStats,
 } from "@/lib/enrollment/types";
+import { readCarrierIdsInput } from "@/lib/enrollment/carriers";
 import { sanitizeEnrollmentPatchForProgram } from "@/lib/enrollment/program-fields";
 import { parseEnrollmentDate } from "@/lib/enrollment/dates";
 import {
@@ -67,9 +68,9 @@ const STRING_FIELDS = [
   "responsible_enroll_email",
 ] as const;
 
+// Carrier không nằm ở đây: nó chọn được nhiều hãng — xem carriers.ts.
 const OPTION_FIELDS = {
   stage_id: "stage",
-  carrier_id: "carrier",
   platform_id: "platform",
   consent_id: "consent",
   payment_status_id: "payment_status",
@@ -178,6 +179,25 @@ export async function POST(request: Request) {
     }
   }
 
+  const carrierInput = readCarrierIdsInput(body);
+  if (carrierInput === null) {
+    return NextResponse.json({ error: "Invalid Carrier option." }, { status: 400 });
+  }
+  const carrierIds = carrierInput ?? [];
+  try {
+    for (const id of carrierIds) {
+      await assertEnrollmentOptionSet(id, "carrier", program, optionData);
+    }
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Invalid option." },
+      { status: 400 }
+    );
+  }
+  // Không có hãng thì không gửi khoá này: mảng mặc định đã rỗng, và nhờ vậy tạo
+  // hồ sơ không Carrier vẫn chạy được nếu code lỡ lên trước rollout.
+  if (carrierIds.length > 0) patch.carrier_ids = carrierIds;
+
   let submittedCustomValues: Record<string, unknown> = {};
   if (body.custom_values !== undefined) {
     if (!isCustomValueRecord(body.custom_values)) {
@@ -266,7 +286,7 @@ export async function POST(request: Request) {
       fub: patch.fub_link,
       due: patch.due_date,
       stage: patch.stage_id,
-      carrier: patch.carrier_id,
+      carrier: patch.carrier_ids,
       platform: patch.platform_id,
       consent: patch.consent_id,
       payment: patch.payment_status_id,

@@ -38,7 +38,8 @@ export const ENROLLMENT_FIELD_BY_COLUMN: Record<string, string> = {
   responsible: "responsible_enroll_email",
   stage: "stage_id",
   payment: "payment_status_id",
-  carrier: "carrier_id",
+  // Nhiều hãng — xem carriers.ts. Ô trong file ghi các nhãn cách nhau bằng dấu phẩy.
+  carrier: "carrier_ids",
   aca: "aca_status_id",
   consent: "consent_id",
   platform: "platform_id",
@@ -61,7 +62,11 @@ export const ENROLLMENT_OPTION_COLUMNS = [
 /** Cột lưu email người dùng, không lưu tên. */
 export const ENROLLMENT_PERSON_COLUMNS = ["agent", "caller", "responsible"] as const;
 
+/** Cột option chọn được NHIỀU giá trị; ô trong file cách nhau bằng dấu phẩy. */
+export const ENROLLMENT_MULTI_OPTION_COLUMNS = ["carrier"] as const;
+
 const OPTION_COLUMNS = new Set<string>(ENROLLMENT_OPTION_COLUMNS);
+const MULTI_OPTION_COLUMNS = new Set<string>(ENROLLMENT_MULTI_OPTION_COLUMNS);
 const PERSON_COLUMNS = new Set<string>(ENROLLMENT_PERSON_COLUMNS);
 
 const UUID_RE =
@@ -226,6 +231,28 @@ export function parseEnrollmentImportRows(
       if (!column) continue;
       const raw = record[header];
       const label = column.label;
+
+      if (MULTI_OPTION_COLUMNS.has(key)) {
+        // Ô trống là xoá hết; một nhãn sai là bỏ cả dòng, y như cột một giá trị.
+        const labels = String(raw ?? "")
+          .split(",")
+          .map((part) => part.trim())
+          .filter(Boolean);
+        const ids: string[] = [];
+        for (const item of labels) {
+          const id = UUID_RE.test(item)
+            ? item
+            : context.optionIdByLabel.get(key)?.get(normalize(item));
+          if (!id) {
+            failure = `${label}: unknown value "${item}"`;
+            break;
+          }
+          if (!ids.includes(id)) ids.push(id);
+        }
+        if (failure) break;
+        values[key] = ids;
+        continue;
+      }
 
       if (OPTION_COLUMNS.has(key)) {
         const text = String(raw ?? "").trim();

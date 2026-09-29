@@ -459,6 +459,12 @@ function Chip({
 function formatPreview(value: unknown, options: readonly EnrollmentOption[]): string {
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "boolean") return value ? "Yes" : "No";
+  // Carrier nhiều hãng: mảng id → các nhãn cách nhau bằng dấu phẩy.
+  if (Array.isArray(value)) {
+    return value.length === 0
+      ? "—"
+      : value.map((item) => formatPreview(item, options)).join(", ");
+  }
   const text = String(value);
   const option = options.find((item) => item.id === text);
   if (option) return option.label;

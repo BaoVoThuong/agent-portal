@@ -56,4 +56,18 @@ describe("toOptimisticEnrollmentPatch", () => {
     toOptimisticEnrollmentPatch(patch, ACTOR, NOW);
     expect(patch).toEqual({ qc_checked: true, client_name: "A" });
   });
+
+  // Như trigger trong DB: carrier_id luôn là hãng đầu. Bỏ tick hãng cuối mà
+  // không làm vậy thì dòng lạc quan còn giữ carrier_id cũ, và mọi chỗ rơi về
+  // carrier_id hiện lại đúng hãng vừa bỏ.
+  it("mirrors the first carrier into carrier_id", () => {
+    expect(toOptimisticEnrollmentPatch({ carrier_ids: ["c2", "c1"] }, ACTOR, NOW)).toEqual({
+      carrier_ids: ["c2", "c1"],
+      carrier_id: "c2",
+    });
+    expect(toOptimisticEnrollmentPatch({ carrier_ids: [] }, ACTOR, NOW)).toEqual({
+      carrier_ids: [],
+      carrier_id: null,
+    });
+  });
 });

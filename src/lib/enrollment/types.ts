@@ -91,7 +91,13 @@ export type EnrollmentRecord = {
   fub_link: string | null;
   due_date: string | null;
   stage_id: string | null;
+  /** Hãng ĐẦU của `carrier_ids`, do trigger trong DB giữ khớp. Xem carriers.ts. */
   carrier_id: string | null;
+  /**
+   * Mọi hãng của hồ sơ, theo thứ tự người dùng chọn. Tuỳ chọn vì dòng đọc về
+   * từ trước rollout 2026-09-29 chưa có — đọc qua enrollmentCarrierIds().
+   */
+  carrier_ids?: string[];
   platform_id: string | null;
   consent_id: string | null;
   payment_status_id: string | null;

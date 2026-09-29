@@ -12,6 +12,7 @@ import {
   enrollmentOwnershipFieldLabel,
   validateEnrollmentOwnership,
 } from "@/lib/enrollment/ownership";
+import { readCarrierIdsInput } from "@/lib/enrollment/carriers";
 import { sanitizeEnrollmentPatchForProgram } from "@/lib/enrollment/program-fields";
 import { broadcastEnrollmentChanged } from "@/lib/enrollment/realtime";
 import { enrollmentSchemaErrorResponse } from "@/lib/enrollment/schema-errors";
@@ -46,9 +47,9 @@ const STRING_FIELDS = [
   "responsible_enroll_email",
 ] as const;
 
+// Carrier không nằm ở đây: nó chọn được nhiều hãng — xem buildRowPatch.
 const OPTION_FIELDS = {
   stage_id: "stage",
-  carrier_id: "carrier",
   platform_id: "platform",
   consent_id: "consent",
   payment_status_id: "payment_status",
@@ -62,7 +63,7 @@ const COLUMN_KEY_BY_FIELD: Record<string, string> = {
   fub_link: "fub",
   due_date: "due",
   stage_id: "stage",
-  carrier_id: "carrier",
+  carrier_ids: "carrier",
   platform_id: "platform",
   consent_id: "consent",
   payment_status_id: "payment",
@@ -324,6 +325,19 @@ async function buildRowPatch(
     } catch (error) {
       return { error: error instanceof Error ? error.message : "Invalid option." };
     }
+  }
+
+  const carrierIds = readCarrierIdsInput(input);
+  if (carrierIds === null) return { error: "Invalid Carrier option." };
+  if (carrierIds !== undefined) {
+    try {
+      for (const id of carrierIds) {
+        await assertEnrollmentOptionSet(id, "carrier", program, optionData);
+      }
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "Invalid option." };
+    }
+    value.carrier_ids = carrierIds;
   }
 
   return { value };

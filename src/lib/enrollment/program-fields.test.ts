@@ -53,6 +53,33 @@ describe("sanitizeEnrollmentPatchForProgram", () => {
       caller_email: null,
     });
   });
+
+  // `carrier_ids` là cột NOT NULL: gán null là lỗi DB. Medicaid bỏ hẳn nó và
+  // chỉ gửi carrier_id = null — trigger làm rỗng mảng theo.
+  it("Medicaid drops carrier_ids instead of nulling it", () => {
+    expect(
+      sanitizeEnrollmentPatchForProgram("medicaid", {
+        client_name: "Client",
+        carrier_ids: ["carrier-1"],
+      })
+    ).toEqual({ client_name: "Client" });
+    // Hồ sơ lỡ mang hãng thì carrier_id = null dọn cả hai cột qua trigger.
+    expect(
+      sanitizeEnrollmentPatchForProgram(
+        "medicaid",
+        { carrier_ids: ["carrier-1"] },
+        { carrier_id: "carrier-1" }
+      )
+    ).toEqual({ carrier_id: null });
+  });
+
+  it("ACA and Medicare keep carrier_ids", () => {
+    for (const program of ["aca", "medicare"] as const) {
+      expect(
+        sanitizeEnrollmentPatchForProgram(program, { carrier_ids: ["c1", "c2"] })
+      ).toEqual({ carrier_ids: ["c1", "c2"] });
+    }
+  });
 });
 
 describe("chính sách trường theo chương trình", () => {
