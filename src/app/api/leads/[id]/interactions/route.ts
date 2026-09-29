@@ -64,9 +64,13 @@ export async function POST(req: Request, { params }: Ctx) {
     isAdmin: isLeadViewAdmin(session.user),
   });
   const supabase = getSupabaseAdmin();
+  // Tên event đọc kèm ở đây vì RPC trả về dòng `leads` thô, không có nó — và
+  // client thay CẢ dòng bằng bản trả về, nên thiếu tên là cột Event trống ngay
+  // sau khi log một cuộc gọi. Ghi tương tác không đổi event, nên đọc trước RPC
+  // vẫn đúng.
   const { data: lead, error: leadError } = await supabase
     .from("leads")
-    .select("id,assigned_to_email")
+    .select("id,assigned_to_email,lead_events(name)")
     .eq("id", id)
     .is("archived_at", null)
     .maybeSingle();
@@ -74,7 +78,9 @@ export async function POST(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: leadError.message }, { status: 500 });
   }
   if (!lead) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const target = lead as Pick<LeadRow, "assigned_to_email">;
+  const target = lead as Pick<LeadRow, "assigned_to_email"> & {
+    lead_events?: { name?: string | null } | null;
+  };
   // An Assistant logs calls on their agent's leads; that is the point of the
   // pairing. Ownership is unchanged, so the contact counters still belong to
   // the agent the lead is assigned to.
@@ -154,9 +160,11 @@ export async function POST(req: Request, { params }: Ctx) {
     await broadcastLeadsChanged(sourceId, [id]);
   });
 
-  const result = data as { interaction: unknown; lead: unknown };
+  const result = data as { interaction: unknown; lead: Record<string, unknown> | null };
   return NextResponse.json({
     interaction: result.interaction,
-    lead: result.lead,
+    lead: result.lead
+      ? { ...result.lead, event_name: target.lead_events?.name?.trim() || null }
+      : result.lead,
   });
 }

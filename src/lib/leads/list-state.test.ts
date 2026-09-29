@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { mergeLeadPatch, retainSelection, syncSelectedLead } from "./list-state";
+import {
+  createKeyedSerializer,
+  mergeLeadPatch,
+  overlayPendingPatches,
+  retainSelection,
+  syncSelectedLead,
+  touchLeadUpdatedAt,
+} from "./list-state";
 import type { LeadRow } from "./types";
 
 function lead(patch: Partial<LeadRow> = {}): LeadRow {
@@ -66,5 +73,97 @@ describe("syncSelectedLead", () => {
 
   it("is a no-op when no modal is open", () => {
     expect(syncSelectedLead(null, [lead()])).toBeNull();
+  });
+});
+
+/** Một lời hứa mà test tự quyết lúc nào xong. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+describe("createKeyedSerializer", () => {
+  // Lỗi gốc: tick hai product liền tay là hai PATCH song song trên cùng lead,
+  // lượt sau thua điều kiện `updated_at` và báo "Someone else changed this lead".
+  it("runs tasks for the same key one after another, in order", async () => {
+    const run = createKeyedSerializer();
+    const first = deferred<string>();
+    const order: string[] = [];
+    const a = run("lead-1", async () => {
+      order.push("a:start");
+      const value = await first.promise;
+      order.push("a:end");
+      return value;
+    });
+    const b = run("lead-1", async () => {
+      order.push("b:start");
+      return "b";
+    });
+    await Promise.resolve();
+    expect(order).toEqual(["a:start"]);
+    first.resolve("a");
+    await expect(a).resolves.toBe("a");
+    await expect(b).resolves.toBe("b");
+    expect(order).toEqual(["a:start", "a:end", "b:start"]);
+  });
+
+  it("does not make different keys wait for each other", async () => {
+    const run = createKeyedSerializer();
+    const blocked = deferred<void>();
+    void run("lead-1", () => blocked.promise);
+    await expect(run("lead-2", async () => "free")).resolves.toBe("free");
+    blocked.resolve();
+  });
+
+  // Lượt sau là một thay đổi riêng người dùng đã bấm — lượt trước hỏng không
+  // được nuốt mất nó.
+  it("still runs the next task when the previous one fails", async () => {
+    const run = createKeyedSerializer();
+    const failed = run("lead-1", async () => {
+      throw new Error("400");
+    });
+    const next = run("lead-1", async () => "saved");
+    await expect(failed).rejects.toThrow("400");
+    await expect(next).resolves.toBe("saved");
+  });
+});
+
+describe("overlayPendingPatches", () => {
+  // Bản server của lượt đầu chưa có lượt thứ hai. Không phủ thì ô Product nhảy
+  // lùi, và cú tick kế tiếp được tính từ bản lùi đó.
+  it("keeps edits that are still waiting on top of the saved row", () => {
+    const saved = lead({ products: ["pc", "health"] });
+    expect(overlayPendingPatches(saved, [{ products: ["pc", "health", "life"] }]).products)
+      .toEqual(["pc", "health", "life"]);
+  });
+
+  it("returns the saved row untouched when nothing is waiting", () => {
+    const saved = lead({ full_name: "Server" });
+    expect(overlayPendingPatches(saved, [])).toBe(saved);
+  });
+});
+
+describe("touchLeadUpdatedAt", () => {
+  // Lỗi gốc: comment xong bấm Archive ngay thì bị từ chối, vì dòng trên màn hình
+  // còn giữ mốc cũ trong khi comment đã đẩy mốc trong DB lên.
+  it("moves the row to the newer timestamp", () => {
+    const row = lead({ updated_at: "2026-09-01T00:00:00Z" });
+    expect(touchLeadUpdatedAt(row, "2026-09-01T00:00:05.123456+00:00").updated_at)
+      .toBe("2026-09-01T00:00:05.123456+00:00");
+  });
+
+  it("never moves it backwards", () => {
+    const row = lead({ updated_at: "2026-09-02T00:00:00Z" });
+    expect(touchLeadUpdatedAt(row, "2026-09-01T00:00:00Z")).toBe(row);
+  });
+
+  it("ignores a value that is not a date", () => {
+    const row = lead();
+    expect(touchLeadUpdatedAt(row, "nope")).toBe(row);
   });
 });

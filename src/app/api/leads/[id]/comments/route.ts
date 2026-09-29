@@ -1,8 +1,9 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { buildLeadActor, isLeadViewAdmin } from "@/lib/leads/access";
 import { resolveLeadCapabilities } from "@/lib/leads/capabilities";
 import { isLeadOwnerOrAssistant } from "@/lib/leads/membership";
+import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import type { LeadRow } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
@@ -122,6 +123,14 @@ export async function POST(request: Request, { params }: Ctx) {
     lead_updated_at: string;
     was_created: boolean;
   };
+  // RPC đẩy `leads.updated_at` lên. Không báo thì tab khác giữ mốc cũ, và nút
+  // Archive của họ (gửi kèm mốc đó) bị từ chối là "lead changed elsewhere".
+  if (result.was_created) {
+    const sourceId = readLeadMutationSourceId(request);
+    after(async () => {
+      await broadcastLeadsChanged(sourceId, [id]);
+    });
+  }
   return NextResponse.json({
     comment: result.comment,
     lead_updated_at: result.lead_updated_at,

@@ -124,6 +124,8 @@ type LeadDetailDrawerProps = {
   onAssignLead: (id: string, email: string | null) => Promise<void>;
   onArchive: () => Promise<void>;
   onLeadUpdated: (lead: LeadRow, interaction?: LeadInteraction) => void;
+  /** Chỉ đẩy mốc `updated_at` của lead, không thay cả dòng. */
+  onLeadTouched: (id: string, updatedAt: string) => void;
 };
 
 /**
@@ -175,6 +177,7 @@ export function LeadDetailDrawer({
   onAssignLead,
   onArchive,
   onLeadUpdated,
+  onLeadTouched,
 }: LeadDetailDrawerProps) {
   const [interactions, setInteractions] = useState<LeadInteraction[]>([]);
   const [comments, setComments] = useState<LeadComment[]>([]);
@@ -428,12 +431,18 @@ export function LeadDetailDrawer({
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "x-lead-client-source": sourceId,
       },
       body: JSON.stringify(payload),
     });
     const result = await response.json().catch(() => null);
     if (!response.ok) {
       throw new Error(result?.error ?? "Could not save comment.");
+    }
+    // Comment đẩy `updated_at` của lead lên. Giữ mốc cũ thì bấm Archive ngay sau
+    // đó bị từ chối, vì server tưởng có người khác vừa sửa lead.
+    if (typeof result?.lead_updated_at === "string") {
+      onLeadTouched(currentLead.id, result.lead_updated_at);
     }
     return { comment: result.comment as LeadComment };
   }

@@ -29,6 +29,66 @@ export function mergeLeadPatch(
 }
 
 /**
+ * Chạy các việc CÙNG khoá nối đuôi nhau; khác khoá thì vẫn song song.
+ *
+ * Dùng cho sửa inline theo từng lead. Route PATCH đọc dòng rồi ghi có điều kiện
+ * `updated_at` không đổi, nên hai lượt sửa cùng một lead bay song song thì lượt
+ * sau luôn thua lượt trước và báo "Someone else changed this lead" — dù người
+ * kia chính là mình, ví dụ tick hai product liền tay. Xếp hàng còn giữ đúng thứ
+ * tự: lượt sau được tính từ màn hình đã có lượt trước, nên nó phải ghi sau.
+ *
+ * Việc trước hỏng thì việc sau VẪN chạy: nó là một thay đổi riêng người dùng đã
+ * bấm, không phải phần tiếp theo của việc trước.
+ */
+export function createKeyedSerializer() {
+  const tails = new Map<string, Promise<void>>();
+  return function run<T>(key: string, task: () => Promise<T>): Promise<T> {
+    const prior = tails.get(key) ?? Promise.resolve();
+    const result = prior.then(task);
+    const tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    tails.set(key, tail);
+    void tail.then(() => {
+      if (tails.get(key) === tail) tails.delete(key);
+    });
+    return result;
+  };
+}
+
+/**
+ * Bản server trả về cho MỘT lượt sửa, phủ thêm những lượt sửa CÙNG lead còn
+ * đang xếp hàng.
+ *
+ * Không phủ thì dòng nhảy lùi về bản chưa có các lượt sau cho tới khi chúng ghi
+ * xong — và ô Product đang mở sẽ tính cú tick kế tiếp từ bản lùi đó, gửi đi một
+ * mảng làm rơi mất product vừa tick.
+ */
+export function overlayPendingPatches(
+  row: LeadRow,
+  pending: readonly Record<string, unknown>[]
+): LeadRow {
+  return pending.reduce<LeadRow>((next, patch) => mergeLeadPatch(next, patch), row);
+}
+
+/**
+ * Đẩy mốc `updated_at` của một dòng lên sau một thao tác đổi mốc mà không trả về
+ * cả dòng (viết comment). Không bao giờ LÙI mốc: một lượt sửa khác về trước có
+ * thể đã mang mốc mới hơn.
+ *
+ * Mốc này là thứ Archive gửi kèm để server phát hiện có người sửa chen giữa.
+ * Giữ mốc cũ thì Archive ngay sau khi comment luôn bị từ chối.
+ */
+export function touchLeadUpdatedAt(lead: LeadRow, updatedAt: string): LeadRow {
+  const next = Date.parse(updatedAt);
+  if (!Number.isFinite(next)) return lead;
+  const current = Date.parse(lead.updated_at);
+  if (Number.isFinite(current) && current > next) return lead;
+  return { ...lead, updated_at: updatedAt };
+}
+
+/**
  * Keep a bulk selection across a background refresh, dropping only the rows
  * that are no longer there.
  *

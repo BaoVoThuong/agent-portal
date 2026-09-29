@@ -30,9 +30,12 @@ import {
 } from "@/lib/leads/sorting";
 import { isOwnLeadMutation, LEADS_TOPIC } from "@/lib/leads/realtime-topics";
 import {
+  createKeyedSerializer,
   mergeLeadPatch,
+  overlayPendingPatches,
   retainSelection,
   syncSelectedLead,
+  touchLeadUpdatedAt,
 } from "@/lib/leads/list-state";
 import {
   LEAD_LIST_LOCKED_COLUMN_KEYS,
@@ -645,6 +648,13 @@ export function LeadsClient({
     }
   }, [activeAlert]);
 
+  const touchLead = useCallback((id: string, updatedAt: string) => {
+    const touch = (lead: LeadRow) =>
+      lead.id === id ? touchLeadUpdatedAt(lead, updatedAt) : lead;
+    setLeads((current) => current.map(touch));
+    setSelectedLead((current) => (current ? touch(current) : current));
+  }, []);
+
   const toggleLead = useCallback((id: string) => {
     setSelected((current) => {
       const next = new Set(current);
@@ -653,6 +663,11 @@ export function LeadsClient({
       return next;
     });
   }, []);
+
+  // Sửa inline CÙNG một lead thì xếp hàng — xem createKeyedSerializer.
+  const patchSerializerRef = useRef(createKeyedSerializer());
+  /** Lượt sửa đã hiện trên màn hình mà server chưa trả lời, theo từng lead. */
+  const pendingPatchesRef = useRef(new Map<string, Record<string, unknown>[]>());
 
   /**
    * One inline edit. The cell has already repainted optimistically, so a
@@ -664,45 +679,73 @@ export function LeadsClient({
     patch: Record<string, unknown>,
   ) {
     const previous = leadsRef.current.find((lead) => lead.id === id);
-    let conflicted = false;
-    setLeads((current) =>
-      current.map((lead) => (lead.id === id ? mergeLeadPatch(lead, patch) : lead)),
-    );
+    const pendingById = pendingPatchesRef.current;
+    const pending = pendingById.get(id) ?? [];
+    pending.push(patch);
+    pendingById.set(id, pending);
+    const settle = () => {
+      const index = pending.indexOf(patch);
+      if (index >= 0) pending.splice(index, 1);
+      if (pending.length === 0 && pendingById.get(id) === pending) pendingById.delete(id);
+    };
+    // Drawer cũng phải thấy bản lạc quan: ô Product trong drawer tính cú tick
+    // kế tiếp từ `selectedLead`, nên để nó đứng yên là cú tick thứ hai gửi đi
+    // một mảng thiếu product vừa tick ở cú đầu.
+    const optimistic = (lead: LeadRow) =>
+      lead.id === id ? mergeLeadPatch(lead, patch) : lead;
+    setLeads((current) => current.map(optimistic));
+    setSelectedLead((current) => (current ? optimistic(current) : current));
     try {
-      const response = await fetch(`/api/leads/${id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          "x-lead-client-source": sourceId,
-        },
-        body: JSON.stringify(patch),
+      const saved = await patchSerializerRef.current(id, async () => {
+        const response = await fetch(`/api/leads/${id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            "x-lead-client-source": sourceId,
+          },
+          body: JSON.stringify(patch),
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(payload?.error ?? "Could not save that change.");
+        }
+        return payload.lead as LeadRow;
       });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        conflicted = response.status === 409;
-        throw new Error(payload?.error ?? "Could not save that change.");
-      }
-      updateLead(payload.lead as LeadRow);
+      settle();
+      updateLead(overlayPendingPatches(saved, pending));
       // Changing Product can move a row out of a product-filtered list. The
       // alert case already reloads in updateLead(), so do not issue two fetches.
-      // Đổi product có thể đẩy dòng ra khỏi bộ lọc product đang bật.
-      if (!activeAlert && (patch.product !== undefined || patch.products !== undefined)) {
+      // Đổi product có thể đẩy dòng ra khỏi bộ lọc product đang bật. Chỉ hỏi
+      // lại khi hết lượt chờ: bản server lúc này chưa có các lượt sau, và nó
+      // sẽ đè mất chúng trên màn hình.
+      if (
+        !activeAlert &&
+        pending.length === 0 &&
+        (patch.product !== undefined || patch.products !== undefined)
+      ) {
         void patchLeadsByIdRef.current([id]).catch(() => void reloadRef.current());
       }
       setEditError(null);
     } catch (error) {
+      settle();
       if (previous) {
+        // Về bản trước lượt này, nhưng giữ các lượt sau vẫn đang chờ ghi.
+        const restored = overlayPendingPatches(previous, pending);
         setLeads((current) =>
-          current.map((lead) => (lead.id === id ? previous : lead)),
+          current.map((lead) => (lead.id === id ? restored : lead)),
         );
+        setSelectedLead((current) => (current?.id === id ? restored : current));
       }
       setEditError(
         error instanceof Error ? error.message : "Could not save that change.",
       );
-      // 409 = có người ghi trước. Khôi phục xong MỚI kéo bản thật về — làm ngược
-      // thứ tự thì phần khôi phục đè mất bản vừa lấy, và màn hình hiện một bản
-      // cũ mà người dùng tưởng là mới nhất.
-      if (conflicted) {
+      // Khôi phục xong MỚI kéo bản thật về — làm ngược thứ tự thì phần khôi phục
+      // đè mất bản vừa lấy, và màn hình hiện một bản cũ mà người dùng tưởng là
+      // mới nhất. Kéo cho MỌI lỗi chứ không riêng 409: có lượt khác của cùng lead
+      // chen giữa thì `previous` có thể mang giá trị lạc quan của một lượt cũng
+      // hỏng. Còn lượt chờ thì để lượt đó mang bản server về — kéo lúc này sẽ đè
+      // mất nó trên màn hình.
+      if (pending.length === 0) {
         void patchLeadsByIdRef.current([id]).catch(() => void reloadRef.current());
       }
       throw error;
@@ -1408,6 +1451,7 @@ export function LeadsClient({
           onAssignLead={assignLead}
           onArchive={() => (selectedLead ? archiveLead(selectedLead.id) : Promise.resolve())}
           onLeadUpdated={updateLead}
+          onLeadTouched={touchLead}
         />
       )}
       <LeadDistributeDialog

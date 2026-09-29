@@ -6,6 +6,27 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-29 — Lead Management: 3 lỗi chặn go live
+
+Tìm ra khi rà toàn bộ luồng Lead trước go live.
+
+- **Sửa nhanh hai lần trên cùng một lead báo nhầm "Someone else changed this
+  lead".** Route PATCH đọc dòng rồi ghi có điều kiện `updated_at` không đổi, nên
+  hai PATCH song song trên cùng lead (tick hai product liền tay) thì lượt sau
+  luôn thua lượt trước. Nay client **xếp hàng PATCH theo từng lead**
+  (`createKeyedSerializer`), khác lead vẫn song song. Bản server trả về được phủ
+  thêm các lượt còn chờ (`overlayPendingPatches`) để ô Product không nhảy lùi rồi
+  gửi đi mảng thiếu product. Drawer giờ cũng nhận bản lạc quan — trước đây nó
+  đứng yên nên cú tick thứ hai trong drawer làm rơi product của cú đầu. Mọi lỗi
+  PATCH (không riêng 409) kéo lại dòng thật khi hết hàng chờ.
+- **Comment xong bấm Archive luôn bị từ chối lần đầu.** RPC comment đẩy
+  `leads.updated_at` lên nhưng màn hình giữ mốc cũ, mà Archive gửi kèm mốc đó.
+  Nay drawer cập nhật mốc từ `lead_updated_at` (`touchLeadUpdatedAt`, không bao
+  giờ lùi mốc), và route comment **broadcast** để tab khác cũng cập nhật.
+- **Log tương tác xong cột Event trống.** RPC trả dòng `leads` thô không có tên
+  event, client thay cả dòng bằng nó. Route interactions nay trả kèm
+  `event_name` (đọc chung truy vấn kiểm quyền sẵn có, không thêm round-trip).
+
 ## 2026-09-29 — Lead có thêm product Life và Unknown
 
 Lead trước đây chỉ có P&C và Health, và "không có product" (mảng rỗng) là trạng
