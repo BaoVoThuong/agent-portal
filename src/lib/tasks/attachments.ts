@@ -1,4 +1,15 @@
-export const TASK_ATTACHMENT_MAX_BYTES = 15 * 1024 * 1024;
+/**
+ * 4MB, không phải 15MB như trước (2026-09-29).
+ *
+ * Tệp đi xuyên qua API route, và Vercel chặn mọi request body trên 4.5MB ngay
+ * từ cửa — trước khi tới code, nên người dùng chỉ thấy "upload failed" chung
+ * chung và thử lại mãi. Trên production chưa từng có tệp nào quá 4.5MB lên
+ * được (lớn nhất 3.96MB / 638 tệp). 4MB chừa chỗ cho phần bao multipart.
+ *
+ * Nâng trần thật sự thì phải cho trình duyệt tải thẳng lên Supabase Storage
+ * (signed upload URL) thay vì đi qua route — chưa làm.
+ */
+export const TASK_ATTACHMENT_MAX_BYTES = 4 * 1024 * 1024;
 
 const MIME_BY_EXTENSION: Record<string, string> = {
   csv: "text/csv",
@@ -39,10 +50,15 @@ export function formatAttachmentSize(bytes: number): string {
   return `${bytes}B`;
 }
 
+/**
+ * Bảo người dùng CHIA tệp ra, không bảo nén nhỏ lại: một bản scan nhiều trang
+ * tách thành vài tệp là xong, còn nén thì họ không biết làm và dễ làm mờ chữ.
+ */
 export function attachmentTooLargeMessage(
   maxBytes = TASK_ATTACHMENT_MAX_BYTES
 ): string {
-  return `File too large (max ${formatAttachmentSize(maxBytes)}).`;
+  const max = formatAttachmentSize(maxBytes).replace(".0MB", "MB");
+  return `File is too large (max ${max}). Please break it down into smaller files and upload them separately.`;
 }
 
 export function inferAttachmentMimeType(

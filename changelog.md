@@ -6,6 +6,29 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-09-30 — Tệp đính kèm tối đa 4MB, quá thì bảo chia nhỏ
+
+CS báo một tệp PDF 10.3MB thử 10 lần trong 2 ngày vẫn "Attachment upload failed".
+
+**Nguyên nhân:** tệp đi xuyên qua API route, và Vercel chặn mọi request body
+trên **4.5MB** ngay từ cửa, trước khi tới code. App tự đặt trần 15MB nên giao
+diện cho chọn, rồi Vercel chặn, và người dùng chỉ thấy lỗi chung chung. Đọc DB
+production: 638 tệp đính kèm (task + enrollment), **không tệp nào trên 4.5MB**,
+lớn nhất 3.96MB — trần 15MB chưa bao giờ dùng được.
+
+**Sửa (bản vá):** `TASK_ATTACHMENT_MAX_BYTES` 15MB → **4MB** (chừa chỗ cho phần
+bao multipart). Mọi ô chọn tệp — comment, form tạo task, tạo hồ sơ enrollment,
+panel đính kèm — đều kiểm qua hằng số này, nên chọn tệp quá cỡ là báo ngay:
+"File is too large (max 4MB). Please break it down into smaller files and upload
+them separately." Bảo **chia** tệp ra chứ không bảo nén: bản scan nhiều trang
+tách vài tệp là xong, nén thì người dùng không biết làm và dễ mờ chữ.
+
+Hệ quả: với 4MB/tệp, trần số tệp (50) giờ chặn trước trần tổng dung lượng
+(250MB); trần tổng chỉ còn là lưới an toàn.
+
+**Chưa làm:** sửa gốc để nâng trần thật — trình duyệt tải thẳng lên Supabase
+Storage bằng signed upload URL thay vì đi qua route.
+
 ## 2026-09-29 — Carrier (ACA / Medicare) chọn được nhiều hãng
 
 Trước đây Carrier là một ô `carrier_id` (một khoá ngoại). Đổi kiểu cột trong

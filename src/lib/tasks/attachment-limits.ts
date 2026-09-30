@@ -1,4 +1,5 @@
 import {
+  attachmentTooLargeMessage,
   formatAttachmentSize,
   TASK_ATTACHMENT_MAX_BYTES,
 } from "./attachments";
@@ -13,8 +14,8 @@ import {
  * 10-25 tấm, kèm thông báo "quá dung lượng" chứ không phải "quá số lượng", và
  * con số 50 kia thành vô nghĩa.
  *
- * 250MB = 50 tệp × 5MB, tức cỡ ảnh điện thoại thông thường. Trần mỗi tệp vẫn
- * giữ 15MB (TASK_ATTACHMENT_MAX_BYTES), nên vẫn không ai tải nổi 50 × 15MB.
+ * 250MB = 50 tệp × 5MB, tức cỡ ảnh điện thoại thông thường. Trần mỗi tệp là
+ * TASK_ATTACHMENT_MAX_BYTES (4MB — giới hạn body của Vercel, xem chú thích ở đó).
  *
  * Tải lên là MỖI TỆP MỘT REQUEST, và server kiểm lại tổng dung lượng của những
  * tệp đã lưu cho bình luận đó — nâng aggregate không tạo ra request khổng lồ
@@ -70,7 +71,7 @@ export function checkOperationLimits(input: {
     return {
       ok: false,
       limit: "per_file",
-      message: `File too large (max ${formatAttachmentSize(TASK_ATTACHMENT_MAX_BYTES)}).`,
+      message: attachmentTooLargeMessage(),
     };
   }
   return { ok: true };
