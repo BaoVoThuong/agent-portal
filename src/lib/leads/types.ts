@@ -128,7 +128,11 @@ export type LeadRow = {
   email: string | null;
   /** Cùng tên với `tasks.fub_link`: hai màn hình mở cùng một loại hồ sơ. */
   fub_link: string | null;
+  /** Free-form context captured when the lead is created. */
+  description?: string | null;
   assigned_to_email: string | null;
+  /** People collaborating on this lead; independent from the single Agent. */
+  collaborator_emails?: string[];
   assigned_at: string | null;
   assigned_by_email: string | null;
   status_id: string | null;
@@ -167,6 +171,15 @@ export type LeadComment = {
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
+};
+
+export type LeadAttachment = {
+  id: string;
+  file_name: string;
+  mime_type: string | null;
+  size_bytes: number;
+  created_at: string;
+  url: string;
 };
 
 export type LeadAlertSettings = {

@@ -81,6 +81,8 @@ import { LeadTableSettingsButton } from "./LeadTableSettingsButton";
 type LeadsClientProps = {
   /** null = every product. A filter now, not a separate screen. */
   productFilter: LeadProduct | null;
+  currentUserEmail: string;
+  canViewAll: boolean;
   isManager: boolean;
   /**
    * Emails whose leads this person may edit and log against: their own plus
@@ -107,6 +109,7 @@ type LeadsClientProps = {
   interactionTypes: LeadInteractionType[];
   /** Empty for non-managers: only they can reassign, so only they get the roster. */
   assignees: { email: string; name: string | null }[];
+  collaboratorRoster: { email: string; name: string | null }[];
 };
 
 /**
@@ -151,6 +154,8 @@ function sourceNonce(): string {
 
 export function LeadsClient({
   productFilter,
+  currentUserEmail,
+  canViewAll,
   isManager,
   editableOwnerEmails,
   alertSettings,
@@ -163,6 +168,7 @@ export function LeadsClient({
   archivedStatuses,
   interactionTypes,
   assignees,
+  collaboratorRoster,
 }: LeadsClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -264,10 +270,10 @@ export function LeadsClient({
    * URL vẫn được cập nhật bằng `history.pushState` để link chia sẻ được và nút
    * Back vẫn chạy, nhưng `pushState` KHÔNG kích hoạt điều hướng của Next.
    *
-   * Chỉ manager có Overview, nên `?view=overview` từ người khác rơi về list.
+   * Chỉ người có quyền xem mọi lead mới mở Overview được.
    */
   const [view, setView] = useState<"list" | "overview">(() =>
-    searchParams.get("view") === "overview" && isManager ? "overview" : "list",
+    searchParams.get("view") === "overview" && canViewAll ? "overview" : "list",
   );
 
   // Nút Back/Forward đổi URL mà không chạy lại component — phải tự đồng bộ,
@@ -275,11 +281,11 @@ export function LeadsClient({
   useEffect(() => {
     const syncFromUrl = () => {
       const next = new URLSearchParams(window.location.search).get("view");
-      setView(next === "overview" && isManager ? "overview" : "list");
+      setView(next === "overview" && canViewAll ? "overview" : "list");
     };
     window.addEventListener("popstate", syncFromUrl);
     return () => window.removeEventListener("popstate", syncFromUrl);
-  }, [isManager]);
+  }, [canViewAll]);
   const rawAlert = searchParams.get("alert");
   const activeAlert: LeadAlert | null =
     rawAlert &&
@@ -300,11 +306,11 @@ export function LeadsClient({
   const nameByEmail = useMemo(
     () =>
       new Map(
-        assignees
+        [...assignees, ...collaboratorRoster]
           .filter((person) => person.name)
           .map((person) => [person.email, person.name as string]),
       ),
-    [assignees],
+    [assignees, collaboratorRoster],
   );
   // No "Unassigned" entry here: the toolbar already has a dedicated Unassign
   // button, and offering the same action twice invites a manager to wonder
@@ -1142,7 +1148,7 @@ export function LeadsClient({
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
                 <div className="inline-flex shrink-0 rounded bg-[#f4f5f7] p-0.5">
-                  {isManager && (
+                  {canViewAll && (
                     <button
                       type="button"
                       aria-current={view === "overview" ? "page" : undefined}
@@ -1221,7 +1227,7 @@ export function LeadsClient({
                   }
                 />
 
-                {isManager ? (
+                {canViewAll ? (
                   <TaskSelect
                     value={filters.assignedTo ?? ALL_FILTER}
                     options={assigneeFilterOptions}
@@ -1309,7 +1315,7 @@ export function LeadsClient({
         </div>
       </div>
 
-      {view === "overview" && isManager ? (
+      {view === "overview" && canViewAll ? (
         <div className="min-w-0 flex-1 px-6 pb-6">
           <div className="mx-auto max-w-[1760px]">
             <LeadOverview
@@ -1410,6 +1416,8 @@ export function LeadsClient({
             <LeadTable
               leads={displayedLeads}
               assignees={assignees}
+              collaboratorRoster={collaboratorRoster}
+              currentUserEmail={currentUserEmail}
               editableOwnerEmails={editableOwnerEmails}
               alertsByLeadId={alertsByLeadId}
               onPatchLead={patchLead}
@@ -1443,8 +1451,10 @@ export function LeadsClient({
           columnOptions={columnOptions}
           interactionTypes={interactionTypes}
           editableOwnerEmails={editableOwnerEmails}
+          currentUserEmail={currentUserEmail}
           isManager={isManager}
           assignees={assignees}
+          collaboratorRoster={collaboratorRoster}
           nameByEmail={nameByEmail}
           onClose={() => setSelectedLead(null)}
           onPatchLead={patchLead}
@@ -1552,10 +1562,10 @@ export function LeadsClient({
       <LeadAddDialog
         open={addOpen}
         productFilter={productFilter}
+        assignees={assignees}
         sourceId={sourceId}
         columns={columns}
         columnOptions={columnOptions}
-        assignees={assignees}
         statuses={statuses}
         onClose={() => setAddOpen(false)}
         onCreated={() => reload()}

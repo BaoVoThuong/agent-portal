@@ -46,11 +46,13 @@ export type LeadListFilter = {
   /** null = every product. Lead Management is one list; product is a filter. */
   product: LeadProduct | null;
   /**
-   * Emails the rows may be assigned to. null = no owner restriction, which is
-   * a manager. An empty array would mean "no rows", so the two cannot share a
-   * representation.
+   * Emails the actor may reach through Agent ownership. null = no owner
+   * restriction for a Lead manager or task.manage viewer. An empty array would
+   * mean "no rows", so the two cannot share a representation.
    */
   ownerEmails: string[] | null;
+  /** Emails the actor may represent as a collaborator: self plus assisted agents. */
+  collaboratorEmails: string[];
   eventId: string | null;
   statusId: string | null;
   /** null = không giới hạn theo id. */
@@ -80,8 +82,8 @@ export function buildLeadListFilter(
   actor: LeadActor,
   params: LeadListParams,
   /**
-   * Emails this worker may see, from resolveLeadOwnerEmails: their own plus the
-   * agents they assist. null for a manager. Defaulting to the actor's own email
+   * Emails this worker may reach, from resolveLeadOwnerEmails: their own plus
+   * the agents they assist. null for an all-leads viewer. Defaulting to the actor's own email
    * keeps the old single-owner behaviour for any caller that has not resolved
    * membership yet — narrower, never wider.
    */
@@ -98,11 +100,14 @@ export function buildLeadListFilter(
     // wrong here, where "no product given" means "show me all of them". Using
     // it made the merged list silently filter to P&C and show nothing.
     product: isLeadProduct(params.product) ? params.product : null,
-    ownerEmails: actor.isManager
+    ownerEmails: actor.isManager || actor.canViewAll
       ? requested
         ? [requested.toLowerCase()]
         : null
       : scoped,
+    collaboratorEmails: actor.isManager || actor.canViewAll
+      ? []
+      : scoped ?? [actor.email.trim().toLowerCase()],
     eventId: text(params.event_id),
     statusId: text(params.status_id),
     ids: (() => {
@@ -121,8 +126,8 @@ export function buildLeadListFilter(
 }
 
 const LEAD_COLUMNS =
-  "id,display_number,product,products,event_id,full_name,phone,email,fub_link," +
-  "assigned_to_email,assigned_at,assigned_by_email,status_id," +
+  "id,display_number,product,products,event_id,full_name,phone,email,fub_link,description," +
+  "assigned_to_email,collaborator_emails,assigned_at,assigned_by_email,status_id," +
   "first_contacted_at,last_contacted_at,contact_attempt_count," +
   "next_follow_up_at,closed_at,created_by_email,created_at," +
   "updated_by_email,updated_at,custom_values,archived_at";
@@ -206,7 +211,17 @@ export async function fetchLeadsPage(
   // `contains` = `products @> array[...]`, dùng index GIN. Lead mang cả hai
   // product phải hiện ở CẢ HAI bộ lọc, nên không thể so bằng cột `product`.
   if (filter.product) query = query.contains("products", [filter.product]);
-  if (filter.ownerEmails) query = query.in("assigned_to_email", filter.ownerEmails);
+  const accessPredicates = filter.ownerEmails && filter.collaboratorEmails.length > 0
+    ? [
+        `assigned_to_email.in.(${filter.ownerEmails.map(postgrestFilterValue).join(",")})`,
+        ...filter.collaboratorEmails.map(
+          (email) => `collaborator_emails.cs.{${postgrestFilterValue(email)}}`,
+        ),
+      ]
+    : [];
+  if (filter.ownerEmails && filter.collaboratorEmails.length === 0) {
+    query = query.in("assigned_to_email", filter.ownerEmails);
+  }
   if (filter.ids) query = query.in("id", filter.ids);
   if (filter.eventId) query = query.eq("event_id", filter.eventId);
   if (filter.statusId) query = query.eq("status_id", filter.statusId);
@@ -215,8 +230,23 @@ export async function fetchLeadsPage(
     query = query
       .not("assigned_to_email", "is", null)
       .not("assigned_at", "is", null);
-    if (terminalStatusIds.length > 0) {
-      query = query.or(`status_id.is.null,status_id.not.in.(${terminalStatusIds.join(",")})`);
+    const statusPredicates = terminalStatusIds.length > 0
+      ? [
+          "status_id.is.null",
+          `status_id.not.in.(${terminalStatusIds.join(",")})`,
+        ]
+      : [];
+    if (accessPredicates.length > 0) {
+      // One `or` expression per PostgREST request: expand the conjunction so
+      // alert filtering cannot overwrite the owner/collaborator boundary.
+      const clauses = statusPredicates.length > 0
+        ? accessPredicates.flatMap((scope) =>
+            statusPredicates.map((status) => `and(${scope},${status})`),
+          )
+        : accessPredicates;
+      query = query.or(clauses.join(","));
+    } else if (statusPredicates.length > 0) {
+      query = query.or(statusPredicates.join(","));
     }
     if (filter.alert === "never_contacted") {
       query = query.is("first_contacted_at", null).lt(
@@ -233,6 +263,8 @@ export async function fetchLeadsPage(
     } else {
       query = query.gte("contact_attempt_count", alertSettings!.max_attempts);
     }
+  } else if (accessPredicates.length > 0) {
+    query = query.or(accessPredicates.join(","));
   }
 
   const { data, error, count: total } = await query
@@ -254,6 +286,12 @@ export async function fetchLeadsPage(
   };
 }
 
+// Values in PostgREST's raw OR grammar need quoted escaping. These are account
+// emails from the authenticated actor and resolved team membership.
+function postgrestFilterValue(value: string): string {
+  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+}
+
 function toLeadRowWithInteractionHistory(row: unknown): LeadRow {
   const source = row as LeadRow & {
     lead_interactions?: LeadInteractionPreview[] | null;
@@ -269,6 +307,9 @@ function toLeadRowWithInteractionHistory(row: unknown): LeadRow {
     ...lead,
     product: isLeadProduct(source.product) ? source.product : products[0] ?? null,
     products,
+    collaborator_emails: Array.isArray(source.collaborator_emails)
+      ? source.collaborator_emails.filter((email): email is string => typeof email === "string")
+      : [],
     event_name: lead_events?.name?.trim() || null,
     interaction_history: Array.isArray(lead_interactions)
       ? lead_interactions

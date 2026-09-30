@@ -4894,9 +4894,9 @@ function NewEnrollmentDialog({
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
                     disabled={saving}
-                    className="inline-flex h-9 items-center gap-1.5 rounded border-2 border-dashed border-[#85b8ff] px-3 text-sm font-semibold text-[#0c66e4] transition hover:bg-[#e9f2ff] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex h-10 items-center gap-1.5 rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm font-medium text-[#42526e] transition hover:border-[#c1c7d0] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <Paperclip className="h-4 w-4" />
+                    <Paperclip className="h-4 w-4 text-[#667085]" />
                     Add files
                   </button>
                 </div>
@@ -4905,7 +4905,7 @@ function NewEnrollmentDialog({
                     {pendingFiles.map((file) => (
                       <li
                         key={file.key}
-                        className="inline-flex max-w-[16rem] items-center gap-1 rounded bg-[#f4f5f7] px-2 py-1 text-xs text-[#42526e]"
+                        className="inline-flex max-w-[16rem] items-center gap-1 rounded border border-[#dfe1e6] bg-[#f7f8fa] px-2 py-1 text-xs text-[#42526e]"
                       >
                         <span className="truncate" title={file.name}>{file.name}</span>
                         <span className="shrink-0 text-[#7a869a]">{formatAttachmentSize(file.size)}</span>
@@ -4914,7 +4914,7 @@ function NewEnrollmentDialog({
                           aria-label={`Remove ${file.name}`}
                           disabled={saving}
                           onClick={() => setPendingFiles((current) => removePendingFile(current, file.key))}
-                          className="shrink-0 rounded p-0.5 hover:bg-[#dfe1e6] disabled:opacity-50"
+                          className="shrink-0 rounded p-0.5 text-[#667085] hover:bg-[#e4e7ec] hover:text-[#344054] disabled:opacity-50"
                         >
                           <X className="h-3.5 w-3.5" />
                         </button>

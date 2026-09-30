@@ -9,6 +9,7 @@ import type { LeadRow } from "./types";
 export type LeadActor = {
   email: string;
   isManager: boolean;
+  canViewAll?: boolean;
   isWorker: boolean;
 };
 
@@ -20,6 +21,8 @@ export type LeadActor = {
 export type LeadMembershipFlags = {
   /** Actor is the assigned agent, or a promoted Assistant for that agent. */
   isOwnerOrAssistant?: boolean;
+  /** Actor is explicitly listed in leads.collaborator_emails. */
+  isCollaborator?: boolean;
 };
 
 function normalize(email: string | null | undefined): string {
@@ -49,10 +52,15 @@ export function buildLeadActor(
   // this widens what an admin can do once inside, not who gets in.
   const isManager =
     can(permissions, PERMISSIONS.LEAD_MANAGE) || Boolean(opts?.isAdmin);
+  const canViewAll = isManager || can(permissions, PERMISSIONS.TASK_MANAGE);
   return {
     email,
     isManager,
-    isWorker: isManager || can(permissions, PERMISSIONS.LEAD_WORK),
+    canViewAll,
+    isWorker:
+      isManager ||
+      can(permissions, PERMISSIONS.LEAD_WORK) ||
+      can(permissions, PERMISSIONS.TASK_MANAGE),
   };
 }
 
@@ -80,12 +88,14 @@ export function isLeadOwner(
  */
 export function canViewLead(
   actor: LeadActor,
-  lead: Pick<LeadRow, "assigned_to_email">,
+  lead: Pick<LeadRow, "assigned_to_email" | "collaborator_emails">,
   flags: LeadMembershipFlags = {}
 ): boolean {
-  if (actor.isManager) return true;
+  if (actor.isManager || actor.canViewAll) return true;
   if (!actor.isWorker) return false;
-  return isLeadOwner(actor, lead) || Boolean(flags.isOwnerOrAssistant);
+  return isLeadOwner(actor, lead) || Boolean(flags.isOwnerOrAssistant) ||
+    Boolean(flags.isCollaborator) ||
+    (lead.collaborator_emails ?? []).some((email) => normalize(email) === normalize(actor.email));
 }
 
 /**
@@ -95,12 +105,14 @@ export function canViewLead(
  */
 export function canEditLead(
   actor: LeadActor,
-  lead: Pick<LeadRow, "assigned_to_email">,
+  lead: Pick<LeadRow, "assigned_to_email" | "collaborator_emails">,
   flags: LeadMembershipFlags = {}
 ): boolean {
   if (actor.isManager) return true;
   if (!actor.isWorker) return false;
-  return isLeadOwner(actor, lead) || Boolean(flags.isOwnerOrAssistant);
+  return isLeadOwner(actor, lead) || Boolean(flags.isOwnerOrAssistant) ||
+    Boolean(flags.isCollaborator) ||
+    (lead.collaborator_emails ?? []).some((email) => normalize(email) === normalize(actor.email));
 }
 
 /**
@@ -121,10 +133,12 @@ export function canEditLead(
  */
 export function canLogInteraction(
   actor: LeadActor,
-  lead: Pick<LeadRow, "assigned_to_email">,
+  lead: Pick<LeadRow, "assigned_to_email" | "collaborator_emails">,
   flags: LeadMembershipFlags = {}
 ): boolean {
   if (actor.isManager) return true;
   if (!actor.isWorker) return false;
-  return isLeadOwner(actor, lead) || Boolean(flags.isOwnerOrAssistant);
+  return isLeadOwner(actor, lead) || Boolean(flags.isOwnerOrAssistant) ||
+    Boolean(flags.isCollaborator) ||
+    (lead.collaborator_emails ?? []).some((email) => normalize(email) === normalize(actor.email));
 }

@@ -141,7 +141,7 @@ const menuData: MenuItem[] = [
         href: "/tasks/leads",
         label: "Lead Management",
         activePath: "/tasks/leads",
-        anyPermission: [PERMISSIONS.LEAD_MANAGE, PERMISSIONS.LEAD_WORK],
+        anyPermission: [PERMISSIONS.LEAD_MANAGE, PERMISSIONS.LEAD_WORK, PERMISSIONS.TASK_MANAGE],
       },
       {
         // MỘT mục cho cả bốn bảng. Người chỉ có quyền lead vào đây vẫn chỉ thấy

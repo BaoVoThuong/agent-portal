@@ -43,6 +43,7 @@ import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
 import { Initials } from "../../_components/board-ui";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { LeadChoiceField } from "./LeadChoiceField";
+import { LeadCollaboratorsEditor } from "./LeadCollaboratorsPicker";
 
 const LEAD_COLUMN_WIDTHS: Record<string, number> = {
   key: 100,
@@ -61,6 +62,7 @@ const LEAD_COLUMN_WIDTHS: Record<string, number> = {
   secondary_phone: 160,
   email: 190,
   assignee: 180,
+  collaborators: 220,
   // Nhãn dài nhất đang dùng là "NOT INTERESTED" (14 ký tự chữ hoa đậm 11px):
   // ~105px chữ + 16 badge + 12 nút + 24 ô ≈ 157px. 140 cũ cắt mất đuôi.
   // Admin đặt nhãn dài hơn thì badge tự truncate chứ không phá layout.
@@ -98,8 +100,10 @@ type LeadTableProps = {
   isManager: boolean;
   /** Agents the manager can hand a lead to; empty for a non-manager. */
   assignees: { email: string; name: string | null }[];
+  collaboratorRoster: { email: string; name: string | null }[];
   /** Owner emails this person may edit; null = every lead (a manager). */
   editableOwnerEmails: string[] | null;
+  currentUserEmail: string;
   /** Alerts per lead id, computed by the client from the stored counters. */
   alertsByLeadId: ReadonlyMap<string, readonly LeadAlert[]>;
   selected: ReadonlySet<string>;
@@ -121,7 +125,9 @@ export function LeadTable({
   sortDir,
   onSort,
   assignees,
+  collaboratorRoster,
   editableOwnerEmails,
+  currentUserEmail,
   alertsByLeadId,
   onPatchLead,
   onFollowUpNeeded,
@@ -174,6 +180,14 @@ export function LeadTable({
       })),
     ],
     [assignees, nameByEmail],
+  );
+  const collaboratorChoices = useMemo(
+    () => collaboratorRoster.map((person) => ({
+      value: person.email,
+      label: personLabel(person.email, nameByEmail),
+      keywords: [person.email],
+    })),
+    [collaboratorRoster, nameByEmail],
   );
 
   const staticColumnWidth = isManager ? SELECTION_COLUMN_WIDTH : 0;
@@ -287,8 +301,9 @@ export function LeadTable({
                   nameByEmail={nameByEmail}
                   statusChoices={statusChoices}
                   assigneeChoices={assigneeChoices}
+                  collaboratorChoices={collaboratorChoices}
                   isManager={isManager}
-                  canEdit={leadIsInScope(lead, editableOwnerEmails)}
+                  canEdit={leadIsInScope(lead, editableOwnerEmails, currentUserEmail)}
                   alerts={alertsByLeadId.get(lead.id) ?? EMPTY_ALERTS}
                   selected={selected.has(lead.id)}
                   pinnedOffsetByKey={pinnedOffsetByKey}
@@ -394,6 +409,7 @@ const LeadRow = memo(function LeadRow({
   nameByEmail,
   statusChoices,
   assigneeChoices,
+  collaboratorChoices,
   isManager,
   canEdit,
   alerts,
@@ -414,6 +430,7 @@ const LeadRow = memo(function LeadRow({
   nameByEmail: Map<string, string>;
   statusChoices: readonly { value: string; label: string }[];
   assigneeChoices: readonly { value: string; label: string; keywords?: string[] }[];
+  collaboratorChoices: readonly { value: string; label: string; keywords?: string[] }[];
   isManager: boolean;
   canEdit: boolean;
   alerts: readonly LeadAlert[];
@@ -484,6 +501,7 @@ const LeadRow = memo(function LeadRow({
           nameByEmail={nameByEmail}
           statusChoices={statusChoices}
           assigneeChoices={assigneeChoices}
+          collaboratorChoices={collaboratorChoices}
           canEdit={canEdit}
           canAssign={isManager}
           alerts={alerts}
@@ -507,6 +525,7 @@ const LeadDataCell = memo(function LeadDataCell({
   nameByEmail,
   statusChoices,
   assigneeChoices,
+  collaboratorChoices,
   canEdit,
   canAssign,
   alerts,
@@ -524,6 +543,7 @@ const LeadDataCell = memo(function LeadDataCell({
   nameByEmail: Map<string, string>;
   statusChoices: readonly { value: string; label: string }[];
   assigneeChoices: readonly { value: string; label: string; keywords?: string[] }[];
+  collaboratorChoices: readonly { value: string; label: string; keywords?: string[] }[];
   canEdit: boolean;
   canAssign: boolean;
   alerts: readonly LeadAlert[];
@@ -684,6 +704,24 @@ const LeadDataCell = memo(function LeadDataCell({
           canEdit={canEdit}
           onSelect={(value) => onPatch({ status_id: value })}
           renderValue={<StatusBadge status={status} />}
+        />
+      </div>
+    );
+  }
+
+  if (column.key === "collaborators") {
+    return (
+      <div
+        style={style}
+        className={`${baseClassName} !whitespace-normal`}
+        onClick={stopPropagation}
+      >
+        <LeadCollaboratorsEditor
+          emails={lead.collaborator_emails ?? []}
+          options={collaboratorChoices}
+          canEdit={canEdit}
+          compact
+          onSave={(emails) => onPatch({ collaborator_emails: emails })}
         />
       </div>
     );

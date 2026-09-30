@@ -1,8 +1,9 @@
 import {
   fetchAssistantAgentsForCs,
-  isAgentOwnerOrAssistant,
 } from "@/lib/tasks/membership";
 import type { LeadActor } from "./access";
+import { hasLeadCollaborator } from "./collaborators";
+import { getSupabaseAdmin } from "@/lib/supabase";
 
 /**
  * Lead membership reuses the task board's agent_members table rather than
@@ -28,13 +29,26 @@ export async function resolveLeadOwnerEmails(
   return [...new Set([own, ...assisted.map((email) => email.trim().toLowerCase())])];
 }
 
-/**
- * Whether this actor is the lead's assigned agent or one of that agent's
- * Assistants. One row lookup, used by the per-lead routes.
- */
-export async function isLeadOwnerOrAssistant(
+/** True when the actor assists the Agent or any Collaborator on this lead. */
+export async function isAssistantToLeadMember(
   assignedToEmail: string | null,
-  actorEmail: string
+  collaboratorEmails: readonly string[] | null | undefined,
+  actorEmail: string,
 ): Promise<boolean> {
-  return isAgentOwnerOrAssistant(assignedToEmail, actorEmail);
+  const actor = actorEmail.trim().toLowerCase();
+  const members = [...new Set([
+    assignedToEmail?.trim().toLowerCase() ?? "",
+    ...(collaboratorEmails ?? []).map((email) => email.trim().toLowerCase()),
+  ].filter(Boolean))];
+  if (members.length === 0 || !actor) return false;
+  if (hasLeadCollaborator(collaboratorEmails, actor)) return false;
+  const { data, error } = await getSupabaseAdmin()
+    .from("agent_members")
+    .select("agent_email")
+    .in("agent_email", members)
+    .eq("cs_email", actor)
+    .eq("is_assistant", true)
+    .limit(1);
+  if (error) throw new Error(error.message);
+  return Boolean(data?.length);
 }

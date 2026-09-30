@@ -27,10 +27,12 @@ describe("parseCreateLeadInput", () => {
         phone: "5551234567",
         email: "jane@example.com",
         fubLink: null,
+        description: null,
         eventId: UUID,
         eventName: null,
         statusId: UUID,
         assignedToEmail: "agent@example.com",
+        collaboratorEmails: [],
         clientRequestId: UUID,
         customValues: { source: "web", qualified: true },
       },
@@ -66,6 +68,7 @@ describe("parseCreateLeadInput", () => {
       expect(empty.value.fullName).toBeNull();
       expect(empty.value.email).toBeNull();
       expect(empty.value.fubLink).toBeNull();
+      expect(empty.value.description).toBeNull();
       expect(empty.value.customValues).toEqual({});
     }
 
@@ -86,6 +89,20 @@ describe("parseCreateLeadInput", () => {
       ok: false,
       error: 'Custom field "nested" has an unsupported value.',
     });
+  });
+
+  it("trims and limits the lead description", () => {
+    const parsed = parseCreateLeadInput({
+      product: "pc",
+      phone: "5551234567",
+      description: "  Call after 5pm  ",
+    });
+    expect(parsed.ok ? parsed.value.description : null).toBe("Call after 5pm");
+    expect(parseCreateLeadInput({
+      product: "pc",
+      phone: "5551234567",
+      description: "x".repeat(10_001),
+    })).toEqual({ ok: false, error: "Description is too long." });
   });
 });
 

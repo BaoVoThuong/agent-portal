@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Plus, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Paperclip, X } from "lucide-react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { resolveDialogProduct } from "@/lib/leads/create";
 import {
@@ -18,6 +18,15 @@ import {
   peekLeadEvents,
   type LeadEventOption as LeadEvent,
 } from "@/lib/leads/events-cache";
+import {
+  addPendingFiles,
+  ATTACHMENT_ACCEPT_ATTRIBUTE,
+  removePendingFile,
+  type PendingFile,
+} from "@/lib/tasks/pending-attachments";
+import { formatAttachmentSize } from "@/lib/tasks/attachments";
+import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
+import { LeadCollaboratorsPicker } from "./LeadCollaboratorsPicker";
 
 type LeadAddDialogProps = {
   open: boolean;
@@ -25,19 +34,28 @@ type LeadAddDialogProps = {
   productFilter: LeadProduct | null;
   sourceId: string;
   columns: TableColumn[];
-  /** Accounts that may hold a lead. Empty for a non-manager, who cannot assign. */
-  assignees: { email: string; name: string | null }[];
   columnOptions: TableColumnOption[];
   statuses: LeadStatus[];
+  assignees: { email: string; name: string | null }[];
   onClose: () => void;
   onCreated: () => Promise<void>;
+};
+
+type DistributionAgent = {
+  email: string;
+  name: string | null;
+  products: LeadProduct[];
 };
 
 const INPUT_CLASS =
   "h-10 w-full rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm text-[#172b4d] outline-none transition placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4]";
 const SELECT_BUTTON_CLASS =
   "!h-10 !rounded !border-2 !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
+const PROPERTY_SELECT_BUTTON_CLASS =
+  "!h-10 !border-[#dfe1e6] !bg-white !shadow-none";
 const LABEL_CLASS = "block text-xs font-bold uppercase text-[#6b778c]";
+const TEXTAREA_CLASS =
+  "min-h-[18rem] w-full resize-y rounded border-2 border-[#dfe1e6] bg-white px-3 py-3 text-sm leading-6 text-[#172b4d] outline-none transition placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4]";
 const PRODUCT_OPTIONS = LEAD_PRODUCTS.map((value) => ({
   value,
   label: LEAD_PRODUCT_LABEL[value],
@@ -147,8 +165,8 @@ export function LeadAddDialog({
   sourceId,
   columns,
   columnOptions,
-  assignees,
   statuses,
+  assignees,
   onClose,
   onCreated,
 }: LeadAddDialogProps) {
@@ -164,14 +182,27 @@ export function LeadAddDialog({
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [fubLink, setFubLink] = useState("");
+  const [description, setDescription] = useState("");
   const [eventName, setEventName] = useState("");
   const [assignedToEmail, setAssignedToEmail] = useState("");
+  const [collaboratorEmails, setCollaboratorEmails] = useState<string[]>([]);
+  const [distributionAgents, setDistributionAgents] = useState<DistributionAgent[] | null>(null);
+  const [distributionAgentsError, setDistributionAgentsError] = useState(false);
   const [customValues, setCustomValues] = useState<Record<string, unknown>>({});
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
+  const [createdLeadId, setCreatedLeadId] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const createRequestIdRef = useRef<string | null>(null);
   // Only asked for when the screen is not already scoped to one product.
-  const [chosenProduct, setChosenProduct] = useState<LeadProduct | null>(null);
+  const [chosenProduct, setChosenProduct] = useState<LeadProduct | null>("unknown");
   const product = resolveDialogProduct(productFilter, chosenProduct);
+  const productAgents = distributionAgents?.filter((agent) =>
+    product ? agent.products.includes(product) : false,
+  ) ?? [];
 
   const customColumns = useMemo(
     () =>
@@ -191,6 +222,12 @@ export function LeadAddDialog({
     }
     return result;
   }, [columnOptions]);
+  const productColumn = columns.find(
+    (column) => column.key === "product" && !column.archived_at,
+  );
+  const productColorOptions = productColumn
+    ? optionsByColumnId.get(productColumn.id) ?? []
+    : [];
   // A lead being created has not been worked yet, so it starts at the first
   // open status — "New" in the seeded vocabulary. Picked by position and kind
   // rather than by the label "New", because an admin may rename it.
@@ -216,8 +253,46 @@ export function LeadAddDialog({
       .catch(() => setEventsState("error"));
   }, [eventsState, open]);
 
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void fetch("/api/leads/assignment-roster", { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !Array.isArray(payload?.agents)) {
+          throw new Error(payload?.error ?? "Could not load the receiving agents.");
+        }
+        if (!cancelled) {
+          setDistributionAgents(payload.agents as DistributionAgent[]);
+          setDistributionAgentsError(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setDistributionAgentsError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
   function setCustomValue(key: string, value: unknown) {
     setCustomValues((current) => ({ ...current, [key]: value }));
+  }
+
+  function chooseProduct(value: string) {
+    const nextProduct = isLeadProduct(value) ? value : null;
+    setChosenProduct(nextProduct);
+    if (
+      assignedToEmail &&
+      !distributionAgents?.some(
+        (agent) =>
+          agent.email === assignedToEmail &&
+          nextProduct !== null &&
+          agent.products.includes(nextProduct),
+      )
+    ) {
+      setAssignedToEmail("");
+    }
   }
 
   function resetAndClose() {
@@ -225,9 +300,19 @@ export function LeadAddDialog({
     setPhone("");
     setEmail("");
     setFubLink("");
+    setDescription("");
     setEventName("");
     setAssignedToEmail("");
+    setCollaboratorEmails([]);
+    setDistributionAgents(null);
+    setDistributionAgentsError(false);
+    setChosenProduct("unknown");
     setCustomValues({});
+    setPendingFiles([]);
+    setFileError(null);
+    setUploadingIndex(null);
+    setCreatedLeadId(null);
+    createRequestIdRef.current = null;
     setError(null);
     setEventsState("idle");
     onClose();
@@ -237,7 +322,7 @@ export function LeadAddDialog({
     if (saving) return;
     // The button is disabled without one, but the guard belongs here too: a
     // lead filed under the wrong product is invisible to the team that owns it.
-    if (!product) {
+    if (!product && !createdLeadId) {
       setError("Choose a product for this lead.");
       return;
     }
@@ -246,6 +331,7 @@ export function LeadAddDialog({
       phone,
       email,
       fub: fubLink,
+      description,
       assignee: assignedToEmail,
       status: selectedStatusId,
     };
@@ -257,7 +343,7 @@ export function LeadAddDialog({
           : customValues[column.key];
         return !isFilled(value, column.type);
       });
-    if (missing.length > 0 || !phone.trim()) {
+    if (!createdLeadId && (missing.length > 0 || !phone.trim())) {
       const labels = [
         ...missing.map((field) => field.label),
         ...(phone.trim() ? [] : ["Phone"]),
@@ -269,29 +355,67 @@ export function LeadAddDialog({
     setSaving(true);
     setError(null);
     try {
-      const response = await fetch("/api/leads", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-lead-client-source": sourceId,
-        },
-        body: JSON.stringify({
-          product,
-          full_name: fullName,
-          phone,
-          email,
-          fub_link: fubLink.trim() || null,
-          event_name: eventName.trim() || null,
-          status_id: selectedStatusId || null,
-          assigned_to_email: assignedToEmail,
-          custom_values: customValues,
-          client_request_id: crypto.randomUUID(),
-        }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok)
-        throw new Error(payload?.error ?? "Could not create lead.");
-      await onCreated();
+      let leadId = createdLeadId;
+      if (!leadId) {
+        createRequestIdRef.current ??= crypto.randomUUID();
+        const response = await fetch("/api/leads", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-lead-client-source": sourceId,
+          },
+          body: JSON.stringify({
+            product,
+            full_name: fullName,
+            phone,
+            email,
+            fub_link: fubLink.trim() || null,
+            description: description.trim() || null,
+            event_name: eventName.trim() || null,
+            status_id: selectedStatusId || null,
+            assigned_to_email: assignedToEmail,
+            collaborator_emails: collaboratorEmails,
+            custom_values: customValues,
+            client_request_id: createRequestIdRef.current,
+          }),
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload?.lead?.id)
+          throw new Error(payload?.error ?? "Could not create lead.");
+        leadId = payload.lead.id as string;
+        setCreatedLeadId(leadId);
+        await onCreated();
+      }
+      if (pendingFiles.length > 0) {
+        const failed: PendingFile[] = [];
+        const reasons: string[] = [];
+        for (const [index, item] of pendingFiles.entries()) {
+          setUploadingIndex(index);
+          const body = new FormData();
+          body.append("file", item.file);
+          body.append("client_request_id", item.key);
+          try {
+            const response = await fetch(`/api/leads/${leadId}/attachments`, {
+              method: "POST",
+              body,
+            });
+            if (!response.ok) {
+              const payload = await response.json().catch(() => null);
+              failed.push(item);
+              reasons.push(`${item.name}: ${payload?.error ?? "Upload failed."}`);
+            }
+          } catch {
+            failed.push(item);
+            reasons.push(`${item.name}: Upload failed.`);
+          }
+        }
+        setUploadingIndex(null);
+        if (failed.length > 0) {
+          setPendingFiles(failed);
+          setFileError(`Lead created, but ${failed.length} file(s) did not upload. ${reasons.join(" ")}`);
+          return;
+        }
+      }
       resetAndClose();
     } catch (saveError) {
       setError(
@@ -300,6 +424,7 @@ export function LeadAddDialog({
           : "Could not create lead.",
       );
     } finally {
+      setUploadingIndex(null);
       setSaving(false);
     }
   }
@@ -314,20 +439,15 @@ export function LeadAddDialog({
       aria-modal="true"
       aria-label="Add lead"
     >
-      <div className="flex max-h-[calc(100vh-3rem)] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-[0_16px_48px_rgba(9,30,66,0.32)]">
+      <div className="flex max-h-[calc(100dvh-3rem)] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-[0_16px_48px_rgba(9,30,66,0.32)]">
         <header className="flex shrink-0 items-center justify-between gap-4 border-b border-[#dfe1e6] px-6 py-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded bg-[#e9f2ff] text-[#0c66e4]">
-              <Plus className="h-5 w-5" />
-            </span>
-            <div>
-              <h2 className="text-xl font-semibold text-[#172b4d]">
-                Add {product ? LEAD_PRODUCT_LABEL[product] : ""} lead
-              </h2>
-              <p className="mt-1 text-sm text-[#626f86]">
-                Create one lead and optionally assign it immediately.
-              </p>
-            </div>
+          <div className="min-w-0">
+            <h2 className="text-xl font-semibold text-[#172b4d]">
+              New {product ? `${LEAD_PRODUCT_LABEL[product]} ` : ""}lead
+            </h2>
+            <p className="mt-1 text-sm text-[#626f86]">
+              Capture the lead details, then set ownership on the right.
+            </p>
           </div>
           <button
             type="button"
@@ -340,116 +460,171 @@ export function LeadAddDialog({
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_19rem]">
-            <section className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block space-y-1">
-                  <span className={LABEL_CLASS}>
-                    {fieldLabel(columns, "name", "Full name")}
-                  </span>
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="grid min-h-full lg:grid-cols-[minmax(0,1fr)_20rem]">
+            <section className="min-w-0 space-y-4 px-6 py-5">
+              <fieldset disabled={Boolean(createdLeadId)} className="space-y-4">
+              <label className="block space-y-1">
+                <span className={LABEL_CLASS}>
+                  {fieldLabel(columns, "name", "Client name")}
+                  {columns.some((column) => column.key === "name" && column.required) ? <span className="text-[#bf2600]"> *</span> : null}
+                </span>
+                <input
+                  className={INPUT_CLASS}
+                  value={fullName}
+                  onChange={(event) => setFullName(event.target.value)}
+                  placeholder="Client name"
+                  autoFocus
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className={LABEL_CLASS}>{fieldLabel(columns, "fub", "FUB link")}</span>
+                <input
+                  className={INPUT_CLASS}
+                  type="url"
+                  value={fubLink}
+                  onChange={(event) => setFubLink(event.target.value)}
+                  placeholder="https://app.followupboss.com/..."
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className={LABEL_CLASS}>Description</span>
+                <textarea
+                  className={TEXTAREA_CLASS}
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  placeholder="Add context, notes, links, or customer details..."
+                  maxLength={10_000}
+                  rows={12}
+                />
+              </label>
+              </fieldset>
+              <div className="space-y-1">
+                <span className={LABEL_CLASS}>Attachments</span>
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={saving}
+                    className="inline-flex h-10 items-center gap-1.5 rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm font-medium text-[#42526e] transition hover:border-[#c1c7d0] hover:bg-[#f7f8fa] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Paperclip className="h-4 w-4 text-[#667085]" /> Add files
+                  </button>
                   <input
-                    className={INPUT_CLASS}
-                    value={fullName}
-                    onChange={(event) => setFullName(event.target.value)}
-                    placeholder="Client name"
-                    autoFocus
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept={ATTACHMENT_ACCEPT_ATTRIBUTE}
+                    className="hidden"
+                    onChange={(event) => {
+                      const incoming = Array.from(event.target.files ?? []);
+                      event.target.value = "";
+                      const result = addPendingFiles(pendingFiles, incoming);
+                      if (!result.ok) {
+                        setFileError(result.message);
+                        return;
+                      }
+                      setPendingFiles(result.files);
+                      setFileError(null);
+                    }}
                   />
-                </label>
-                <label className="block space-y-1">
-                  <span className={LABEL_CLASS}>
-                    Phone <span className="text-[#bf2600]">*</span>
-                  </span>
-                  <input
-                    className={INPUT_CLASS}
-                    value={phone}
-                    onChange={(event) => setPhone(event.target.value)}
-                    placeholder="Phone number"
-                    inputMode="tel"
-                    required
-                  />
-                </label>
-                <label className="block space-y-1 sm:col-span-2">
-                  <span className={LABEL_CLASS}>
-                    {fieldLabel(columns, "email", "Email")}
-                  </span>
-                  <input
-                    className={INPUT_CLASS}
-                    type="email"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    placeholder="client@example.com"
-                  />
-                </label>
-                <label className="block space-y-1 sm:col-span-2">
-                  <span className={LABEL_CLASS}>
-                    {fieldLabel(columns, "fub", "FUB")}
-                  </span>
-                  <input
-                    className={INPUT_CLASS}
-                    type="url"
-                    value={fubLink}
-                    onChange={(event) => setFubLink(event.target.value)}
-                    placeholder="https://app.followupboss.com/..."
-                  />
-                </label>
-              </div>
-
-              {customColumns.length > 0 ? (
-                <div className="border-t border-[#e6eaf0] pt-4">
-                  <h3 className="mb-3 text-xs font-bold uppercase tracking-[0.08em] text-[#667085]">
-                    Additional information
-                  </h3>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {customColumns.map((column) => (
-                      <label key={column.id} className="block space-y-1">
-                        <span className={LABEL_CLASS}>
-                          {column.label}
-                          {column.required ? (
-                            <span className="text-[#bf2600]"> *</span>
-                          ) : null}
-                        </span>
-                        <CustomLeadField
-                          column={column}
-                          options={optionsByColumnId.get(column.id) ?? []}
-                          value={customValues[column.key]}
-                          onChange={(value) =>
-                            setCustomValue(column.key, value)
-                          }
-                        />
-                      </label>
-                    ))}
-                  </div>
                 </div>
-              ) : null}
+                {pendingFiles.length > 0 ? (
+                  <ul className="flex flex-wrap gap-1.5 pt-1">
+                    {pendingFiles.map((item) => (
+                      <li key={item.key} className="inline-flex max-w-[16rem] items-center gap-1 rounded border border-[#dfe1e6] bg-[#f7f8fa] px-2 py-1 text-xs text-[#42526e]">
+                        <span className="truncate" title={item.name}>{item.name}</span>
+                        <span className="shrink-0 text-[#7a869a]">{formatAttachmentSize(item.size)}</span>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${item.name}`}
+                          disabled={saving}
+                          onClick={() => {
+                            setPendingFiles((current) => removePendingFile(current, item.key));
+                            setFileError(null);
+                          }}
+                          className="shrink-0 rounded p-0.5 text-[#667085] hover:bg-[#e4e7ec] hover:text-[#344054] disabled:opacity-50"
+                        ><X className="h-3.5 w-3.5" /></button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {uploadingIndex !== null ? <p className="text-xs font-semibold text-[#5e6c84]">Uploading file {uploadingIndex + 1} of {pendingFiles.length}…</p> : null}
+                {fileError ? <p role="alert" className="text-xs font-semibold text-[#bf2600]">{fileError}</p> : null}
+              </div>
             </section>
 
-            <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f9fc] p-4 lg:border-l lg:border-t-0">
+            <aside className="border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0">
+              <fieldset disabled={Boolean(createdLeadId)} className="space-y-4">
               <div className="flex items-center justify-between border-b border-[#dfe1e6] pb-3">
                 <span className="text-xs font-bold uppercase tracking-[0.08em] text-[#667085]">
                   Lead properties
                 </span>
-                {productFilter ? (
-                  <span className="rounded bg-[#e9f2ff] px-2 py-0.5 text-xs font-bold text-[#0c66e4]">
-                    {LEAD_PRODUCT_LABEL[productFilter]}
-                  </span>
-                ) : (
-                  // Bắt buộc chọn: đoán ở đây là xếp nhầm lead vào sổ khác.
-                  // Chưa biết thì chọn Unknown — một lựa chọn có chủ ý.
-                  <TaskSelect
-                    label="Product"
-                    value={chosenProduct ?? ""}
-                    options={PRODUCT_OPTIONS}
-                    placeholder="Choose product…"
-                    className="w-[13rem] max-w-[calc(100vw-3rem)]"
-                    buttonClassName={SELECT_BUTTON_CLASS}
-                    menuClassName="min-w-[13rem]"
-                    onChange={(value) =>
-                      setChosenProduct(isLeadProduct(value) ? value : null)
-                    }
-                  />
-                )}
+                <span className="rounded bg-[#e9f2ff] px-2 py-0.5 text-xs font-bold text-[#0c66e4]">
+                  Lead
+                </span>
               </div>
+              <div>
+                <span className="mb-1.5 block text-xs font-bold uppercase text-[#6b778c]">
+                  {fieldLabel(columns, "product", "Product")}
+                  {!productFilter ? <span className="text-[#bf2600]"> *</span> : null}
+                </span>
+                <TaskSelect
+                  label="Product"
+                  value={productFilter ?? chosenProduct ?? ""}
+                  options={PRODUCT_OPTIONS}
+                  placeholder="Select product"
+                  disabled={Boolean(productFilter)}
+                  buttonClassName={PROPERTY_SELECT_BUTTON_CLASS}
+                  menuClassName="min-w-full"
+                  renderOption={(option) => {
+                    const configured = productColorOptions.find(
+                      (candidate) => candidate.label === option.label,
+                    );
+                    const palette = tableColumnOptionBadgePalette(
+                      configured ?? {
+                        id: option.label,
+                        label: option.label,
+                        color: null,
+                      },
+                    );
+                    return (
+                      <span
+                        className="inline-flex max-w-full min-w-0 items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]"
+                        style={{
+                          backgroundColor: palette.background,
+                          color: palette.foreground,
+                        }}
+                        title={option.label}
+                      >
+                        {option.label}
+                      </span>
+                    );
+                  }}
+                  onChange={chooseProduct}
+                />
+              </div>
+              <label className="block space-y-1">
+                <span className={LABEL_CLASS}>Phone <span className="text-[#bf2600]">*</span></span>
+                <input
+                  className={INPUT_CLASS}
+                  value={phone}
+                  onChange={(event) => setPhone(event.target.value)}
+                  placeholder="Phone number"
+                  inputMode="tel"
+                  required
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className={LABEL_CLASS}>{fieldLabel(columns, "email", "Email")}</span>
+                <input
+                  className={INPUT_CLASS}
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="client@example.com"
+                />
+              </label>
               <label className="block space-y-1">
                 <span className={LABEL_CLASS}>
                   {fieldLabel(columns, "event", "Event")}
@@ -496,34 +671,87 @@ export function LeadAddDialog({
                 <span className={LABEL_CLASS}>
                   {fieldLabel(columns, "assignee", "Assign to")}
                 </span>
-                {/* A roster, not a free-text address. The server rejects an
-                    account that cannot hold a lead, but a manager should not
-                    have to recall ~50 exact addresses to find that out. */}
+                {/* Match the product-specific receiving list configured in
+                    Distribute pool: active agents with a positive weight. */}
                 <TaskSelect
                   label={fieldLabel(columns, "assignee", "Assign to")}
                   value={assignedToEmail}
-                  options={assignees.map((person) => ({
+                  options={productAgents.map((person) => ({
                     value: person.email,
                     label: person.name?.trim() || person.email,
                     keywords: [person.email],
                   }))}
-                  placeholder="Unassigned"
-                  searchable={assignees.length > 8}
+                  placeholder={
+                    !product
+                      ? "Choose a product first"
+                      : distributionAgentsError
+                        ? "Could not load agents"
+                        : distributionAgents === null
+                          ? "Loading agents…"
+                          : productAgents.length === 0
+                            ? "No agents in Distribute pool"
+                            : "Unassigned"
+                  }
+                  disabled={
+                    !product ||
+                    distributionAgents === null ||
+                    distributionAgentsError ||
+                    productAgents.length === 0
+                  }
+                  searchable={productAgents.length > 8}
                   className="w-full"
                   buttonClassName={SELECT_BUTTON_CLASS}
                   menuClassName="max-h-64 min-w-full"
                   onChange={setAssignedToEmail}
                 />
+                {distributionAgentsError ? (
+                  <span className="text-xs font-semibold text-rose-700">
+                    Could not load Distribute pool agents. Close and reopen this form to retry.
+                  </span>
+                ) : null}
               </label>
+              <div className="block space-y-1">
+                <span className={LABEL_CLASS}>Collaborators</span>
+                <LeadCollaboratorsPicker
+                  emails={collaboratorEmails}
+                  options={assignees.map((person) => ({
+                    value: person.email,
+                    label: person.name?.trim() || person.email,
+                    keywords: [person.email],
+                  }))}
+                  onChange={setCollaboratorEmails}
+                  disabled={Boolean(createdLeadId) || saving}
+                  buttonClassName={SELECT_BUTTON_CLASS}
+                />
+              </div>
+              {customColumns.length > 0 ? (
+                <div className="space-y-4 border-t border-[#dfe1e6] pt-4">
+                  <h3 className={LABEL_CLASS}>Custom fields</h3>
+                  {customColumns.map((column) => (
+                    <label key={column.id} className="block space-y-1">
+                      <span className={LABEL_CLASS}>
+                        {column.label}{column.required ? <span className="text-[#bf2600]"> *</span> : null}
+                      </span>
+                      <CustomLeadField
+                        column={column}
+                        options={optionsByColumnId.get(column.id) ?? []}
+                        value={customValues[column.key]}
+                        onChange={(value) => setCustomValue(column.key, value)}
+                      />
+                    </label>
+                  ))}
+                </div>
+              ) : null}
               <p className="text-xs leading-5 text-[#667085]">
                 Phone numbers are normalized automatically. Duplicate phone
                 numbers are blocked within the same event.
               </p>
+              </fieldset>
             </aside>
           </div>
           {error ? (
             <p
-              className="mt-5 border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700"
+              className="m-4 border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700"
               role="alert"
             >
               {error}
@@ -538,17 +766,16 @@ export function LeadAddDialog({
             disabled={saving}
             className="rounded px-4 py-2 text-sm font-semibold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:opacity-50"
           >
-            Cancel
+            {createdLeadId ? "Close" : "Cancel"}
           </button>
           <button
             type="button"
             onClick={() => void submit()}
-            disabled={saving || !product}
+            disabled={saving || (!product && !createdLeadId)}
             title={product ? undefined : "Choose a product first."}
             className="inline-flex h-9 items-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <Plus className="h-4 w-4" />
-            {saving ? "Creating..." : "Create lead"}
+            {saving ? uploadingIndex !== null ? "Uploading..." : "Creating..." : createdLeadId ? pendingFiles.length > 0 ? "Retry uploads" : "Finish" : "Create lead"}
           </button>
         </footer>
       </div>

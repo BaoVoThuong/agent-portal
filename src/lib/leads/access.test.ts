@@ -11,6 +11,7 @@ import type { LeadRow } from "./types";
 
 const manager = buildLeadActor(["lead.manage"], "mgr@x.com");
 const agent = buildLeadActor(["lead.work"], "cs@x.com");
+const taskManager = buildLeadActor(["task.manage"], "task-manager@x.com");
 const outsider = buildLeadActor(["task.work"], "other@x.com");
 
 const mine = { assigned_to_email: "cs@x.com" } as LeadRow;
@@ -31,6 +32,24 @@ describe("lead access", () => {
 
   it("matches the owner case-insensitively", () => {
     expect(canViewLead(agent, { assigned_to_email: "CS@X.COM" } as LeadRow)).toBe(true);
+  });
+
+  it("lets a listed collaborator view, edit and log without changing the assigned agent", () => {
+    const lead = {
+      assigned_to_email: "agent@x.com",
+      collaborator_emails: ["cs@x.com"],
+    } as LeadRow;
+    expect(canViewLead(agent, lead)).toBe(true);
+    expect(canEditLead(agent, lead)).toBe(true);
+    expect(canLogInteraction(agent, lead)).toBe(true);
+    expect(lead.assigned_to_email).toBe("agent@x.com");
+  });
+
+  it("lets task.manage see every lead without granting edits or assignment", () => {
+    expect(canViewLead(taskManager, theirs)).toBe(true);
+    expect(canViewLead(taskManager, unassigned)).toBe(true);
+    expect(canEditLead(taskManager, theirs)).toBe(false);
+    expect(canManageLeads(taskManager)).toBe(false);
   });
 
   it("locks out anyone without a lead permission", () => {

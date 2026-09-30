@@ -2,7 +2,7 @@ import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { buildLeadActor, isLeadViewAdmin } from "@/lib/leads/access";
 import { resolveLeadCapabilities } from "@/lib/leads/capabilities";
-import { isLeadOwnerOrAssistant } from "@/lib/leads/membership";
+import { isAssistantToLeadMember } from "@/lib/leads/membership";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import type { LeadRow } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -27,16 +27,20 @@ export async function GET(_req: Request, { params }: Ctx) {
   const supabase = getSupabaseAdmin();
   const { data: lead, error: leadError } = await supabase
     .from("leads")
-    .select("id,assigned_to_email")
+    .select("id,assigned_to_email,collaborator_emails")
     .eq("id", id)
     .is("archived_at", null)
     .maybeSingle();
   if (leadError) return NextResponse.json({ error: leadError.message }, { status: 500 });
   if (!lead) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const viewed = lead as Pick<LeadRow, "assigned_to_email">;
+  const viewed = lead as Pick<LeadRow, "assigned_to_email" | "collaborator_emails">;
   const canSeeAsAssistant = actor.isManager
     ? false
-    : await isLeadOwnerOrAssistant(viewed.assigned_to_email, email);
+    : await isAssistantToLeadMember(
+        viewed.assigned_to_email,
+        viewed.collaborator_emails,
+        email,
+      );
   if (!resolveLeadCapabilities(actor, viewed, { isOwnerOrAssistant: canSeeAsAssistant }).canView) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -70,7 +74,7 @@ export async function POST(req: Request, { params }: Ctx) {
   // vẫn đúng.
   const { data: lead, error: leadError } = await supabase
     .from("leads")
-    .select("id,assigned_to_email,lead_events(name)")
+    .select("id,assigned_to_email,collaborator_emails,lead_events(name)")
     .eq("id", id)
     .is("archived_at", null)
     .maybeSingle();
@@ -78,14 +82,15 @@ export async function POST(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: leadError.message }, { status: 500 });
   }
   if (!lead) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const target = lead as Pick<LeadRow, "assigned_to_email"> & {
+  const target = lead as Pick<LeadRow, "assigned_to_email" | "collaborator_emails"> & {
     lead_events?: { name?: string | null } | null;
   };
   // An Assistant logs calls on their agent's leads; that is the point of the
   // pairing. Ownership is unchanged, so the contact counters still belong to
   // the agent the lead is assigned to.
-  const isOwnerOrAssistant = await isLeadOwnerOrAssistant(
+  const isOwnerOrAssistant = await isAssistantToLeadMember(
     target.assigned_to_email,
+    target.collaborator_emails,
     email,
   );
   if (!resolveLeadCapabilities(actor, target, { isOwnerOrAssistant }).canLog) {

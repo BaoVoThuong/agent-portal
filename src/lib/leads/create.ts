@@ -1,5 +1,6 @@
 import { normalizePhone } from "./import-parse";
 import { isLeadProduct, UNKNOWN_LEAD_PRODUCT, type LeadProduct } from "./types";
+import { parseCollaboratorEmails } from "./collaborators";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -13,6 +14,7 @@ export type CreateLeadInput = {
   phone: string;
   email: string | null;
   fubLink: string | null;
+  description: string | null;
   eventId: string | null;
   /**
    * A typed event name. The dialog lets someone name an event that does not
@@ -23,6 +25,7 @@ export type CreateLeadInput = {
   eventName: string | null;
   statusId: string | null;
   assignedToEmail: string | null;
+  collaboratorEmails: string[];
   customValues: Record<string, unknown>;
   clientRequestId: string | null;
 };
@@ -105,6 +108,8 @@ export function parseCreateLeadInput(body: unknown): CreateLeadParseResult {
   if (email !== null && typeof email === "object") return { ok: false, error: email.error };
   const fubLink = optionalText(input.fub_link, "FUB link", 500);
   if (fubLink !== null && typeof fubLink === "object") return { ok: false, error: fubLink.error };
+  const description = optionalText(input.description, "Description", 10_000);
+  if (description !== null && typeof description === "object") return { ok: false, error: description.error };
   const eventId = optionalUuid(input.event_id, "Event");
   if (eventId !== null && typeof eventId === "object") return { ok: false, error: eventId.error };
   const eventName = optionalText(input.event_name, "Event name", 200);
@@ -113,6 +118,8 @@ export function parseCreateLeadInput(body: unknown): CreateLeadParseResult {
   if (statusId !== null && typeof statusId === "object") return { ok: false, error: statusId.error };
   const assignedToEmail = optionalEmail(input.assigned_to_email, "Assignee");
   if (assignedToEmail !== null && typeof assignedToEmail === "object") return { ok: false, error: assignedToEmail.error };
+  const collaboratorEmails = parseCollaboratorEmails(input.collaborator_emails);
+  if (!collaboratorEmails.ok) return collaboratorEmails;
   const clientRequestId = optionalUuid(input.client_request_id, "Client request ID");
   if (clientRequestId !== null && typeof clientRequestId === "object") return { ok: false, error: clientRequestId.error };
   const customValues = parseCustomValues(input.custom_values);
@@ -126,10 +133,12 @@ export function parseCreateLeadInput(body: unknown): CreateLeadParseResult {
       phone,
       email,
       fubLink,
+      description,
       eventId,
       eventName,
       statusId,
       assignedToEmail,
+      collaboratorEmails: collaboratorEmails.emails,
       customValues: customValues.value,
       clientRequestId,
     },
@@ -161,6 +170,8 @@ export type NewLeadRowInput = {
   email: string | null;
   /** Optional for imports, which may not provide a FUB URL. */
   fubLink?: string | null;
+  description?: string | null;
+  collaboratorEmails?: string[];
   customValues: Record<string, unknown>;
   /** Người bấm nút — dùng cho cả `created_by_email` lẫn `updated_by_email`. */
   actorEmail: string;
@@ -196,6 +207,8 @@ export function buildNewLeadRow(input: NewLeadRowInput): Record<string, unknown>
     phone: input.phone,
     email: input.email,
     fub_link: input.fubLink ?? null,
+    description: input.description ?? null,
+    collaborator_emails: input.collaboratorEmails ?? [],
     assigned_to_email: null,
     assigned_at: null,
     assigned_by_email: null,

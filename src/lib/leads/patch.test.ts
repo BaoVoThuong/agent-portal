@@ -20,6 +20,18 @@ describe("buildLeadPatch", () => {
     });
   });
 
+  it("updates and clears a description with the create limit", () => {
+    expect(buildLeadPatch({ description: "  Follow up after 5pm  " })).toMatchObject({
+      ok: true, patch: { description: "Follow up after 5pm" },
+    });
+    expect(buildLeadPatch({ description: "   " })).toMatchObject({
+      ok: true, patch: { description: null },
+    });
+    expect(buildLeadPatch({ description: "x".repeat(10_001) })).toEqual({
+      ok: false, error: "Description is too long.",
+    });
+  });
+
   // Fail closed. Silently dropping an unknown key makes a typo look like a
   // save that worked, and the cell would show the new value until a refresh.
   it("refuses a field that is not editable in place", () => {

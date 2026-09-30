@@ -4,12 +4,11 @@ import { buildLeadActor, canManageLeads, canWorkLeads, isLeadViewAdmin } from "@
 import { buildNewLeadRow, parseCreateLeadInput } from "@/lib/leads/create";
 import { fetchAllLeads, fetchDefaultLeadStatusId } from "@/lib/leads/queries";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
-import { getUserAccessByEmail } from "@/lib/rbac/access";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { canBeAssignedLead } from "@/lib/leads/assign-target";
 import { resolveEventByName } from "@/lib/leads/events";
 import { resolveLeadOwnerEmails } from "@/lib/leads/membership";
 import { findMissingRequiredFields } from "@/lib/table-config/required";
+import { fetchLeadAssignees } from "@/lib/leads/assignees";
 
 export const dynamic = "force-dynamic";
 
@@ -50,8 +49,8 @@ export async function GET(request: Request) {
 }
 
 const LEAD_COLUMNS =
-  "id,display_number,product,products,event_id,full_name,phone,email,fub_link," +
-  "assigned_to_email,assigned_at,assigned_by_email,status_id," +
+  "id,display_number,product,products,event_id,full_name,phone,email,fub_link,description," +
+  "assigned_to_email,collaborator_emails,assigned_at,assigned_by_email,status_id," +
   "first_contacted_at,last_contacted_at,contact_attempt_count," +
   "next_follow_up_at,closed_at,created_by_email,created_at," +
   "updated_by_email,updated_at,custom_values,archived_at";
@@ -145,9 +144,35 @@ export async function POST(request: Request) {
   }
 
   if (input.assignedToEmail) {
-    const targetAccess = await getUserAccessByEmail(input.assignedToEmail);
-    if (!canBeAssignedLead(targetAccess)) {
-      return NextResponse.json({ error: "That person cannot be assigned leads." }, { status: 400 });
+    const { data: receivingAgent, error: receivingAgentError } = await supabase
+      .from("lead_assignment_weights")
+      .select("agent_email")
+      .eq("product", input.product)
+      .eq("agent_email", input.assignedToEmail)
+      .eq("is_active", true)
+      .gt("weight", 0)
+      .maybeSingle();
+    if (receivingAgentError) {
+      return NextResponse.json({ error: receivingAgentError.message }, { status: 500 });
+    }
+    if (!receivingAgent) {
+      return NextResponse.json(
+        { error: "That agent is not in the Distribute pool for this product." },
+        { status: 400 },
+      );
+    }
+  }
+
+  if (input.collaboratorEmails.length > 0) {
+    const eligibleCollaborators = await fetchLeadAssignees();
+    const eligibleEmails = new Set(
+      eligibleCollaborators.map((person) => person.email.trim().toLowerCase()),
+    );
+    if (input.collaboratorEmails.some((collaborator) => !eligibleEmails.has(collaborator))) {
+      return NextResponse.json(
+        { error: "Choose collaborators who have access to Lead Management." },
+        { status: 400 },
+      );
     }
   }
 
@@ -181,6 +206,8 @@ export async function POST(request: Request) {
         phone: input.phone,
         email: input.email,
         fubLink: input.fubLink,
+        description: input.description,
+        collaboratorEmails: input.collaboratorEmails,
         customValues: input.customValues,
         actorEmail: normalizedActorEmail,
         clientRequestId: input.clientRequestId,

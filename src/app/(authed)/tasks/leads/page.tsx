@@ -29,19 +29,20 @@ export default async function LeadsPage({
   const session = await requireAnyPermission([
     PERMISSIONS.LEAD_MANAGE,
     PERMISSIONS.LEAD_WORK,
+    PERMISSIONS.TASK_MANAGE,
   ]);
   const email = session.user.email ?? "";
   const actor = buildLeadActor(session.user.permissions, email, {
     isAdmin: isLeadViewAdmin(session.user),
   });
   const view = Array.isArray(params.view) ? params.view[0] : params.view;
-  if (view === "overview" && !actor.isManager) redirect("/unauthorized");
+  if (view === "overview" && !actor.canViewAll) redirect("/unauthorized");
   const supabase = getSupabaseAdmin();
 
   // Resolved once: a worker's queue is their own leads plus every agent they
   // are an Assistant for. null means a manager, i.e. no owner filter at all.
   const ownerEmails = await resolveLeadOwnerEmails(actor);
-  const [page, config, vocabulary, alertSettings, assignees] = await Promise.all([
+  const [page, config, vocabulary, alertSettings, collaboratorRoster] = await Promise.all([
     fetchAllLeads(
       actor,
       { product: productFilter, alert: params.alert },
@@ -54,14 +55,15 @@ export default async function LeadsPage({
     // columns, so the badges can be computed in the browser — no extra request,
     // and they stay correct as the clock moves without a refresh.
     fetchLeadAlertSettings(supabase),
-    // Only a manager can reassign, so only they need the roster. Loading it for
-    // an agent would be one query nothing on their screen can use.
-    actor.isManager ? fetchLeadAssignees() : Promise.resolve([]),
+    fetchLeadAssignees(),
   ]);
+  const assignees = actor.canViewAll ? collaboratorRoster : [];
 
   return (
     <LeadsClient
       productFilter={productFilter}
+      currentUserEmail={email}
+      canViewAll={Boolean(actor.canViewAll)}
       editableOwnerEmails={ownerEmails}
       alertSettings={alertSettings}
       isManager={actor.isManager}
@@ -74,6 +76,7 @@ export default async function LeadsPage({
       archivedStatuses={vocabulary.archivedStatuses}
       interactionTypes={vocabulary.types}
       assignees={assignees}
+      collaboratorRoster={collaboratorRoster}
     />
   );
 }

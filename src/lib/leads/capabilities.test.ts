@@ -6,6 +6,7 @@ import type { LeadRow } from "./types";
 
 const manager = buildLeadActor(["lead.manage"], "mgr@x.com");
 const agent = buildLeadActor(["lead.work"], "cs@x.com");
+const taskManager = buildLeadActor(["task.manage"], "task-manager@x.com");
 const mine = { assigned_to_email: "cs@x.com" } as LeadRow;
 const theirs = { assigned_to_email: "someone@x.com" } as LeadRow;
 const unassigned = { assigned_to_email: null } as LeadRow;
@@ -33,6 +34,12 @@ describe("resolveLeadCapabilities", () => {
     expect(resolveLeadCapabilities(agent, theirs, { isOwnerOrAssistant: true })).toEqual(
       resolveLeadCapabilities(agent, mine)
     );
+  });
+
+  it("task.manage can see every lead but cannot edit or assign unrelated leads", () => {
+    expect(resolveLeadCapabilities(taskManager, theirs)).toEqual({
+      canView: true, canEdit: false, canLog: false, canAssign: false,
+    });
   });
 });
 
@@ -66,6 +73,16 @@ describe("leadIsInScope agrees with canEdit", () => {
     expect(leadIsInScope(theirs, scope)).toBe(
       resolveLeadCapabilities(agent, theirs, { isOwnerOrAssistant: true }).canEdit
     );
+  });
+
+  it("direct collaborators and their assistants have the same edit scope", () => {
+    const collaborated = {
+      assigned_to_email: "agent@x.com",
+      collaborator_emails: ["cs@x.com"],
+    } as LeadRow;
+    expect(leadIsInScope(collaborated, ["unrelated@x.com"], "other@x.com")).toBe(false);
+    expect(leadIsInScope(collaborated, ["other@x.com"], "cs@x.com")).toBe(true);
+    expect(leadIsInScope(collaborated, ["cs@x.com"], "other@x.com")).toBe(true);
   });
 
   // An unassigned lead belongs to nobody, so no worker scope can contain it.

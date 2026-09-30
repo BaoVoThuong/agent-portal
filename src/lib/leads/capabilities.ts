@@ -23,7 +23,7 @@ export type LeadCapabilities = {
  */
 export function resolveLeadCapabilities(
   actor: LeadActor,
-  lead: Pick<LeadRow, "assigned_to_email">,
+  lead: Pick<LeadRow, "assigned_to_email" | "collaborator_emails">,
   flags: LeadMembershipFlags = {}
 ): LeadCapabilities {
   return {
@@ -43,10 +43,18 @@ export function resolveLeadCapabilities(
  * test in capabilities.test.ts asserts they do.
  */
 export function leadIsInScope(
-  lead: Pick<LeadRow, "assigned_to_email">,
-  ownerEmails: readonly string[] | null
+  lead: Pick<LeadRow, "assigned_to_email" | "collaborator_emails">,
+  ownerEmails: readonly string[] | null,
+  actorEmail?: string,
 ): boolean {
   if (ownerEmails === null) return true;
   const owner = lead.assigned_to_email?.trim().toLowerCase() ?? "";
-  return owner !== "" && ownerEmails.includes(owner);
+  if (owner !== "" && ownerEmails.includes(owner)) return true;
+  if ((lead.collaborator_emails ?? []).some((email) =>
+    ownerEmails.includes(email.trim().toLowerCase()),
+  )) return true;
+  const normalizedActor = actorEmail?.trim().toLowerCase() ?? "";
+  return Boolean(normalizedActor) && (lead.collaborator_emails ?? []).some(
+    (email) => email.trim().toLowerCase() === normalizedActor,
+  );
 }

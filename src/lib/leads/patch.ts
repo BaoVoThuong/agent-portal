@@ -5,6 +5,7 @@ import {
 } from "./lead-fields";
 import { normalizePhone } from "./import-parse";
 import { isLeadProduct, normalizeLeadProducts, UNKNOWN_LEAD_PRODUCT } from "./types";
+import { parseCollaboratorEmails } from "./collaborators";
 
 /**
  * The system fields the table lets someone edit in place. Everything else on a
@@ -18,6 +19,7 @@ export const EDITABLE_LEAD_FIELDS = [
   "phone",
   "email",
   "fub_link",
+  "description",
   "product",
   "status_id",
   "next_follow_up_at",
@@ -95,6 +97,12 @@ export function buildLeadPatch(body: unknown): LeadPatchResult {
       patch.products = normalizeLeadProducts(value);
       continue;
     }
+    if (key === "collaborator_emails") {
+      const parsedCollaborators = parseCollaboratorEmails(value);
+      if (!parsedCollaborators.ok) return parsedCollaborators;
+      patch.collaborator_emails = parsedCollaborators.emails;
+      continue;
+    }
     if (key === "custom_values") {
       if (!value || typeof value !== "object" || Array.isArray(value)) {
         return { ok: false, error: "custom_values must be an object." };
@@ -144,6 +152,12 @@ export function buildLeadPatch(body: unknown): LeadPatchResult {
         const parsedLink = text(value, "FUB link", MAX_TEXT_LENGTH);
         if (!parsedLink.ok) return { ok: false, error: parsedLink.error };
         patch.fub_link = parsedLink.value;
+        break;
+      }
+      case "description": {
+        const parsedDescription = text(value, "Description", 10_000);
+        if (!parsedDescription.ok) return { ok: false, error: parsedDescription.error };
+        patch.description = parsedDescription.value;
         break;
       }
       case "product":

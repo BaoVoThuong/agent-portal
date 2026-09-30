@@ -41,6 +41,7 @@ export const NOTIFICATION_COPY_TYPES = [
   "attachment_added",
   "backlog_attention",
   "task_created",
+  "record_created",
   "stage_changed",
   // Time Off: đơn xin nghỉ vừa được nộp.
   "submitted",
@@ -113,6 +114,8 @@ export function notificationHref(notification: NotificationCopySource): string {
 export function notificationActionText(notification: NotificationCopySource): string {
   const kind = notificationEntityKind(notification);
   switch (notification.type) {
+    case "record_created":
+      return kind === "enrollment" ? "created a new enrollment record" : "created a new record";
     case "submitted":
       return "gửi một đơn xin nghỉ";
     case "assigned":

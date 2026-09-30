@@ -24,8 +24,10 @@ import {
 } from "@/lib/enrollment/realtime";
 import {
   fetchAdminEmails,
+  fetchTaskManagerEmails,
   isAgentOwnerOrAssistant,
 } from "@/lib/tasks/membership";
+import { buildCreateEnrollmentNotificationRows } from "@/lib/enrollment/create-notifications";
 import {
   parseEnrollmentProgram,
   type EnrollmentRecordWithStats,
@@ -340,21 +342,25 @@ export async function POST(request: Request) {
   const record = { description: null, ...(data as Record<string, unknown>) } as EnrollmentRecordWithStats;
   const mutationWarnings: string[] = [];
 
-  const recipients = uniqueEnrollmentNotificationRecipients(
-    [record.caller_email, record.responsible_enroll_email],
-    [actorResult.actor.email]
-  );
-  const notificationPromises: Promise<void>[] = [
-    insertEnrollmentNotifications(
-      recipients.map((recipient) => ({
-        recipient_email: recipient,
-        record_id: record.id,
-        type: "assigned",
-        actor_email: actorResult.actor.email,
-        detail: "New enrollment record",
-      }))
+  let taskManagerEmails: string[] = [];
+  try {
+    taskManagerEmails = await fetchTaskManagerEmails();
+  } catch (error) {
+    mutationWarnings.push(
+      `Enrollment task.manage recipient lookup failed: ${error instanceof Error ? error.message : "unknown error"}`
+    );
+  }
+  const notificationRows = buildCreateEnrollmentNotificationRows({
+    recordId: record.id,
+    actorEmail: actorResult.actor.email,
+    assignees: [record.caller_email, record.responsible_enroll_email].filter(
+      (value): value is string => Boolean(value),
     ),
-  ];
+    createdRecipients: taskManagerEmails,
+  });
+  const notificationPromises: Promise<void>[] = notificationRows.length > 0
+    ? [insertEnrollmentNotifications(notificationRows)]
+    : [];
 
   if (selectedStage?.triggers_qc) {
     notificationPromises.push(

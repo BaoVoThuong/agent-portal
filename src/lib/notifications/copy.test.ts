@@ -54,6 +54,13 @@ describe("phân biệt task và enrollment", () => {
       notificationActionText(notif({ type: "assigned", entity_type: "enrollment" }))
     ).toContain("enrollment");
   });
+
+  it("diễn đạt đúng thông báo tạo enrollment mới", () => {
+    expect(notificationSentence(
+      notif({ type: "record_created", entity_type: "enrollment" }),
+      "Bao Vo",
+    )).toBe("Bao Vo created a new enrollment record");
+  });
 });
 
 describe("thông báo hệ thống không có người thực hiện", () => {

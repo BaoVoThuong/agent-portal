@@ -3,13 +3,14 @@ import { auth } from "@/auth";
 import { buildLeadActor, isLeadViewAdmin } from "@/lib/leads/access";
 import { resolveLeadCapabilities } from "@/lib/leads/capabilities";
 import { resolveEventByName } from "@/lib/leads/events";
-import { isLeadOwnerOrAssistant } from "@/lib/leads/membership";
+import { isAssistantToLeadMember } from "@/lib/leads/membership";
 import { buildLeadPatch, checkFollowUpInvariant } from "@/lib/leads/patch";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import type { LeadRow } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { validateCustomValues } from "@/lib/table-config/custom-values";
 import { findMissingRequiredFieldsFromContext } from "@/lib/table-config/required";
+import { fetchLeadAssignees } from "@/lib/leads/assignees";
 import {
   fetchWriteValidationContext,
   TableConfigUnavailableError,
@@ -23,8 +24,8 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const LEAD_SELECT =
-  "id,display_number,product,products,event_id,full_name,phone,email,fub_link," +
-  "assigned_to_email,assigned_at,assigned_by_email,status_id," +
+  "id,display_number,product,products,event_id,full_name,phone,email,fub_link,description," +
+  "assigned_to_email,collaborator_emails,assigned_at,assigned_by_email,status_id," +
   "first_contacted_at,last_contacted_at,contact_attempt_count," +
   "next_follow_up_at,closed_at,created_by_email,created_at," +
   "updated_by_email,updated_at,custom_values,archived_at,lead_events(name)";
@@ -55,7 +56,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   const supabase = getSupabaseAdmin();
   const { data: current, error: currentError } = await supabase
     .from("leads")
-    .select("id,assigned_to_email,status_id,next_follow_up_at,custom_values,updated_at")
+    .select("id,assigned_to_email,collaborator_emails,status_id,next_follow_up_at,custom_values,updated_at")
     .eq("id", id)
     .is("archived_at", null)
     .maybeSingle();
@@ -63,11 +64,15 @@ export async function PATCH(request: Request, { params }: Ctx) {
     return NextResponse.json({ error: currentError.message }, { status: 500 });
   }
   if (!current) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const lead = current as Pick<LeadRow, "assigned_to_email">;
+  const lead = current as Pick<LeadRow, "assigned_to_email" | "collaborator_emails">;
   // Only ask agent_members when the answer can still change.
   const isOwnerOrAssistant = actor.isManager
     ? false
-    : await isLeadOwnerOrAssistant(lead.assigned_to_email, email);
+    : await isAssistantToLeadMember(
+        lead.assigned_to_email,
+        lead.collaborator_emails,
+        email,
+      );
   if (!resolveLeadCapabilities(actor, lead, { isOwnerOrAssistant }).canEdit) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -76,6 +81,28 @@ export async function PATCH(request: Request, { params }: Ctx) {
   const parsed = buildLeadPatch(body);
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
   const patch: Record<string, unknown> = { ...parsed.patch };
+
+  if (Array.isArray(patch.collaborator_emails)) {
+    const currentCollaborators = new Set(
+      ((current as { collaborator_emails?: string[] | null }).collaborator_emails ?? [])
+        .map((collaborator) => collaborator.trim().toLowerCase()),
+    );
+    const additions = (patch.collaborator_emails as string[]).filter(
+      (collaborator) => !currentCollaborators.has(collaborator),
+    );
+    if (additions.length > 0) {
+      const eligibleCollaborators = await fetchLeadAssignees();
+      const eligibleEmails = new Set(
+        eligibleCollaborators.map((person) => person.email.trim().toLowerCase()),
+      );
+      if (additions.some((collaborator) => !eligibleEmails.has(collaborator))) {
+        return NextResponse.json(
+          { error: "Choose collaborators who have access to Lead Management." },
+          { status: 400 },
+        );
+      }
+    }
+  }
 
   // The status/follow-up invariant runs whenever EITHER side of it can change,
   // not only when a status is sent: a request carrying just next_follow_up_at
@@ -151,7 +178,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   // table column. Keep it out of table-config validation while still allowing
   // the DB trigger to derive the legacy primary `product` column from it.
   const touchedSystemKeys = Object.keys(parsed.patch).filter(
-    (key) => key !== "products",
+    (key) => key !== "products" && key !== "description" && key !== "collaborator_emails",
   );
   const submittedCustomValues = parsed.customValues ?? {};
   let writeContext;
@@ -271,7 +298,7 @@ export async function DELETE(request: Request, { params }: Ctx) {
   const supabase = getSupabaseAdmin();
   const { data: current, error: currentError } = await supabase
     .from("leads")
-    .select("id,assigned_to_email,updated_at")
+    .select("id,assigned_to_email,collaborator_emails,updated_at")
     .eq("id", id)
     .is("archived_at", null)
     .maybeSingle();
@@ -280,10 +307,14 @@ export async function DELETE(request: Request, { params }: Ctx) {
   }
   if (!current) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const lead = current as Pick<LeadRow, "assigned_to_email" | "updated_at">;
+  const lead = current as Pick<LeadRow, "assigned_to_email" | "collaborator_emails" | "updated_at">;
   const isOwnerOrAssistant = actor.isManager
     ? false
-    : await isLeadOwnerOrAssistant(lead.assigned_to_email, email);
+    : await isAssistantToLeadMember(
+        lead.assigned_to_email,
+        lead.collaborator_emails,
+        email,
+      );
   if (!resolveLeadCapabilities(actor, lead, { isOwnerOrAssistant }).canEdit) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

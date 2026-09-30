@@ -2,7 +2,7 @@ import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { buildLeadActor, isLeadViewAdmin } from "@/lib/leads/access";
 import { resolveLeadCapabilities } from "@/lib/leads/capabilities";
-import { isLeadOwnerOrAssistant } from "@/lib/leads/membership";
+import { isAssistantToLeadMember } from "@/lib/leads/membership";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import type { LeadRow } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -26,17 +26,21 @@ async function loadAccess(id: string) {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("leads")
-    .select("id,assigned_to_email")
+    .select("id,assigned_to_email,collaborator_emails")
     .eq("id", id)
     .is("archived_at", null)
     .maybeSingle();
   if (error) return { error: error.message, status: 500 };
   if (!data) return { error: "Not found", status: 404 };
 
-  const lead = data as Pick<LeadRow, "assigned_to_email">;
+  const lead = data as Pick<LeadRow, "assigned_to_email" | "collaborator_emails">;
   const isOwnerOrAssistant = actor.isManager
     ? false
-    : await isLeadOwnerOrAssistant(lead.assigned_to_email, email);
+    : await isAssistantToLeadMember(
+        lead.assigned_to_email,
+        lead.collaborator_emails,
+        email,
+      );
   const capabilities = resolveLeadCapabilities(actor, lead, {
     isOwnerOrAssistant,
   });

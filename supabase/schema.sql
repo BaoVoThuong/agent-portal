@@ -5988,6 +5988,7 @@ create table if not exists enrollment_notifications (
   record_id uuid not null references enrollment_records(id) on delete cascade,
   type text not null check (
     type in (
+      'record_created',
       'assigned',
       'mentioned',
       'commented',
@@ -6449,7 +6450,10 @@ create table if not exists leads (
   full_name text,
   phone text,
   email text,
+  fub_link text,
+  description text,
   assigned_to_email text,
+  collaborator_emails text[] not null default '{}'::text[],
   assigned_at timestamptz,
   assigned_by_email text,
   status_id uuid references lead_statuses(id) on delete restrict,
@@ -6470,6 +6474,9 @@ create table if not exists leads (
   archived_at timestamptz,
   client_request_id uuid
 );
+
+create index if not exists leads_collaborator_emails_gin_idx
+  on leads using gin (collaborator_emails);
 
 create table if not exists lead_interactions (
   id uuid primary key default gen_random_uuid(),
@@ -6496,6 +6503,25 @@ create table if not exists lead_comments (
   updated_at timestamptz not null default now(),
   deleted_at timestamptz
 );
+
+-- Lead files live in the existing private task-attachments Storage bucket under
+-- a separate `leads/` prefix. Metadata is scoped by lead, never by file path.
+create table if not exists lead_attachments (
+  id uuid primary key default gen_random_uuid(),
+  lead_id uuid not null references leads(id) on delete cascade,
+  storage_path text not null unique,
+  file_name text not null,
+  mime_type text,
+  size_bytes bigint not null,
+  uploaded_by text not null,
+  client_request_id uuid,
+  created_at timestamptz not null default now()
+);
+create index if not exists lead_attachments_lead_idx
+  on lead_attachments (lead_id, created_at);
+create unique index if not exists lead_attachments_request_key
+  on lead_attachments (lead_id, uploaded_by, client_request_id)
+  where client_request_id is not null;
 
 create unique index if not exists lead_comments_client_request_id_key
   on lead_comments (lead_id, author_email, client_request_id)
@@ -6657,6 +6683,7 @@ alter table lead_interaction_types enable row level security;
 alter table leads enable row level security;
 alter table lead_interactions enable row level security;
 alter table lead_comments enable row level security;
+alter table lead_attachments enable row level security;
 alter table lead_assignment_history enable row level security;
 alter table lead_alert_settings enable row level security;
 alter table lead_assignment_weights enable row level security;

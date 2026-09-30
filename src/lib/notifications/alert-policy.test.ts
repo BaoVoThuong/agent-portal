@@ -30,7 +30,7 @@ describe("tag gộp popup", () => {
       expect(isDirectNotification(type), type).toBe(true);
       expect(shouldRenotify({ type }), type).toBe(true);
     }
-    for (const type of ["commented", "waiting_reminder", "task_created"] as const) {
+    for (const type of ["commented", "waiting_reminder", "task_created", "record_created"] as const) {
       expect(shouldRenotify({ type }), type).toBe(false);
     }
   });

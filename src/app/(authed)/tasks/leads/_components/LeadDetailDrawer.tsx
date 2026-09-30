@@ -1,9 +1,10 @@
 "use client";
 
-import { X } from "lucide-react";
+import { Paperclip, X } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   LeadComment,
+  LeadAttachment,
   LeadInteraction,
   LeadInteractionType,
   LeadRow,
@@ -26,6 +27,8 @@ import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
 import { AvatarStack } from "../../_components/board-ui";
 import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
 import { ProductMenu } from "./LeadTable";
+import { formatAttachmentSize } from "@/lib/tasks/attachments";
+import { LeadCollaboratorsEditor } from "./LeadCollaboratorsPicker";
 
 // These mirror the compact field primitives in TaskDetailDrawer. Keeping them
 // local lets Lead retain its domain-specific data while sharing the same UI
@@ -53,6 +56,37 @@ function displayDateTime(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
+}
+
+function LeadDescriptionEditor({
+  value,
+  canEdit,
+  onSave,
+}: {
+  value: string | null | undefined;
+  canEdit: boolean;
+  onSave: (description: string | null) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState(value ?? "");
+
+  return (
+    <textarea
+      aria-label="Description"
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={() => {
+        const next = draft.trim() || null;
+        if (canEdit && next !== (value ?? null)) {
+          void onSave(next).catch(() => undefined);
+        }
+      }}
+      readOnly={!canEdit}
+      maxLength={10_000}
+      rows={5}
+      placeholder={canEdit ? "Add context or customer details..." : "No description"}
+      className={`${INPUT_CLASS} min-h-28 w-full resize-y leading-6 ${canEdit ? "" : "bg-[#f7f8fa]"}`}
+    />
+  );
 }
 
 
@@ -116,9 +150,11 @@ type LeadDetailDrawerProps = {
   nameByEmail: Map<string, string>;
   /** Owner emails this person may log against; null = every lead (a manager). */
   editableOwnerEmails: string[] | null;
+  currentUserEmail: string;
   /** Managers can reassign; workers receive an empty list. */
   isManager: boolean;
   assignees: { email: string; name: string | null }[];
+  collaboratorRoster: { email: string; name: string | null }[];
   onClose: () => void;
   onPatchLead: (id: string, patch: Record<string, unknown>) => Promise<void>;
   onAssignLead: (id: string, email: string | null) => Promise<void>;
@@ -169,8 +205,10 @@ export function LeadDetailDrawer({
   columnOptions,
   interactionTypes,
   editableOwnerEmails,
+  currentUserEmail,
   isManager,
   assignees,
+  collaboratorRoster,
   nameByEmail,
   onClose,
   onPatchLead,
@@ -181,6 +219,9 @@ export function LeadDetailDrawer({
 }: LeadDetailDrawerProps) {
   const [interactions, setInteractions] = useState<LeadInteraction[]>([]);
   const [comments, setComments] = useState<LeadComment[]>([]);
+  const [attachments, setAttachments] = useState<LeadAttachment[]>([]);
+  const [attachmentsLeadId, setAttachmentsLeadId] = useState<string | null>(null);
+  const [attachmentsError, setAttachmentsError] = useState<string | null>(null);
   const cachedInteractions = lead ? interactionCache.get(lead.id) : undefined;
   const cachedComments = lead ? commentCache.get(lead.id) : undefined;
   const [loadedLeadId, setLoadedLeadId] = useState<string | null>(null);
@@ -247,6 +288,30 @@ export function LeadDetailDrawer({
     return () => {
       cancelled = true;
     };
+  }, [leadId]);
+
+  useEffect(() => {
+    if (!leadId) return;
+    let cancelled = false;
+    void fetch(`/api/leads/${leadId}/attachments`, { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !Array.isArray(payload?.attachments)) {
+          throw new Error(payload?.error ?? "Could not load attachments.");
+        }
+        if (!cancelled) {
+          setAttachments(payload.attachments as LeadAttachment[]);
+          setAttachmentsLeadId(leadId);
+          setAttachmentsError(null);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setAttachmentsLeadId(leadId);
+          setAttachmentsError(error instanceof Error ? error.message : "Could not load attachments.");
+        }
+      });
+    return () => { cancelled = true; };
   }, [leadId]);
 
   // Follow the same configuration contract as TaskDetailDrawer for editable
@@ -335,7 +400,7 @@ export function LeadDetailDrawer({
   // Same reach as editing: a manager (null scope) on any lead, a worker on
   // their own and on the leads of agents they assist. Assignment stays a
   // manager action because it writes an accountable hand-off history row.
-  const canEdit = leadIsInScope(currentLead, editableOwnerEmails);
+  const canEdit = leadIsInScope(currentLead, editableOwnerEmails, currentUserEmail);
   const canLog = canEdit;
   const statusChoices = [
     { value: "", label: "No status" },
@@ -369,12 +434,13 @@ export function LeadDetailDrawer({
   const showProduct = showField("product");
   const showStatus = showField("status");
   const showAssignee = showField("assignee");
+  const showCollaborators = showField("collaborators");
   const showFollowUp = showField("followUp");
   const showCreatedAt = Boolean(createdAtColumn?.show_in_detail);
   const hasRecordFields =
     showPhone || showEmail || showFub || showEvent || detailColumns.length > 0;
   const hasRailFields =
-    showProduct || showStatus || showAssignee || showFollowUp || showCreatedAt;
+    showProduct || showStatus || showAssignee || showCollaborators || showFollowUp || showCreatedAt;
 
   async function patchCurrentLead(patch: Record<string, unknown>) {
     setEditError(null);
@@ -590,6 +656,44 @@ export function LeadDetailDrawer({
                 </div>
               ) : null}
 
+              <div className={COMPACT_DETAIL_FIELD_CLASS}>
+                <span className={LABEL_CLASS}>Description</span>
+                <LeadDescriptionEditor
+                  key={`${currentLead.id}:${currentLead.description ?? ""}`}
+                  value={currentLead.description}
+                  canEdit={canEdit}
+                  onSave={(next) => patchCurrentLead({ description: next })}
+                />
+              </div>
+
+              <section className="space-y-2">
+                <h2 className={LABEL_CLASS}>Attachments</h2>
+                {attachmentsLeadId !== currentLead.id ? (
+                  <p className="text-xs text-[#6b778c]">Loading files…</p>
+                ) : attachmentsError ? (
+                  <p role="alert" className="text-xs text-[#bf2600]">{attachmentsError}</p>
+                ) : attachments.length === 0 ? (
+                  <p className="text-xs text-[#6b778c]">No files attached</p>
+                ) : (
+                  <ul className="flex flex-wrap gap-2">
+                    {attachments.map((item) => (
+                      <li key={item.id}>
+                        <a
+                          href={item.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex max-w-full items-center gap-1.5 rounded border border-[#dfe1e6] bg-white px-2 py-1 text-xs font-medium text-[#0c66e4] hover:bg-[#e9f2ff]"
+                        >
+                          <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                          <span className="max-w-[12rem] truncate" title={item.file_name}>{item.file_name}</span>
+                          <span className="text-[#6b778c]">{formatAttachmentSize(item.size_bytes)}</span>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
               {hasRailFields ? (
                 <section className="border-t border-[#dfe1e6] pt-3">
                   <h2 className="text-sm font-bold text-[#172b4d]">Lead details</h2>
@@ -692,6 +796,23 @@ export function LeadDetailDrawer({
                             <span className="min-w-0 truncate">{assigneeLabel}</span>
                           </div>
                         )}
+                      </RailField>
+                    ) : null}
+
+                    {showCollaborators ? (
+                      <RailField label="Collaborators" className="sm:col-span-2 xl:col-span-2">
+                        <LeadCollaboratorsEditor
+                          emails={currentLead.collaborator_emails ?? []}
+                          options={collaboratorRoster.map((person) => ({
+                            value: person.email,
+                            label: person.name?.trim() || person.email,
+                            keywords: [person.email],
+                          }))}
+                          canEdit={canEdit}
+                          onSave={(emails) =>
+                            patchCurrentLead({ collaborator_emails: emails })
+                          }
+                        />
                       </RailField>
                     ) : null}
 

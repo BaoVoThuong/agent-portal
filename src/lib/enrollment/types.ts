@@ -172,6 +172,7 @@ export type EnrollmentDetail = {
 };
 
 export type EnrollmentNotificationType =
+  | "record_created"
   | "assigned"
   | "mentioned"
   | "commented"
