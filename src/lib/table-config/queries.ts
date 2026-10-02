@@ -37,11 +37,12 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("provider", "verified_by", "Verified by", "text", 160, true),
     col("provider", "date", "Verified date", "text", 170, true),
     // Siêu dữ liệu: chỉ đọc, ẩn mặc định. Trả lời "ai thêm/sửa dòng này" mà
-    // không chiếm chỗ trong bảng.
-    col("provider", "created_at", "Added on", "date", 180, true),
-    col("provider", "created_by_email", "Added by", "text", 190, true),
-    col("provider", "updated_at", "Last updated", "date", 200, true),
-    col("provider", "updated_by_email", "Updated by", "text", 210, true),
+    // không chiếm chỗ trong bảng. Tên cột giống mọi bảng khác (chuẩn theo Task
+    // CS, 2026-10-02): Created date / Opened by / Last Updated / Last Updated by.
+    col("provider", "created_at", "Created date", "date", 180, true),
+    col("provider", "created_by_email", "Opened by", "text", 190, true),
+    col("provider", "updated_at", "Last Updated", "date", 200, true),
+    col("provider", "updated_by_email", "Last Updated by", "text", 210, true),
   ],
   cs: [
     col("cs", "key", "Key", "text", 10, false, true),
@@ -54,7 +55,7 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("cs", "agent", "Agent", "person", 80),
     col("cs", "reporter", "Opened by", "person", 90),
     col("cs", "created", "Created date", "date", 100),
-    col("cs", "activity", "Last activity", "date", 110),
+    col("cs", "activity", "Last Updated", "date", 110),
     col("cs", "review", "QC", "checkbox", 120),
   ],
   aca: [
@@ -73,11 +74,11 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("aca", "pcp2026", "PCP 2026", "text", 120),
     col("aca", "due", "Due Date", "date", 130),
     col("aca", "fub", "FUB Link", "link", 140),
-    col("aca", "createdBy", "Created by", "person", 150, true),
-    col("aca", "createdAt", "Created time", "date", 160, true),
-    col("aca", "updatedBy", "Last edited by", "person", 170, true),
-    col("aca", "updated", "Last edited time", "date", 180, true),
-    col("aca", "qc", "QC", "checkbox", 190),
+    col("aca", "createdBy", "Opened by", "person", 150, true),
+    col("aca", "createdAt", "Created date", "date", 160, true),
+    col("aca", "updatedBy", "Last Updated by", "person", 170, true),
+    col("aca", "updated", "Last Updated", "date", 180, true),
+    col("aca", "qc", "Complete", "checkbox", 190),
   ],
   // Medicaid dùng chung TOÀN BỘ backend với ACA nhưng data schema khác hẳn:
   // không có Carrier/Platform/Consent/Payment/AC/PCP. Ba cột riêng của nó —
@@ -94,10 +95,10 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("medicaid", "responsible", "People", "person", 90),
     col("medicaid", "agent", "Agent", "person", 100),
     col("medicaid", "qc", "Complete", "checkbox", 110),
-    col("medicaid", "createdBy", "Created by", "person", 150, true),
-    col("medicaid", "createdAt", "Created time", "date", 160, true),
-    col("medicaid", "updatedBy", "Last edited by", "person", 170, true),
-    col("medicaid", "updated", "Last edited time", "date", 180, true),
+    col("medicaid", "createdBy", "Opened by", "person", 150, true),
+    col("medicaid", "createdAt", "Created date", "date", 160, true),
+    col("medicaid", "updatedBy", "Last Updated by", "person", 170, true),
+    col("medicaid", "updated", "Last Updated", "date", 180, true),
   ],
   medicare: [
     col("medicare", "key", "Key", "text", 10, false, true),
@@ -109,11 +110,11 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("medicare", "pcp2025", "PCP", "text", 110),
     col("medicare", "due", "Due Date", "date", 130),
     col("medicare", "fub", "FUB Link", "link", 140),
-    col("medicare", "createdBy", "Created by", "person", 150, true),
-    col("medicare", "createdAt", "Created time", "date", 160, true),
-    col("medicare", "updatedBy", "Last edited by", "person", 170, true),
-    col("medicare", "updated", "Last edited time", "date", 180, true),
-    col("medicare", "qc", "QC", "checkbox", 190),
+    col("medicare", "createdBy", "Opened by", "person", 150, true),
+    col("medicare", "createdAt", "Created date", "date", 160, true),
+    col("medicare", "updatedBy", "Last Updated by", "person", 170, true),
+    col("medicare", "updated", "Last Updated", "date", 180, true),
+    col("medicare", "qc", "Complete", "checkbox", 190),
   ],
   // One screen for both products; `product` is a column rather than two
   // separate tables, so an event's whole intake is worked from one list.
@@ -138,7 +139,7 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     // `leads.fub_link`. LeadTable ánh xạ giữa hai tên đó.
     col("lead", "fub", "FUB Link", "link", 95),
     col("lead", "event", "Event", "text", 100, false, false, true),
-    col("lead", "createdAt", "Imported", "date", 110, true),
+    col("lead", "createdAt", "Created date", "date", 110, true),
   ],
 };
 

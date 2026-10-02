@@ -36,6 +36,13 @@ import {
   stageElapsedSeconds,
 } from "@/lib/tasks/sla";
 import { prefetchTaskDetail } from "@/lib/tasks/detail-cache";
+// Dạng ngày giờ dùng chung cho mọi bảng (Enrollment, Leads, Provider bám theo
+// đúng dạng này) — xem lib/table-config/date-format.ts.
+import {
+  formatTableDate as formatShortDate,
+  formatTableDateTime as formatShortDateTime,
+  formatTableDateTimeFull as formatDateTime,
+} from "@/lib/table-config/date-format";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import {
   taskCategoryBadgePalette,
@@ -540,6 +547,7 @@ export function TaskRowItem({
             "created",
             `${LIST_COL.created} shrink-0 text-[11px] font-medium text-[#6b778c]`
           )}
+          title={formatDateTime(task.created_at)}
         >
           {formatShortDate(task.created_at)}
         </span>
@@ -918,6 +926,7 @@ export function TaskRowItem({
               // Ô trống hiện "—" chứ không phải "-": cột ngày hẹp nên dấu gạch
               // ngắn dễ bị đọc nhầm thành một phần của giá trị.
               emptyLabel={configColumn.type === "date" ? "—" : undefined}
+              surface="list"
               onSave={(next) =>
                 onPatch(task.id, { custom_values: { [configColumn.key]: next } })
               }
@@ -938,21 +947,6 @@ export function TaskRowItem({
     </div>
   );
 }
-
-const MONTH_LABELS = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
 
 function DateCell({
   widthClass,
@@ -1150,33 +1144,6 @@ function elapsedSinceSeconds(value: string | null | undefined, now: Date): numbe
   const start = new Date(value).getTime();
   if (!Number.isFinite(start)) return 0;
   return Math.max(0, Math.round((now.getTime() - start) / 1000));
-}
-
-function formatShortDate(value: string | null | undefined): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return `${MONTH_LABELS[date.getUTCMonth()]} ${date.getUTCDate()}`;
-}
-
-function formatShortDateTime(value: string | null | undefined): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return `${formatShortDate(value)} ${String(date.getUTCHours()).padStart(2, "0")}:${String(
-    date.getUTCMinutes()
-  ).padStart(2, "0")}`;
-}
-
-function formatDateTime(value: string | null | undefined): string {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(
-    date.getUTCDate()
-  ).padStart(2, "0")} ${String(date.getUTCHours()).padStart(2, "0")}:${String(
-    date.getUTCMinutes()
-  ).padStart(2, "0")} UTC`;
 }
 
 function formatExternalLink(value: string): string {

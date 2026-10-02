@@ -6140,6 +6140,9 @@ where not exists (
     and existing.archived_at is null
 );
 
+-- Tên cột siêu dữ liệu chuẩn theo Task CS (Created date / Last Updated /
+-- Opened by / Last Updated by). DB đang chạy được đổi tên bằng rollout
+-- 2026-10-02-standardize-meta-column-labels.sql.
 with system_column_seed(scope, key, label, type, position, hidden_default) as (
   values
     ('cs', 'key', 'Key', 'text', 10, false),
@@ -6152,7 +6155,7 @@ with system_column_seed(scope, key, label, type, position, hidden_default) as (
     ('cs', 'agent', 'Agent', 'person', 80, false),
     ('cs', 'reporter', 'Opened by', 'person', 90, false),
     ('cs', 'created', 'Created date', 'date', 100, false),
-    ('cs', 'activity', 'Last activity', 'date', 110, false),
+    ('cs', 'activity', 'Last Updated', 'date', 110, false),
     ('cs', 'review', 'QC', 'checkbox', 120, false),
     ('aca', 'key', 'Key', 'text', 10, false),
     ('aca', 'client', 'Client Name', 'text', 20, false),
@@ -6169,11 +6172,11 @@ with system_column_seed(scope, key, label, type, position, hidden_default) as (
     ('aca', 'pcp2026', 'PCP 2026', 'text', 120, false),
     ('aca', 'due', 'Due Date', 'date', 130, false),
     ('aca', 'fub', 'FUB Link', 'link', 140, false),
-    ('aca', 'createdBy', 'Created by', 'person', 150, true),
-    ('aca', 'createdAt', 'Created time', 'date', 160, true),
-    ('aca', 'updatedBy', 'Last edited by', 'person', 170, true),
-    ('aca', 'updated', 'Last edited time', 'date', 180, true),
-    ('aca', 'qc', 'QC', 'checkbox', 190, false),
+    ('aca', 'createdBy', 'Opened by', 'person', 150, true),
+    ('aca', 'createdAt', 'Created date', 'date', 160, true),
+    ('aca', 'updatedBy', 'Last Updated by', 'person', 170, true),
+    ('aca', 'updated', 'Last Updated', 'date', 180, true),
+    ('aca', 'qc', 'Complete', 'checkbox', 190, false),
     ('medicare', 'key', 'Key', 'text', 10, false),
     ('medicare', 'client', 'Client Name', 'text', 20, false),
     ('medicare', 'agent', 'Agent', 'person', 25, false),
@@ -6183,11 +6186,11 @@ with system_column_seed(scope, key, label, type, position, hidden_default) as (
     ('medicare', 'pcp2025', 'PCP', 'text', 110, false),
     ('medicare', 'due', 'Due Date', 'date', 130, false),
     ('medicare', 'fub', 'FUB Link', 'link', 140, false),
-    ('medicare', 'createdBy', 'Created by', 'person', 150, true),
-    ('medicare', 'createdAt', 'Created time', 'date', 160, true),
-    ('medicare', 'updatedBy', 'Last edited by', 'person', 170, true),
-    ('medicare', 'updated', 'Last edited time', 'date', 180, true),
-    ('medicare', 'qc', 'QC', 'checkbox', 190, false),
+    ('medicare', 'createdBy', 'Opened by', 'person', 150, true),
+    ('medicare', 'createdAt', 'Created date', 'date', 160, true),
+    ('medicare', 'updatedBy', 'Last Updated by', 'person', 170, true),
+    ('medicare', 'updated', 'Last Updated', 'date', 180, true),
+    ('medicare', 'qc', 'Complete', 'checkbox', 190, false),
     -- Medicaid: cùng backend với ACA nhưng data schema riêng. Ba cột còn lại
     -- của bảng này (Who need?, End Date, Program) là cột TUỲ CHỈNH nên không
     -- nằm ở đây — xem rollout 2026-09-09-medicaid-enrollment.sql.
@@ -6199,10 +6202,10 @@ with system_column_seed(scope, key, label, type, position, hidden_default) as (
     ('medicaid', 'responsible', 'People', 'person', 90, false),
     ('medicaid', 'agent', 'Agent', 'person', 100, false),
     ('medicaid', 'qc', 'Complete', 'checkbox', 110, false),
-    ('medicaid', 'createdBy', 'Created by', 'person', 150, true),
-    ('medicaid', 'createdAt', 'Created time', 'date', 160, true),
-    ('medicaid', 'updatedBy', 'Last edited by', 'person', 170, true),
-    ('medicaid', 'updated', 'Last edited time', 'date', 180, true)
+    ('medicaid', 'createdBy', 'Opened by', 'person', 150, true),
+    ('medicaid', 'createdAt', 'Created date', 'date', 160, true),
+    ('medicaid', 'updatedBy', 'Last Updated by', 'person', 170, true),
+    ('medicaid', 'updated', 'Last Updated', 'date', 180, true)
 )
 insert into table_column (
   scope, key, label, type, is_system, position, pinned, hidden_default, required

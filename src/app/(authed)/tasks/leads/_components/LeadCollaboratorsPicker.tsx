@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { TaskSelect, type TaskSelectOption } from "../../_components/TaskSelect";
+import { MultiValueBadges } from "../../../_shared/MultiValueBadges";
 
 export type LeadCollaboratorOption = TaskSelectOption;
 
@@ -156,19 +157,14 @@ export function CollaboratorSummary({
     return <span className="text-xs font-medium text-[#97a0af]">—</span>;
   }
   const labels = new Map(options.map((option) => [option.value, option.label]));
-  const shown = emails.slice(0, 3);
   return (
-    <span className="flex min-w-0 flex-wrap gap-1" title={emails.map((email) => labels.get(email) ?? email).join(", ")}>
-      {shown.map((email) => (
-        <span key={email} className="max-w-full truncate rounded border border-[#dfe1e6] bg-[#f7f8fa] px-1.5 py-0.5 text-[11px] font-semibold text-[#42526e]">
-          {labels.get(email) ?? email}
-        </span>
-      ))}
-      {emails.length > shown.length ? (
-        <span className="rounded border border-[#dfe1e6] bg-[#f7f8fa] px-1.5 py-0.5 text-[11px] font-semibold text-[#667085]">
-          +{emails.length - shown.length}
-        </span>
-      ) : null}
-    </span>
+    <MultiValueBadges
+      items={emails.map((email) => ({
+        key: email,
+        label: labels.get(email) ?? email,
+        className: "border border-[#dfe1e6] bg-[#f7f8fa] text-[#42526e]",
+      }))}
+      uppercase={false}
+    />
   );
 }

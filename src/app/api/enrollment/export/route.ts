@@ -190,10 +190,12 @@ function enrollmentExportValue(record: EnrollmentRecordWithStats, key: string): 
       return record.created_by_email;
     case "createdAt":
       return record.created_at;
+    // "Last Updated" / "Last Updated by" đọc hoạt động gần nhất như trên bảng —
+    // updated_at còn bị cron nhắc hạn (actor "system") đẩy lên.
     case "updatedBy":
-      return record.updated_by_email;
+      return record.last_activity_by_email;
     case "updated":
-      return record.updated_at;
+      return record.last_activity_at;
     case "qc":
       return record.qc_checked_at ? "Yes" : "";
     default:

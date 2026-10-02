@@ -66,6 +66,11 @@ import {
 } from "@/lib/enrollment/live-sync";
 import { TABLE_CONFIG_TOPIC } from "@/lib/table-config/realtime-topics";
 import {
+  formatTableDate,
+  formatTableDateTime,
+  formatTableDateTimeFull,
+} from "@/lib/table-config/date-format";
+import {
   COMMENT_PAGE_SIZE,
   COMMENT_REFRESH_MAX,
 } from "@/lib/collaboration/comment-pagination";
@@ -126,6 +131,7 @@ import {
   type LayoutEntry,
 } from "@/lib/table-config/layout";
 import { EditableCustomCell } from "../../_shared/EditableCustomCell";
+import { MultiValueBadges } from "../../_shared/MultiValueBadges";
 import { ControlledCustomField } from "../../_shared/ControlledCustomField";
 import { SearchableListboxPanel } from "../../_shared/SearchableListboxPanel";
 import { Toast } from "../../_shared/Toast";
@@ -342,18 +348,22 @@ const ACA_ENROLLMENT_COLUMNS: EnrollmentColumn[] = [
   { key: "caller", label: "Caller", width: 180, sortable: true },
   { key: "responsible", label: "Responsible Enroll", width: 200, sortable: true },
   { key: "payment", label: "Payment status", width: 180, sortable: true },
-  { key: "carrier", label: "Carrier", width: 170, sortable: true },
+  // Đủ cho một tên hãng dài ("HEALTHSPRING/CIGNA"); nhiều hãng thì xuống dòng.
+  { key: "carrier", label: "Carrier", width: 220, sortable: true },
   { key: "aca", label: "AC", width: 280, sortable: true },
   { key: "consent", label: "Consent", width: 104, sortable: true, align: "center" },
   { key: "platform", label: "Platform", width: 110, sortable: true },
   { key: "pcp2025", label: "PCP 2025", width: 180, sortable: true },
   { key: "pcp2026", label: "PCP 2026", width: 180, sortable: true },
   { key: "due", label: "Due Date", width: 110, sortable: true },
-  { key: "createdBy", label: "Created by", width: 130, sortable: true },
-  { key: "createdAt", label: "Created time", width: 120, sortable: true },
-  { key: "updatedBy", label: "Last edited by", width: 130, sortable: true },
-  { key: "updated", label: "Last edited time", width: 130, sortable: true },
-  { key: "qc", label: "QC", width: 64, align: "center", sortable: true },
+  // Tên + dạng ngày giờ chuẩn theo Task CS cho mọi bảng (2026-10-02), xem
+  // lib/table-config/date-format.ts.
+  { key: "createdBy", label: "Opened by", width: 130, sortable: true },
+  { key: "createdAt", label: "Created date", width: 120, sortable: true },
+  { key: "updatedBy", label: "Last Updated by", width: 130, sortable: true },
+  { key: "updated", label: "Last Updated", width: 130, sortable: true },
+  // "Complete" cho cả 3 chương trình (Medicaid dùng tên này từ đầu, 2026-10-02).
+  { key: "qc", label: "Complete", width: 64, align: "center", sortable: true },
 ];
 
 // Medicare's real Slack List has no Payment/Consent/Platform/AC columns and a
@@ -552,6 +562,23 @@ function customColumnWidth(column: Pick<TableColumn, "type" | "key" | "label">):
   }
 }
 
+/**
+ * Bề rộng tối thiểu để tiêu đề hiện ĐỦ chữ.
+ *
+ * Tiêu đề in hoa 11px đậm, mỗi ký tự khoảng 7.6px, cộng 24px lề hai bên và
+ * 16px cho mũi tên sắp xếp. Bề rộng theo kiểu dữ liệu (number 120px…) không
+ * biết tên cột dài bao nhiêu, nên "Household number" bị cắt thành
+ * "HOUSEHOLD …". Admin đổi tên cột trong /config cũng đi qua đây.
+ */
+function headerFitWidth(label: string, sortable: boolean | undefined): number {
+  return Math.ceil(label.trim().length * 7.6) + 24 + (sortable ? 16 : 0);
+}
+
+function withHeaderFitWidth(column: EnrollmentColumn): EnrollmentColumn {
+  const fit = headerFitWidth(column.label, column.sortable);
+  return fit > column.width ? { ...column, width: fit } : column;
+}
+
 function enrollmentColumnsForProgram(
   program: EnrollmentProgram,
   configuredColumns: TableColumn[] = []
@@ -565,7 +592,7 @@ function enrollmentColumnsForProgram(
     return { ...column, ...(label ? { label } : {}), ...(width ? { width } : {}) };
   });
 
-  if (configuredColumns.length === 0) return baseColumns;
+  if (configuredColumns.length === 0) return baseColumns.map(withHeaderFitWidth);
   const byKey = new Map(baseColumns.map((column) => [column.key, column]));
   const ordered = configuredColumns
     .filter((column) =>
@@ -605,7 +632,9 @@ function enrollmentColumnsForProgram(
   // saved layout) ever runs — so no personal preference can bring it back.
   // `locked` columns (Key/Client) are the one hard exception: they must
   // always render no matter what an admin does in Config Table.
-  const kept = next.filter((column) => column.locked || !column.configColumn?.hidden_default);
+  const kept = next
+    .filter((column) => column.locked || !column.configColumn?.hidden_default)
+    .map(withHeaderFitWidth);
   return [
     ...kept.filter((column) => column.sticky),
     ...kept.filter((column) => !column.sticky),
@@ -2506,7 +2535,7 @@ function EnrollmentTable({
                     onSort={onSort}
                   />
                 ) : (
-                  <span className="truncate">{column.label}</span>
+                  <span className="truncate" title={column.label}>{column.label}</span>
                 )}
               </div>
             ))}
@@ -2895,43 +2924,54 @@ function EnrollmentRowItem({
         </div>
       ) : null}
 
-      {/* Created time */}
+      {/* Created date */}
       {has("createdAt") ? (
         <div
           style={cellStyleFor("createdAt")}
           className={cellClassName("createdAt", "flex shrink-0 items-center px-3 py-2.5")}
         >
-          <RelativeTime
-            value={record.created_at}
+          <span
             className="truncate text-xs font-medium text-[#6b778c]"
-          />
+            title={formatTableDateTimeFull(record.created_at)}
+          >
+            {formatTableDate(record.created_at)}
+          </span>
         </div>
       ) : null}
 
-      {/* Last edited by */}
+      {/* Last Updated by — người có hoạt động gần nhất, giống Task CS. Không
+          đọc updated_by_email: cron nhắc hạn ghi "system" vào đó. */}
       {has("updatedBy") ? (
         <div
           style={cellStyleFor("updatedBy")}
           className={cellClassName("updatedBy", "flex shrink-0 items-center px-3 py-2.5")}
         >
           <span className="truncate text-xs font-medium text-[#42526e]">
-            {record.updated_by_email
-              ? personLabel(record.updated_by_email, peopleByEmail)
-              : "-"}
+            {record.last_activity_by_email
+              ? personLabel(record.last_activity_by_email, peopleByEmail)
+              : "—"}
           </span>
         </div>
       ) : null}
 
-      {/* Last edited time */}
+      {/* Last Updated — last_activity_at như Task CS: đổi khi có người sửa,
+          comment hay đính kèm file. updated_at còn bị cron nhắc hạn đẩy lên, nên
+          hồ sơ không ai đụng tới vẫn trông như "vừa sửa". */}
       {has("updated") ? (
         <div
           style={cellStyleFor("updated")}
           className={cellClassName("updated", "flex shrink-0 items-center px-3 py-2.5")}
         >
-          <RelativeTime
-            value={record.updated_at}
+          <span
             className="truncate text-xs font-medium text-[#6b778c]"
-          />
+            title={
+              record.last_activity_at
+                ? formatTableDateTimeFull(record.last_activity_at)
+                : "No activity yet"
+            }
+          >
+            {formatTableDateTime(record.last_activity_at)}
+          </span>
         </div>
       ) : null}
 
@@ -2957,6 +2997,7 @@ function EnrollmentRowItem({
               optionLabelById={customOptionLabelById}
               personLabelByEmail={peopleByEmail}
               canEdit={capabilities.canEditFields}
+              surface="list"
               onSave={(next) =>
                 void onPatch(record.id, {
                   custom_values: { [configColumn.key]: next },
@@ -3234,7 +3275,10 @@ function EnrollmentOptionMultiMenu({
   const emptyDisplayLabel = placeholderLabel ?? emptyLabel;
   const menuLabel = emptyDisplayLabel.replace(/^(No|Select)\s+/i, "");
   const identityBadgeClass =
-    "inline-flex max-w-full min-w-0 items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]";
+    "inline-flex max-w-full min-w-0 items-center rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]";
+  // Chữ nằm trong span con: "…" (text-overflow) không chạy trên chữ đặt thẳng
+  // trong một flex container, nên trước đây nhãn dài bị cắt cụt
+  // ("HEALTHSPRING/CIG") thay vì hiện dấu ba chấm.
   const badge = (option: EnrollmentOption | null, label: string, key: string) => {
     const style = enrollmentIdentityBadgeStyle(option);
     return (
@@ -3244,12 +3288,18 @@ function EnrollmentOptionMultiMenu({
         style={{ backgroundColor: style.bg, color: style.fg }}
         title={label}
       >
-        {label}
+        <span className="min-w-0 truncate">{label}</span>
       </span>
     );
   };
-  const shown = isList ? selected.slice(0, 1) : selected;
-  const hidden = selected.length - shown.length;
+  const selectedBadges = selected.map((option) => {
+    const style = enrollmentIdentityBadgeStyle(option);
+    return {
+      key: option.id,
+      label: option.label,
+      style: { backgroundColor: style.bg, color: style.fg },
+    };
+  });
 
   return (
     <span className="block min-w-0">
@@ -3272,16 +3322,14 @@ function EnrollmentOptionMultiMenu({
           drawsOwnChrome
             ? `${DETAIL_FIELD_BUTTON_CLASS} !h-auto min-h-9`
             : isList
-              ? "inline-flex max-w-full min-w-0 items-center gap-1 disabled:cursor-not-allowed disabled:opacity-60"
+              ? "flex w-full min-w-0 items-center gap-1 disabled:cursor-not-allowed disabled:opacity-60"
               : "flex w-full min-w-0 items-center disabled:cursor-not-allowed disabled:opacity-60"
         }
       >
         {selected.length > 0 ? (
-          <span
-            className={`flex min-w-0 items-center gap-1 ${isList ? "" : "flex-1 flex-wrap"}`}
-          >
-            {shown.map((option) => badge(option, option.label, option.id))}
-            {hidden > 0 ? badge(null, `+${hidden}`, "more") : null}
+          // Hiện hết các hãng, hết chỗ thì xuống dòng — ở bảng lẫn chi tiết.
+          <span className={`flex min-w-0 ${isList ? "" : "flex-1"}`}>
+            <MultiValueBadges items={selectedBadges} />
           </span>
         ) : isList ? (
           // Cùng badge trung tính mà ô một giá trị dùng khi trống.
@@ -3706,7 +3754,7 @@ function EnrollmentSortTh({
         active ? "text-[#0c66e4]" : "hover:text-[#172b4d]"
       }`}
     >
-      <span className="truncate">{label}</span>
+      <span className="truncate" title={label}>{label}</span>
       {active ? (
         sortDir === "asc" ? (
           <ArrowUp className="h-3 w-3 shrink-0" />
@@ -4471,7 +4519,7 @@ function EnrollmentDrawer({
               ) : null}
 
               {showCreatedBy ? (
-                <FieldBlock label={columnByKey.get("createdBy")?.label ?? "Created by"}>
+                <FieldBlock label={columnByKey.get("createdBy")?.label ?? "Opened by"}>
                   <div className="min-h-9 rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] px-3 py-2 text-sm font-medium text-[#172b4d]">
                     {personLabel(record.created_by_email, peopleByEmail)}
                   </div>
@@ -4537,7 +4585,7 @@ function EnrollmentDrawer({
               ))}
 
               {showQc ? (
-                <FieldBlock label={columnByKey.get("qc")?.label ?? "QC Review"}>
+                <FieldBlock label={columnByKey.get("qc")?.label ?? "Complete"}>
                   <EnrollmentQCPanel
                     record={record}
                     stage={stage}
@@ -5946,11 +5994,11 @@ function sortValue(
     case "createdAt":
       return record.created_at;
     case "updatedBy":
-      return record.updated_by_email
-        ? personLabel(record.updated_by_email, peopleByEmail).toLowerCase()
+      return record.last_activity_by_email
+        ? personLabel(record.last_activity_by_email, peopleByEmail).toLowerCase()
         : null;
     case "updated":
-      return record.updated_at;
+      return record.last_activity_at;
   }
 }
 
@@ -6043,59 +6091,4 @@ function formatExternalLink(value: string): string {
   const trimmed = value.trim();
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   return `https://${trimmed}`;
-}
-
-function RelativeTime({
-  value,
-  className,
-}: {
-  value: string;
-  className?: string;
-}) {
-  const [nowMs, setNowMs] = useState<number | null>(null);
-
-  useEffect(() => {
-    const firstTick = window.setTimeout(() => setNowMs(Date.now()), 0);
-    const timer = window.setInterval(() => setNowMs(Date.now()), 60_000);
-    return () => {
-      window.clearTimeout(firstTick);
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  return (
-    <span className={className} title={formatStableDateTime(value)}>
-      {nowMs === null ? formatStableDateTime(value) : formatRelative(value, nowMs)}
-    </span>
-  );
-}
-
-function formatRelative(value: string, nowMs: number): string {
-  const date = new Date(value);
-  const diffMs = nowMs - date.getTime();
-  const minutes = Math.floor(diffMs / 60000);
-  if (!Number.isFinite(minutes) || minutes < 0) return "just now";
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return formatStableDate(value);
-}
-
-function formatStableDateTime(value: string): string {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "-";
-  return `${formatStableDate(value)} ${String(date.getUTCHours()).padStart(2, "0")}:${String(
-    date.getUTCMinutes()
-  ).padStart(2, "0")} UTC`;
-}
-
-function formatStableDate(value: string): string {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "-";
-  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(
-    date.getUTCDate()
-  ).padStart(2, "0")}`;
 }

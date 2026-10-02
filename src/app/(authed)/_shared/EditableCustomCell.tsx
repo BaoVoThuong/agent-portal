@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, ExternalLink } from "lucide-react";
+import { Check, ExternalLink, UserPlus } from "lucide-react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import {
   parseMultiselectValue,
@@ -13,8 +13,18 @@ import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
 import { SearchableListboxPanel } from "./SearchableListboxPanel";
 import { useAnchoredMenu } from "../tasks/_components/use-anchored-menu";
 import { AvatarStack } from "../tasks/_components/board-ui";
+import { MultiValueBadges } from "./MultiValueBadges";
 
 type Person = { email: string; name: string | null };
+
+/**
+ * Nút "Assign" viền đứt màu xanh — cùng dạng với ô người TRỐNG của cột hệ thống
+ * trên mọi bảng (Responsible Enroll, Caller, Agent của Enrollment; Assignee của
+ * Task CS / Leads). Cột Person tự thêm (vd "Follow up") trước đây hiện
+ * "Unassigned" xám nên trông như ô chỉ đọc.
+ */
+const ASSIGN_CALL_TO_ACTION_CLASS =
+  "inline-flex items-center gap-1 rounded border border-dashed border-[#0c66e4] bg-white px-2 py-1 text-[11px] font-bold text-[#0c66e4] transition hover:bg-[#e9f2ff]";
 
 export function EditableCustomCell({
   column,
@@ -24,12 +34,13 @@ export function EditableCustomCell({
   optionLabelById,
   personLabelByEmail,
   optionValue = "id",
-  maxVisibleMultiselectValues = 3,
+  maxVisibleMultiselectValues = null,
   canEdit,
   onSave,
   className = "",
   inputClassName,
   emptyLabel = "-",
+  surface = "detail",
 }: {
   column: Pick<TableColumn, "id" | "type" | "key" | "label">;
   value: unknown;
@@ -38,13 +49,20 @@ export function EditableCustomCell({
   optionLabelById?: ReadonlyMap<string, string>;
   personLabelByEmail?: ReadonlyMap<string, string>;
   optionValue?: "id" | "label";
-  /** `null` keeps every chip visible; provider plan columns use this. */
+  /** `null` (mặc định) = hiện hết mọi giá trị; truyền số để giới hạn kèm "+N". */
   maxVisibleMultiselectValues?: number | null;
   canEdit: boolean;
   onSave: (next: unknown) => void | Promise<void>;
   className?: string;
   inputClassName?: string;
   emptyLabel?: string;
+  /**
+   * `"list"` = ô trong bảng danh sách:
+   * - cột Person trống mà sửa được thì hiện nút "Assign" (như cột người hệ thống);
+   * `"detail"` (mặc định) = màn chi tiết: ô Person trống hiện "Unassigned".
+   * Multiselect ở cả hai nơi hiện HẾT giá trị, xuống dòng (MultiValueBadges).
+   */
+  surface?: "list" | "detail";
 }) {
   const {
     isOpen,
@@ -82,10 +100,6 @@ export function EditableCustomCell({
   const multiselectLabels = multiselectValues.map(
     (item) => optionByValue.get(item)?.label ?? item
   );
-  const visibleMultiselectValues =
-    maxVisibleMultiselectValues === null
-      ? multiselectValues
-      : multiselectValues.slice(0, maxVisibleMultiselectValues);
   const personEmptyLabel = column.type === "person" ? "Unassigned" : emptyLabel;
   const title = label || personEmptyLabel || column.label;
   const displayTitle = saveError ? "Save failed. Try again." : title;
@@ -218,6 +232,8 @@ export function EditableCustomCell({
       ])
     );
     const menuLabel = column.label;
+    const showsAssignCallToAction =
+      surface === "list" && canEdit && column.type === "person" && empty;
 
     return (
       <span className={`relative block min-w-0 ${className}`}>
@@ -237,58 +253,47 @@ export function EditableCustomCell({
           aria-haspopup="listbox"
           aria-expanded={isOpen}
           title={displayTitle}
-          className={`flex min-w-0 max-w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs font-semibold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:cursor-default disabled:hover:bg-transparent ${saveErrorClass}`}
+          className={
+            showsAssignCallToAction
+              ? `flex min-w-0 max-w-full items-center rounded ${saveErrorClass}`
+              : `flex min-w-0 max-w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs font-semibold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:cursor-default disabled:hover:bg-transparent ${saveErrorClass}`
+          }
         >
-          {column.type === "person" ? (
+          {showsAssignCallToAction ? (
+            <span className={ASSIGN_CALL_TO_ACTION_CLASS}>
+              <UserPlus className="h-3 w-3" />
+              Assign
+            </span>
+          ) : column.type === "person" ? (
             <AvatarStack
               emails={selectedValue ? [selectedValue] : []}
               labelByEmail={personLabelByValue}
               max={1}
             />
           ) : null}
-          {column.type === "multiselect" ? (
-            <span className="flex min-w-0 flex-wrap items-center gap-1">
-              {multiselectValues.length === 0 ? (
-                <span className="truncate text-[#97a0af]">{emptyLabel}</span>
-              ) : (
-                <>
-                  {visibleMultiselectValues.map((item, index) => {
-                    const option = optionByValue.get(item);
-                    const palette = option
-                      ? tableColumnOptionBadgePalette(option)
-                      : null;
-                    const itemLabel = multiselectLabels[index] ?? item;
-                    return (
-                      <span
-                        key={`${item}-${index}`}
-                        className={`inline-flex min-w-0 max-w-[12rem] items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em] ${
-                          palette
-                            ? ""
-                            : "border border-[#c1c7d0] bg-[#f4f5f7] text-[#6b778c]"
-                        }`}
-                        style={
-                          palette
-                            ? {
-                                backgroundColor: palette.background,
-                                color: palette.foreground,
-                              }
-                            : undefined
-                        }
-                        title={option ? itemLabel : "Not in the list"}
-                      >
-                        <span className="truncate">{itemLabel}</span>
-                      </span>
-                    );
-                  })}
-                  {maxVisibleMultiselectValues !== null &&
-                  multiselectValues.length > maxVisibleMultiselectValues ? (
-                    <span className="shrink-0 rounded bg-[#f4f5f7] px-1.5 py-0.5 text-[11px] font-semibold text-[#6b778c]">
-                      +{multiselectValues.length - maxVisibleMultiselectValues}
-                    </span>
-                  ) : null}
-                </>
-              )}
-            </span>
+          {showsAssignCallToAction ? null : column.type === "multiselect" ? (
+            multiselectValues.length === 0 ? (
+              <span className="truncate text-[#97a0af]">{emptyLabel}</span>
+            ) : (
+              <MultiValueBadges
+                items={multiselectValues.map((item, index) => {
+                  const option = optionByValue.get(item);
+                  const palette = option ? tableColumnOptionBadgePalette(option) : null;
+                  return {
+                    key: `${item}-${index}`,
+                    label: multiselectLabels[index] ?? item,
+                    style: palette
+                      ? { backgroundColor: palette.background, color: palette.foreground }
+                      : undefined,
+                    // Giá trị không còn trong danh sách option: badge viền xám.
+                    className: palette
+                      ? undefined
+                      : "border border-[#c1c7d0] bg-[#f4f5f7] text-[#6b778c]",
+                  };
+                })}
+                maxVisible={maxVisibleMultiselectValues}
+              />
+            )
           ) : selectedOption ? (
             <span
               className="inline-flex min-w-0 max-w-full items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]"

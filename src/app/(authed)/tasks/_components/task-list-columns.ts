@@ -67,7 +67,7 @@ export const TASK_LIST_COLUMNS: TaskListColumn[] = [
   { key: "agent", label: "Agent", sortKey: "agent" },
   { key: "reporter", label: "Opened by", sortKey: "reporter" },
   { key: "created", label: "Created date", sortKey: "created" },
-  { key: "activity", label: "Last activity", sortKey: "lastActivity" },
+  { key: "activity", label: "Last Updated", sortKey: "lastActivity" },
   { key: "review", label: "QC", align: "center" },
 ];
 

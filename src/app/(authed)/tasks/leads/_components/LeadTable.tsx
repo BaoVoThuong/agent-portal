@@ -40,6 +40,10 @@ import {
 import { personLabel } from "@/lib/tasks/people";
 import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
 import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
+import {
+  formatTableDate,
+  formatTableDateTimeFull,
+} from "@/lib/table-config/date-format";
 import { Initials } from "../../_components/board-ui";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { LeadChoiceField } from "./LeadChoiceField";
@@ -798,7 +802,16 @@ const LeadDataCell = memo(function LeadDataCell({
           column={column}
           value={lead.custom_values?.[column.key]}
           options={options}
+          // Cột Person tự thêm cần danh sách người để chọn; trước đây không
+          // truyền nên menu mở ra trống trơn.
+          people={
+            column.type === "person"
+              ? [...nameByEmail].map(([email, name]) => ({ email, name }))
+              : undefined
+          }
+          personLabelByEmail={nameByEmail}
           canEdit={canEdit}
+          surface="list"
           onSave={(next) => onPatch({ custom_values: { [column.key]: next } })}
           className={column.type === "checkbox" ? "" : "w-full"}
         />
@@ -871,7 +884,12 @@ function renderLeadCell(
   const isPlaceholder = value === "—";
   const textClassName = leadValueClassName(column, isPlaceholder);
   return (
-    <span className={`min-w-0 truncate ${textClassName}`} title={value}>
+    <span
+      className={`min-w-0 truncate ${textClassName}`}
+      title={
+        column.key === "createdAt" ? formatTableDateTimeFull(lead.created_at) : value
+      }
+    >
       {value}
     </span>
   );
@@ -1216,7 +1234,8 @@ function leadColumnValue(
     case "product":
       return productOptionLabel(lead.product);
     case "createdAt":
-      return displayDate(lead.created_at);
+      // Cột "Created date": cùng dạng "Oct 2" với mọi bảng khác (Task CS…).
+      return formatTableDate(lead.created_at);
     case "name":
       return lead.full_name ?? "—";
     case "fub":

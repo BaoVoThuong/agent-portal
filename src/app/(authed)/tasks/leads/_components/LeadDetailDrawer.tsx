@@ -832,7 +832,7 @@ export function LeadDetailDrawer({
                     ) : null}
 
                     {showCreatedAt ? (
-                      <RailField label={createdAtColumn?.label ?? "Imported date"}>
+                      <RailField label={createdAtColumn?.label ?? "Created date"}>
                         <div className={READ_ONLY_METADATA_FIELD_CLASS}>
                           {displayDateTime(currentLead.created_at)}
                         </div>

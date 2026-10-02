@@ -5,6 +5,12 @@ import { useEffect, useRef } from "react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { parseMultiselectValue } from "@/lib/table-config/multiselect";
 import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
+import { MultiValueBadges } from "../../../_shared/MultiValueBadges";
+import {
+  formatTableDate,
+  formatTableDateTime,
+  formatTableDateTimeFull,
+} from "@/lib/table-config/date-format";
 import {
   PROVIDER_META_FIELDS,
   PROVIDER_TEXT_FIELDS,
@@ -30,13 +36,20 @@ function isMetaColumn(column: TableColumn): boolean {
   );
 }
 
-function formatMetaValue(value: string | null, type: TableColumn["type"]): string {
+function formatMetaValue(
+  value: string | null,
+  type: TableColumn["type"],
+  key: string
+): string {
   if (!value) return "—";
   if (type !== "date") return value;
   const date = new Date(value);
   // Dữ liệu cũ có thể mang chuỗi không phải ngày; in nguyên văn còn hơn hiện
   // "Invalid Date".
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  if (Number.isNaN(date.getTime())) return value;
+  // Cùng dạng với mọi bảng (chuẩn Task CS): Created date "Oct 2",
+  // Last Updated "Oct 2 05:31".
+  return key === "created_at" ? formatTableDate(value) : formatTableDateTime(value);
 }
 
 function isProviderTextKey(key: string): key is (typeof PROVIDER_TEXT_FIELDS)[number] {
@@ -227,12 +240,13 @@ function ProviderCell({
   options: TableColumnOption[];
 }) {
   if (isMetaColumn(column)) {
-    const text = formatMetaValue(
-      provider[column.key as ProviderMetaField],
-      column.type
-    );
+    const raw = provider[column.key as ProviderMetaField];
+    const text = formatMetaValue(raw, column.type, column.key);
     return (
-      <span className="truncate text-sm font-medium text-[#5e6c84]" title={text}>
+      <span
+        className="truncate text-sm font-medium text-[#5e6c84]"
+        title={column.type === "date" && raw ? formatTableDateTimeFull(raw) : text}
+      >
         {text}
       </span>
     );
@@ -251,35 +265,28 @@ function ProviderCell({
         ? parsePlanCell(value as string | null)
         : parseMultiselectValue(value);
     const labels = new Map(options.map((option) => [option.id, option.label]));
+    if (values.length === 0) {
+      return <span className="text-sm font-medium text-[#97a0af]">—</span>;
+    }
+    // Cùng một dạng với mọi ô nhiều giá trị: hiện hết, xuống dòng, nhãn dài có "…".
     return (
-      <div className="flex min-w-0 flex-wrap items-center gap-1">
-        {values.length === 0 ? (
-          <span className="text-sm font-medium text-[#97a0af]">—</span>
-        ) : (
-          values.map((item, index) => {
-            const option = options.find(
-              (candidate) =>
-                candidate.label.toLowerCase() === item.toLowerCase() ||
-                candidate.id === item
-            );
-            const palette = option ? tableColumnOptionBadgePalette(option) : null;
-            return (
-              <span
-                key={`${item}-${index}`}
-                className="max-w-[12rem] truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]"
-                style={
-                  palette
-                    ? { backgroundColor: palette.background, color: palette.foreground }
-                    : { backgroundColor: "#f4f5f7", color: "#6b778c" }
-                }
-                title={option?.label ?? labels.get(item) ?? item}
-              >
-                {option?.label ?? labels.get(item) ?? item}
-              </span>
-            );
-          })
-        )}
-      </div>
+      <MultiValueBadges
+        items={values.map((item, index) => {
+          const option = options.find(
+            (candidate) =>
+              candidate.label.toLowerCase() === item.toLowerCase() ||
+              candidate.id === item
+          );
+          const palette = option ? tableColumnOptionBadgePalette(option) : null;
+          return {
+            key: `${item}-${index}`,
+            label: option?.label ?? labels.get(item) ?? item,
+            style: palette
+              ? { backgroundColor: palette.background, color: palette.foreground }
+              : undefined,
+          };
+        })}
+      />
     );
   }
 
@@ -302,7 +309,7 @@ function ProviderCell({
   }
 
   const text = isMetaColumn(column)
-    ? formatMetaValue(value as string | null, column.type)
+    ? formatMetaValue(value as string | null, column.type, column.key)
     : value === null || value === undefined || value === ""
       ? "—"
       : String(value);

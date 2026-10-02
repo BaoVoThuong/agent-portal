@@ -6,6 +6,43 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-02 — Cột Person tự thêm: nút "Assign" như cột người hệ thống
+
+Cột Person do admin tự thêm (vd "Follow up" của ACA/Medicare) dùng ô chung
+`EditableCustomCell`, khi trống hiện "Unassigned" xám nên trông như ô chỉ đọc —
+khác Responsible Enroll / Caller / Agent / Assignee hiện nút "Assign" viền đứt.
+Thêm prop `surface="list"`, bật ở bảng danh sách Task CS, Enrollment và
+Leads (màn chi tiết giữ nguyên "Unassigned"). Chỉ hiện khi người xem sửa được ô.
+Ô nhiều giá trị dùng chung component `_shared/MultiValueBadges.tsx` (Carrier
+Enrollment, cột multiselect tự thêm, Collaborators của Leads, cột nhiều giá trị
+của Provider List): hiện HẾT giá trị, xuống dòng khi hết chỗ, không gom "+N";
+nhãn dài có "…" thay vì bị cắt cụt.
+
+Kèm sửa lỗi: bảng Leads không truyền danh sách người cho cột Person tự thêm, nên
+menu chọn người mở ra trống — nay truyền từ danh sách tên đang có của bảng.
+
+## 2026-10-02 — Cột ngày tạo / cập nhật: một tên, một dạng cho mọi bảng (chuẩn Task CS)
+
+Trước đây mỗi màn một kiểu cho cùng khái niệm: Task CS "Created date" `Oct 2` /
+"Last activity" `Oct 2 05:31`; Enrollment "Created time" / "Last edited time" dạng
+`5m ago` rồi `2026-09-24`; Leads "Imported Date" `10/2/2026`; Provider "Added on" /
+"Last updated" `10/2/2026, 12:31:51 AM`.
+
+- **Tên** (Task CS, ACA, Medicare, Medicaid, Leads, Provider List): `Created date`,
+  `Last Updated`, `Opened by`, `Last Updated by`. Task CS đổi "Last activity" →
+  "Last Updated". Khoá cột không đổi → layout đã lưu, sort, Import vẫn chạy; file
+  Excel xuất trước đây mang tên cũ thì Import bỏ qua cột đó như mọi cột lịch sử.
+- **Dạng**: một helper chung `src/lib/table-config/date-format.ts` (tách từ
+  TaskRowItem): `Oct 2` / `Oct 2 05:31`, tooltip `2026-10-02 05:31 UTC`, tính theo UTC.
+- **Enrollment "Last Updated" / "Last Updated by" đổi nguồn dữ liệu**: đọc
+  `last_activity_at` / `last_activity_by_email` (như Task CS) thay vì `updated_at` /
+  `updated_by_email`. Cron nhắc hạn ghi `updated_by_email = 'system'` và đẩy
+  `updated_at`, nên hồ sơ không ai đụng tới vẫn hiện "vừa sửa, by system" (10 hồ
+  sơ lúc đổi). Áp dụng cho cả bảng, sort và Export.
+- **DB**: rollout `2026-10-02-standardize-meta-column-labels.sql` đổi tên trong
+  `table_column`, CHỈ những dòng còn mang tên mặc định cũ (tên admin tự đặt giữ
+  nguyên). `schema.sql` seed cập nhật theo.
+
 ## 2026-10-02 — Enrollment: task manager nhận thông báo stage quan trọng
 
 Khi enrollment chuyển vào các stage `5-Ready to Enroll`, `11-Terminated` hoặc
