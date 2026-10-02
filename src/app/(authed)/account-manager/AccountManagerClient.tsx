@@ -417,9 +417,6 @@ export default function AccountManagerClient({
         });
         return next;
       });
-      setMessage(
-        `${user.email} alerts ${result.alertsMuted === true ? "muted" : "enabled"}.`,
-      );
     } catch {
       setAlertOverrides((previous) => {
         const next = new Map(previous);
