@@ -2,6 +2,7 @@ import { after, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadEnrollmentActor } from "@/lib/enrollment/access";
 import {
+  enrollmentRecordOwnerEmails,
   insertEnrollmentNotifications,
   uniqueEnrollmentNotificationRecipients,
 } from "@/lib/enrollment/notifications";
@@ -138,8 +139,7 @@ export async function POST(request: Request, { params }: Ctx) {
       );
       const baseRecipients = uniqueEnrollmentNotificationRecipients(
         [
-          loaded.record.caller_email,
-          loaded.record.responsible_enroll_email,
+          ...enrollmentRecordOwnerEmails(loaded.record),
           ...threadWatchers,
         ],
         [loaded.actor.email, ...mentions]

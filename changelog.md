@@ -6,6 +6,27 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-02 — Enrollment go-live hardening
+
+- Recipient Enrollment dùng một nhóm manager thống nhất (`task.manage` + quyền xem
+  toàn bộ), kiểm tra phạm vi lúc ghi và che tên/nội dung của thông báo cũ khi
+  phạm vi người nhận thay đổi. Agent được thêm vào mọi luồng owner notification.
+- Cron due chạy theo ngày nghiệp vụ `America/Chicago`, phân trang, giới hạn batch,
+  claim marker có điều kiện và chỉ đánh dấu sau khi có người nhận; overdue gửi
+  thêm manager mỗi ngày. Vercel cron chạy lúc 13:00 UTC.
+- Stage notifications dùng mapping theo program, tách `qc_needed` và
+  `stage_changed`, hỗ trợ Medicaid và các stage vừa key vừa QC.
+- Loại actor khỏi cả hai nhóm stage recipient, gửi assignment theo đúng trường
+  vừa đổi, và ghi log cố định `enrollment.notification.failed` khi fan-out lỗi.
+- Redact cả `detail` của thông báo Enrollment khi mất quyền; overdue reminder
+  dùng mốc `overdue_notified_at` nếu chưa có reminder để cron chạy lặp trong ngày
+  không tạo thông báo trùng.
+- UI yêu cầu lý do khi đổi từ stage terminal, mở record vừa tạo, trả kết quả
+  `patchRecord`, hiển thị cảnh báo side effect và thêm Time Progress cho cả ba
+  program. Import đổi Due reset lại các cờ nhắc.
+- Realtime cấu hình được giới hạn theo scope; option Enrollment không còn bật
+  banner cấu hình bảng.
+
 ## 2026-10-02 — Cột Person tự thêm: nút "Assign" như cột người hệ thống
 
 Cột Person do admin tự thêm (vd "Follow up" của ACA/Medicare) dùng ô chung

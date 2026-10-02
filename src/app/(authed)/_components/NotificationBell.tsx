@@ -51,6 +51,7 @@ type Notif = {
   comment_body: string | null;
   entity_display_number?: number | null;
   entity_program?: EnrollmentProgram;
+  entity_accessible?: boolean;
   detail: string | null;
   is_read: boolean;
   created_at: string;
@@ -110,6 +111,7 @@ function entityLabel(n: Notif): string {
 }
 
 function notificationHref(n: Notif): string {
+  if (n.entity_type === "enrollment" && n.entity_accessible === false) return "#";
   return sharedNotificationHref(n);
 }
 
@@ -138,10 +140,16 @@ function detailLabel(n: Notif): string {
 }
 
 function notificationHeading(n: Notif): string {
+  if (n.entity_type === "enrollment" && n.entity_accessible === false) {
+    return "Enrollment record is no longer accessible";
+  }
   return isSystemNotif(n) ? actionText(n) : `${actorName(n)} ${actionText(n)}`;
 }
 
 function nativeNotificationBody(n: Notif): string {
+  if (n.entity_type === "enrollment" && n.entity_accessible === false) {
+    return notificationHeading(n);
+  }
   return [
     n.task_title
       ? `${entityLabel(n)}: ${n.task_title}`
@@ -495,6 +503,13 @@ export function NotificationBell() {
     n: Notif,
     event?: ReactMouseEvent<HTMLAnchorElement>
   ) {
+    if (n.entity_type === "enrollment" && n.entity_accessible === false) {
+      event?.preventDefault();
+      setOpen(false);
+      dismissToast(n.id);
+      if (!n.is_read) void markRead([n.id]);
+      return;
+    }
     setOpen(false);
     dismissToast(n.id);
     if (!n.is_read) void markRead([n.id]);
@@ -626,6 +641,11 @@ function NotifContent({ n }: { n: Notif }) {
           </>
         )}
       </p>
+      {n.entity_type === "enrollment" && n.entity_accessible === false && (
+        <p className="mt-0.5 text-xs leading-5 text-slate-500">
+          You no longer have access to this record.
+        </p>
+      )}
       {n.task_title && (
         <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-slate-500" title={n.task_title}>
           <span className="font-semibold text-slate-600">{entityLabel(n)}:</span>{" "}

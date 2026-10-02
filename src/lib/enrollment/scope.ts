@@ -1,14 +1,17 @@
 import { fetchSelectedAgentEmails } from "@/lib/tasks/assignees";
-import {
-  fetchAgentsForCs,
-  fetchAssistantAgentsForCs,
-} from "@/lib/tasks/membership";
+import { fetchAssistantAgentsForCs } from "@/lib/tasks/membership";
 import type { EnrollmentActor } from "./access";
 import type { EnrollmentRecordWithStats } from "./types";
 
 export type EnrollmentScope =
   | { seeAll: true }
   | { seeAll: false; agentEmails: string[]; viewerEmail: string };
+
+export type EnrollmentScopeInputs = {
+  actor: EnrollmentActor;
+  isSelectedAgent: boolean;
+  assistantAgentEmails: readonly string[];
+};
 
 type ScopeableQuery = {
   eq: (column: string, value: unknown) => unknown;
@@ -37,36 +40,53 @@ function quoteFilterValue(value: string): string {
 export async function resolveEnrollmentScope(
   actor: EnrollmentActor
 ): Promise<EnrollmentScope> {
+  // Managers already have an unrestricted scope. Avoid membership lookups so
+  // a transient membership-table failure cannot block their shared queue.
   if (actor.isManager) return { seeAll: true };
   if (!actor.isWorker) {
-    return {
-      seeAll: false,
-      agentEmails: [],
-      viewerEmail: normalize(actor.email),
-    };
+    return { seeAll: false, agentEmails: [], viewerEmail: normalize(actor.email) };
   }
-
   const [selectedAgentEmails, assistantAgents] = await Promise.all([
     fetchSelectedAgentEmails(),
     fetchAssistantAgentsForCs(actor.email),
   ]);
   const normalizedActor = normalize(actor.email);
-  const isAgent = [...selectedAgentEmails].some(
-    (email) => normalize(email) === normalizedActor
-  );
-  const isAssistant = assistantAgents.length > 0;
-  if (!isAgent && !isAssistant) return { seeAll: true };
+  return buildEnrollmentScope({
+    actor,
+    isSelectedAgent: [...selectedAgentEmails].some(
+      (email) => normalize(email) === normalizedActor
+    ),
+    assistantAgentEmails: assistantAgents,
+  });
+}
 
-  const covered = await fetchAgentsForCs(actor.email);
+/**
+ * Builds the Enrollment visibility boundary from already loaded membership
+ * facts. Keeping this pure lets notification fan-out use exactly the same
+ * rule as the list/detail APIs without issuing a different authorization
+ * decision per event.
+ */
+export function buildEnrollmentScope({
+  actor,
+  isSelectedAgent,
+  assistantAgentEmails,
+}: EnrollmentScopeInputs): EnrollmentScope {
+  if (actor.isManager) return { seeAll: true };
+  const viewerEmail = normalize(actor.email);
+  if (!actor.isWorker) {
+    return { seeAll: false, agentEmails: [], viewerEmail };
+  }
+  if (!isSelectedAgent && assistantAgentEmails.length === 0) {
+    return { seeAll: true };
+  }
   return {
     seeAll: false,
-    viewerEmail: normalizedActor,
+    viewerEmail,
     agentEmails: [
       ...new Set(
         [
-          ...(isAgent ? [actor.email] : []),
-          ...assistantAgents,
-          ...covered,
+          ...(isSelectedAgent ? [actor.email] : []),
+          ...assistantAgentEmails,
         ]
           .map(normalize)
           .filter(Boolean)
@@ -78,13 +98,12 @@ export async function resolveEnrollmentScope(
 /** Fail closed: a null-agent record is visible only via direct assignment. */
 export function isRecordInScope(
   scope: EnrollmentScope,
-  record: Pick<
-    EnrollmentRecordWithStats,
-    | "agent_email"
-    | "caller_email"
-    | "responsible_enroll_email"
-    | "created_by_email"
-  >
+  record: {
+    agent_email: string | null;
+    caller_email: string | null;
+    responsible_enroll_email: string | null;
+    created_by_email: string | null;
+  }
 ): boolean {
   if (scope.seeAll) return true;
   const viewerEmail = normalize(scope.viewerEmail);

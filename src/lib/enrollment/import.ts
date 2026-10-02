@@ -21,6 +21,7 @@ export const ENROLLMENT_IMPORT_ID_HEADER = "ID";
  */
 export const ENROLLMENT_IMPORT_MANAGED_KEYS = [
   "key",
+  "timeProgress",
   "qc",
   "createdBy",
   "createdAt",

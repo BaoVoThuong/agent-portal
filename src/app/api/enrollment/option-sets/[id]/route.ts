@@ -4,9 +4,6 @@ import {
   canManageEnrollmentOptions,
   loadEnrollmentActor,
 } from "@/lib/enrollment/access";
-import {
-  broadcastTableConfigInvalidation,
-} from "@/lib/table-config/realtime";
 import { broadcastEnrollmentChanged } from "@/lib/enrollment/realtime";
 import { inactiveConfigValueResponse } from "@/lib/table-config/mutation-errors";
 import { validateEnrollmentOptionRules } from "@/lib/table-config/values";
@@ -112,10 +109,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   if (error) return NextResponse.json({ error: "Could not update option." }, { status: 500 });
   if (!data) return NextResponse.json(inactiveConfigValueResponse("Option"), { status: 409 });
 
-  await Promise.all([
-    broadcastEnrollmentChanged(),
-    broadcastTableConfigInvalidation(),
-  ]);
+  await broadcastEnrollmentChanged();
   return NextResponse.json({ option: data });
 }
 
@@ -176,9 +170,6 @@ export async function DELETE(_request: Request, { params }: Ctx) {
   if (error) return NextResponse.json({ error: "Could not archive option." }, { status: 500 });
   if (!data) return NextResponse.json(inactiveConfigValueResponse("Option"), { status: 409 });
 
-  await Promise.all([
-    broadcastEnrollmentChanged(),
-    broadcastTableConfigInvalidation(),
-  ]);
+  await broadcastEnrollmentChanged();
   return NextResponse.json({ ok: true });
 }

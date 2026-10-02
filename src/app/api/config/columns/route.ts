@@ -124,7 +124,7 @@ export async function POST(request: Request) {
       warnings.push(layoutResetFailedWarning());
       console.error("Config column layout reset failed after restore", { scope, error: resetResult.error });
     }
-    await broadcastTableConfigInvalidation();
+    await broadcastTableConfigInvalidation([scope]);
     return NextResponse.json({
       ok: true,
       column: restoredColumn,
@@ -214,7 +214,7 @@ export async function POST(request: Request) {
     .single();
   if (error) return NextResponse.json({ error: "Could not add column." }, { status: 500 });
 
-  await broadcastTableConfigInvalidation();
+  await broadcastTableConfigInvalidation([scope]);
   return NextResponse.json({ column: data });
 }
 

@@ -64,7 +64,7 @@ import {
   enrollmentLivePollInterval,
   type EnrollmentLiveStatus,
 } from "@/lib/enrollment/live-sync";
-import { TABLE_CONFIG_TOPIC } from "@/lib/table-config/realtime-topics";
+import { tableConfigTopic } from "@/lib/table-config/realtime-topics";
 import {
   formatTableDate,
   formatTableDateTime,
@@ -146,6 +146,7 @@ import { TaskSelect } from "../../tasks/_components/TaskSelect";
 import { TASK_ASSIGNEE_BUTTON_CLASS } from "../../tasks/_components/TaskAssigneePicker";
 import { DateRangeFilter, type TaskDateRangeValue } from "../../tasks/_components/TaskToolbar";
 import { ReasonModal } from "../../tasks/_components/ReasonModal";
+import { needsReopenReason } from "@/lib/enrollment/stage-transition";
 import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
 import {
   addPendingFiles,
@@ -161,11 +162,13 @@ import {
   toOptimisticEnrollmentPatch,
 } from "@/lib/enrollment/optimistic-patch";
 import { EnrollmentOverview } from "./EnrollmentOverview";
+import { buildEnrollmentTimeProgress } from "@/lib/enrollment/time-progress";
 
 type SortKey =
   | "key"
   | "client"
   | "stage"
+  | "timeProgress"
   | "caller"
   | "responsible"
   | "payment"
@@ -345,6 +348,7 @@ const ACA_ENROLLMENT_COLUMNS: EnrollmentColumn[] = [
   { key: "client", label: "Client Name", width: 300, sticky: true, locked: true, sortable: true },
   { key: "agent", label: "Agent", width: 170, sortable: true },
   { key: "stage", label: "Stage", width: 260, sortable: true },
+  { key: "timeProgress", label: "Time Progress", width: 180 },
   { key: "caller", label: "Caller", width: 180, sortable: true },
   { key: "responsible", label: "Responsible Enroll", width: 200, sortable: true },
   { key: "payment", label: "Payment status", width: 180, sortable: true },
@@ -790,6 +794,7 @@ export function EnrollmentClient({
   canManageOptions,
   canExport,
   canImport,
+  initialNowIso,
 }: {
   program: EnrollmentProgram;
   initialRecords: EnrollmentRecordWithStats[];
@@ -806,6 +811,7 @@ export function EnrollmentClient({
   canExport: boolean;
   /** Quyền RIÊNG, không suy ra từ canExport: Import ghi đè hàng loạt. */
   canImport: boolean;
+  initialNowIso: string;
 }) {
   const [records, setRecords] = useState(initialRecords);
   const [options, setOptions] = useState(initialOptions);
@@ -886,8 +892,19 @@ export function EnrollmentClient({
   const [creating, setCreating] = useState(false);
   const [layoutTableColumns, setLayoutTableColumns] = useState<TableColumn[]>(tableColumns);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
+  const [timeProgressNow, setTimeProgressNow] = useState(() => new Date(initialNowIso));
+  const [reopenRequest, setReopenRequest] = useState<{
+    recordId: string;
+    stageId: string;
+  } | null>(null);
   const [configStale, setConfigStale] = useState(false);
   const [liveStatus, setLiveStatus] = useState<EnrollmentLiveStatus>("connecting");
+  useEffect(() => {
+    const timer = window.setInterval(() => setTimeProgressNow(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, [program]);
   const recordRowsRef = useRef(new Map(initialRecords.map((record) => [record.id, record])));
   const recordMutationStatesRef = useRef(new Map<string, EnrollmentMutationState>());
   const pendingRef = useRef(new Map<string, number>());
@@ -1511,13 +1528,13 @@ export function EnrollmentClient({
     const sb = getBrowserSupabase();
     if (!sb) return;
     const channel = sb
-      .channel(TABLE_CONFIG_TOPIC)
+      .channel(tableConfigTopic(program))
       .on("broadcast", { event: "changed" }, () => setConfigStale(true))
       .subscribe();
     return () => {
       void sb.removeChannel(channel);
     };
-  }, []);
+  }, [program]);
 
   async function fetchCanonicalRecord(id: string): Promise<EnrollmentRecordWithStats | null> {
     try {
@@ -1553,9 +1570,9 @@ export function EnrollmentClient({
     }
   }
 
-  function patchRecord(id: string, patch: Record<string, unknown>): Promise<void> {
+  function patchRecord(id: string, patch: Record<string, unknown>): Promise<boolean> {
     const before = recordRowsRef.current.get(id) ?? records.find((record) => record.id === id);
-    if (!before) return Promise.resolve();
+    if (!before) return Promise.resolve(false);
 
     const state =
       recordMutationStatesRef.current.get(id) ??
@@ -1596,6 +1613,7 @@ export function EnrollmentClient({
     );
     const finishPendingMutation = beginPending(id);
 
+    let saved = false;
     const operation = state.tail
       .then(async () => {
         // Tối đa hai lượt: 409 mà không ai đụng tới các trường này (mốc giờ bị
@@ -1619,10 +1637,12 @@ export function EnrollmentClient({
           }
 
           const data = (await response.json().catch(() => null)) as
-            | { record?: EnrollmentRecordWithStats; error?: string }
+            | { record?: EnrollmentRecordWithStats; error?: string; warnings?: string[] }
             | null;
           if (response.ok && data?.record) {
+            saved = true;
             state.confirmed = data.record;
+            if (data.warnings?.length) setWarning("Saved. Some notifications could not be sent.");
             publishEnrollmentDataInvalidation({
               recordId: id,
               sourceId: liveSourceId,
@@ -1662,7 +1682,7 @@ export function EnrollmentClient({
       });
 
     state.tail = operation;
-    return operation;
+    return operation.then(() => saved);
   }
 
   async function uploadEnrollmentFiles(
@@ -1692,7 +1712,7 @@ export function EnrollmentClient({
   async function createRecord(
     payload: Record<string, unknown>,
     pendingFiles: readonly PendingFile[] = [],
-  ) {
+  ): Promise<EnrollmentRecordWithStats> {
     // Registered in pendingRef like any other write: without it a refetch
     // that raced this POST is treated as clean and applied, and the record
     // the user just created disappears from the list until the next ping.
@@ -1711,12 +1731,14 @@ export function EnrollmentClient({
         body: JSON.stringify({ ...payload, program }),
       });
       const data = (await response.json().catch(() => null)) as
-        | { record?: EnrollmentRecordWithStats; error?: string }
+        | { record?: EnrollmentRecordWithStats; error?: string; warnings?: string[] }
         | null;
       if (!response.ok || !data?.record) {
         throw new Error(data?.error ?? "Could not create enrollment record.");
       }
+      if (data.warnings?.length) setWarning("Saved. Some notifications could not be sent.");
       updateRecords((current) => [data.record!, ...current]);
+      let createdRecord = data.record;
       publishEnrollmentDataInvalidation({ sourceId: liveSourceId });
       if (pendingFiles.length > 0) {
         const createdId = data.record.id;
@@ -1727,6 +1749,7 @@ export function EnrollmentClient({
         // "tạo deal xong sửa, reload thì mất" (2026-09-30).
         const canonical = await fetchCanonicalRecord(createdId);
         if (canonical) {
+          createdRecord = canonical;
           updateRecords((current) =>
             current.map((record) => (record.id === createdId ? canonical : record)),
           );
@@ -1745,6 +1768,7 @@ export function EnrollmentClient({
           sourceId: liveSourceId,
         });
       }
+      return createdRecord;
     } finally {
       finishPendingMutation();
     }
@@ -1789,7 +1813,7 @@ export function EnrollmentClient({
         });
         setError(
           response.status === 409
-            ? "Enrollment record changed elsewhere; it was restored with canonical data."
+            ? "Someone else changed this record, so it was not archived. The latest data is shown — click Archive again if you still want to archive it."
             : data?.error ?? "Could not archive record.",
         );
       }
@@ -1841,6 +1865,16 @@ export function EnrollmentClient({
     setOpenId(null);
     setOpenCommentId(null);
     writeEnrollmentDeepLink(null);
+  }
+
+  async function submitTableReopen(reason: string): Promise<boolean> {
+    if (!reopenRequest) return false;
+    const ok = await patchRecord(reopenRequest.recordId, {
+      stage_id: reopenRequest.stageId,
+      reopen_reason: reason,
+    });
+    if (ok) setReopenRequest(null);
+    return ok;
   }
 
   const shellClassName =
@@ -1997,12 +2031,39 @@ export function EnrollmentClient({
               }
               onOpen={openRecordById}
               onPatch={patchRecord}
+              onRequestReopen={(recordId, stageId) => setReopenRequest({ recordId, stageId })}
+              now={timeProgressNow}
             />
           </div>
         </div>
       )}
 
       <Toast message={error} tone="error" onDismiss={() => setError(null)} />
+      <Toast
+        message={notice}
+        tone="success"
+        stackIndex={1}
+        onDismiss={() => setNotice(null)}
+      />
+      <Toast
+        message={warning}
+        tone="info"
+        stackIndex={2}
+        onDismiss={() => setWarning(null)}
+      />
+      <ReasonModal
+        open={reopenRequest !== null}
+        title="Reopen enrollment"
+        description={
+          reopenRequest
+            ? `Enter a reason to reopen this record to ${optionsById.get(reopenRequest.stageId)?.label ?? "the selected stage"}.`
+            : "Enter a reason to reopen this record."
+        }
+        placeholder="Reason for reopening..."
+        submitLabel="Reopen"
+        onClose={() => setReopenRequest(null)}
+        onSubmit={submitTableReopen}
+      />
 
       {openRecord ? (
         <EnrollmentDrawer
@@ -2046,8 +2107,21 @@ export function EnrollmentClient({
           tableColumnOptions={tableColumnOptions}
           onClose={() => setCreating(false)}
           onCreate={async (payload, pendingFiles) => {
-            await createRecord(payload, pendingFiles);
+            const created = await createRecord(payload, pendingFiles);
             setCreating(false);
+            openRecordById(created.id);
+            const hidden =
+              filterRecords(
+                [created],
+                filters,
+                optionsById,
+                currentEmail,
+                yearColumn,
+                yearOptionLabels,
+              ).length === 0;
+            setNotice(
+              `${enrollmentDisplayKey(created.display_number, created.program)} created${hidden ? " — hidden by your current filters" : ""}.`,
+            );
           }}
         />
       ) : null}
@@ -2475,6 +2549,8 @@ function EnrollmentTable({
   onSort,
   onOpen,
   onPatch,
+  onRequestReopen,
+  now,
 }: {
   columns: EnrollmentColumn[];
   records: EnrollmentRecordWithStats[];
@@ -2489,7 +2565,9 @@ function EnrollmentTable({
   sort: { key: SortKey; dir: SortDir };
   onSort: (key: SortKey) => void;
   onOpen: (id: string) => void;
-  onPatch: (id: string, patch: Record<string, unknown>) => Promise<void>;
+  onPatch: (id: string, patch: Record<string, unknown>) => Promise<boolean>;
+  onRequestReopen: (recordId: string, stageId: string) => void;
+  now: Date;
 }) {
   const minWidth = useMemo(
     () => columns.reduce((sum, column) => sum + column.width, 0),
@@ -2556,6 +2634,8 @@ function EnrollmentTable({
                   agentScopeEmails={agentScopeEmails}
                   onOpen={onOpen}
                   onPatch={onPatch}
+                  onRequestReopen={onRequestReopen}
+                  now={now}
                 />
               </li>
             ))}
@@ -2579,6 +2659,8 @@ function EnrollmentRowItem({
   agentScopeEmails,
   onOpen,
   onPatch,
+  onRequestReopen,
+  now,
 }: {
   columns: EnrollmentColumn[];
   record: EnrollmentRecordWithStats;
@@ -2591,7 +2673,9 @@ function EnrollmentRowItem({
   isManager: boolean;
   agentScopeEmails: readonly string[];
   onOpen: (id: string) => void;
-  onPatch: (id: string, patch: Record<string, unknown>) => Promise<void>;
+  onPatch: (id: string, patch: Record<string, unknown>) => Promise<boolean>;
+  onRequestReopen: (recordId: string, stageId: string) => void;
+  now: Date;
 }) {
   const stage = record.stage_id ? optionsById.get(record.stage_id) ?? null : null;
   const has = (key: EnrollmentColumn["key"]) => columns.some((column) => column.key === key);
@@ -2708,8 +2792,24 @@ function EnrollmentRowItem({
             stageId={record.stage_id}
             stages={optionsBySet.stage}
             canEdit={capabilities.canChangeStage}
-            onChange={(value) => onPatch(record.id, { stage_id: value })}
+            onChange={async (value) => {
+              const next = optionsById.get(value) ?? null;
+              if (needsReopenReason(stage, next)) {
+                onRequestReopen(record.id, value);
+              } else {
+                await onPatch(record.id, { stage_id: value });
+              }
+            }}
           />
+        </div>
+      ) : null}
+
+      {has("timeProgress") ? (
+        <div
+          style={cellStyleFor("timeProgress")}
+          className={cellClassName("timeProgress", "flex shrink-0 items-center px-3 py-2.5")}
+        >
+          <EnrollmentTimeProgressCell record={record} stageLabel={stage?.label ?? null} now={now} />
         </div>
       ) : null}
 
@@ -2864,7 +2964,7 @@ function EnrollmentRowItem({
             }}
             value={record.pcp_2025}
             canEdit={capabilities.canEditFields}
-            onSave={(next) => onPatch(record.id, { pcp_2025: next })}
+            onSave={async (next) => { await onPatch(record.id, { pcp_2025: next }); }}
             className="w-full"
           />
         </div>
@@ -2885,7 +2985,7 @@ function EnrollmentRowItem({
             }}
             value={record.pcp_2026}
             canEdit={capabilities.canEditFields}
-            onSave={(next) => onPatch(record.id, { pcp_2026: next })}
+            onSave={async (next) => { await onPatch(record.id, { pcp_2026: next }); }}
             className="w-full"
           />
         </div>
@@ -2906,7 +3006,7 @@ function EnrollmentRowItem({
             }}
             value={record.due_date}
             canEdit={capabilities.canEditFields}
-            onSave={(next) => onPatch(record.id, { due_date: next })}
+            onSave={async (next) => { await onPatch(record.id, { due_date: next }); }}
             className="w-full !text-xs !font-medium !text-[#6b778c]"
           />
         </div>
@@ -3021,7 +3121,7 @@ function EnrollmentRowItem({
             record={record}
             stage={stage}
             canEdit={capabilities.canReviewQC}
-            onToggle={() => onPatch(record.id, { qc_checked: !record.qc_checked_at })}
+            onToggle={async () => { await onPatch(record.id, { qc_checked: !record.qc_checked_at }); }}
           />
         </div>
       ) : null}
@@ -3643,6 +3743,23 @@ function QCCheckButton({
   );
 }
 
+function EnrollmentTimeProgressCell({
+  record,
+  stageLabel,
+  now,
+}: {
+  record: EnrollmentRecordWithStats;
+  stageLabel: string | null;
+  now: Date;
+}) {
+  const report = buildEnrollmentTimeProgress(record, stageLabel, now);
+  return (
+    <span className={`truncate text-xs font-semibold ${report.className}`} title={report.title}>
+      {report.label}
+    </span>
+  );
+}
+
 function EnrollmentStagePill({
   stageId,
   stages,
@@ -3806,7 +3923,7 @@ function EnrollmentDrawer({
   isManager: boolean;
   agentScopeEmails: readonly string[];
   onClose: () => void;
-  onPatch: (patch: Record<string, unknown>) => Promise<void>;
+  onPatch: (patch: Record<string, unknown>) => Promise<boolean>;
   onArchive: () => Promise<void>;
   onParentUpdatedAt?: (updatedAt: string) => void;
   onParentRefresh?: () => Promise<void> | void;
@@ -3832,7 +3949,7 @@ function EnrollmentDrawer({
     ),
   );
   const [confirmArchive, setConfirmArchive] = useState(false);
-  const [reopenReasonOpen, setReopenReasonOpen] = useState(false);
+  const [reopenStageId, setReopenStageId] = useState<string | null>(null);
   const [invalidKeys, setInvalidKeys] = useState<ReadonlySet<string>>(new Set());
   const lastForegroundDetailRefreshAtRef = useRef(0);
   const stage = record.stage_id ? optionsById.get(record.stage_id) ?? null : null;
@@ -4142,15 +4259,15 @@ function EnrollmentDrawer({
 
   function reopen() {
     if (!reopenTarget || !capabilities.canReopen) return;
-    setReopenReasonOpen(true);
+    setReopenStageId(reopenTarget.id);
   }
 
   async function submitReopen(reason: string): Promise<boolean> {
-    if (!reopenTarget || !capabilities.canReopen) return false;
+    if (!reopenStageId || !capabilities.canReopen) return false;
     try {
-      await onPatch({ stage_id: reopenTarget.id, reopen_reason: reason });
-      setReopenReasonOpen(false);
-      return true;
+      const ok = await onPatch({ stage_id: reopenStageId, reopen_reason: reason });
+      if (ok) setReopenStageId(null);
+      return ok;
     } catch {
       return false;
     }
@@ -4200,7 +4317,7 @@ function EnrollmentDrawer({
                     invalid={isInvalid("client")}
                     onRejectEmpty={() => markInvalid("client")}
                     onEditStart={() => clearInvalid("client")}
-                    onSave={(value) => onPatch({ client_name: value })}
+                    onSave={async (value) => { await onPatch({ client_name: value }); }}
                   />
                 </label>
               ) : null}
@@ -4221,7 +4338,7 @@ function EnrollmentDrawer({
                       invalid={isInvalid("fub")}
                       onRejectEmpty={() => markInvalid("fub")}
                       onEditStart={() => clearInvalid("fub")}
-                      onSave={(value) => onPatch({ fub_link: value })}
+                      onSave={async (value) => { await onPatch({ fub_link: value }); }}
                     />
                     {fubHref ? (
                       <a
@@ -4248,7 +4365,7 @@ function EnrollmentDrawer({
                   placeholder="No description"
                   canEdit={capabilities.canEditContent}
                   className={COMPACT_DESCRIPTION_CLASS}
-                  onSave={(value) => onPatch({ description: value })}
+                  onSave={async (value) => { await onPatch({ description: value }); }}
                 />
               </label>
 
@@ -4347,7 +4464,14 @@ function EnrollmentDrawer({
                     stages={optionsBySet.stage}
                     field
                     canEdit={capabilities.canChangeStage}
-                    onChange={(value) => onPatch({ stage_id: value })}
+                    onChange={async (value) => {
+                      const next = optionsById.get(value) ?? null;
+                      if (needsReopenReason(stage, next)) {
+                        setReopenStageId(value);
+                      } else {
+                        await onPatch({ stage_id: value });
+                      }
+                    }}
                   />
                 </FieldBlock>
               ) : null}
@@ -4543,7 +4667,7 @@ function EnrollmentDrawer({
                     invalid={isInvalid("pcp2025")}
                     onRejectEmpty={() => markInvalid("pcp2025")}
                     onEditStart={() => clearInvalid("pcp2025")}
-                    onSave={(value) => onPatch({ pcp_2025: value })}
+                    onSave={async (value) => { await onPatch({ pcp_2025: value }); }}
                   />
                 </FieldBlock>
               ) : null}
@@ -4562,7 +4686,7 @@ function EnrollmentDrawer({
                     invalid={isInvalid("pcp2026")}
                     onRejectEmpty={() => markInvalid("pcp2026")}
                     onEditStart={() => clearInvalid("pcp2026")}
-                    onSave={(value) => onPatch({ pcp_2026: value })}
+                    onSave={async (value) => { await onPatch({ pcp_2026: value }); }}
                   />
                 </FieldBlock>
               ) : null}
@@ -4577,9 +4701,9 @@ function EnrollmentDrawer({
                     optionLabelById={optionLabelById}
                     personLabelByEmail={peopleByEmail}
                     canEdit={capabilities.canEditFields}
-                    onSave={(next) =>
-                      onPatch({ custom_values: { [column.key]: next } })
-                    }
+                    onSave={async (next) => {
+                      await onPatch({ custom_values: { [column.key]: next } });
+                    }}
                   />
                 </FieldBlock>
               ))}
@@ -4590,7 +4714,7 @@ function EnrollmentDrawer({
                     record={record}
                     stage={stage}
                     canEdit={capabilities.canReviewQC}
-                    onToggle={() => onPatch({ qc_checked: !record.qc_checked_at })}
+                    onToggle={async () => { await onPatch({ qc_checked: !record.qc_checked_at }); }}
                   />
                 </FieldBlock>
               ) : null}
@@ -4644,16 +4768,16 @@ function EnrollmentDrawer({
       ) : null}
 
       <ReasonModal
-        open={reopenReasonOpen}
+        open={reopenStageId !== null}
         title="Reopen enrollment"
         description={
-          reopenTarget
-            ? `Enter a reason to reopen this record to ${reopenTarget.label}.`
+          reopenStageId
+            ? `Enter a reason to reopen this record to ${optionsById.get(reopenStageId)?.label ?? "the selected stage"}.`
             : "Enter a reason to reopen this record."
         }
         placeholder="Reason for reopening..."
         submitLabel="Reopen"
-        onClose={() => setReopenReasonOpen(false)}
+        onClose={() => setReopenStageId(null)}
         onSubmit={submitReopen}
       />
     </div>
@@ -5945,6 +6069,8 @@ function sortValue(
       return record.client_name?.toLowerCase() ?? null;
     case "stage":
       return record.stage_id ? optionsById.get(record.stage_id)?.label ?? null : null;
+    case "timeProgress":
+      return null;
     case "caller":
       return record.caller_email
         ? personLabel(record.caller_email, peopleByEmail).toLowerCase()
@@ -6000,6 +6126,7 @@ function sortValue(
     case "updated":
       return record.last_activity_at;
   }
+  return null;
 }
 
 function enrollmentNeedsAttention(

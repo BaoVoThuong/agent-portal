@@ -83,6 +83,6 @@ export async function POST(request: Request, { params }: Ctx) {
     return NextResponse.json({ error: "Could not create option." }, { status: 500 });
   }
 
-  await broadcastTableConfigInvalidation();
+  await broadcastTableConfigInvalidation([column.scope]);
   return NextResponse.json({ option: rpcData });
 }

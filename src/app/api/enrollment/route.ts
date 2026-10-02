@@ -23,10 +23,12 @@ import {
   readEnrollmentMutationSourceId,
 } from "@/lib/enrollment/realtime";
 import {
-  fetchAdminEmails,
-  fetchTaskManagerEmails,
   isAgentOwnerOrAssistant,
 } from "@/lib/tasks/membership";
+import {
+  fetchEnrollmentManagerEmails,
+} from "@/lib/enrollment/recipients";
+import { enrollmentRecordOwnerEmails } from "@/lib/enrollment/notifications";
 import { buildCreateEnrollmentNotificationRows } from "@/lib/enrollment/create-notifications";
 import {
   parseEnrollmentProgram,
@@ -344,7 +346,7 @@ export async function POST(request: Request) {
 
   let taskManagerEmails: string[] = [];
   try {
-    taskManagerEmails = await fetchTaskManagerEmails();
+    taskManagerEmails = await fetchEnrollmentManagerEmails();
   } catch (error) {
     mutationWarnings.push(
       `Enrollment task.manage recipient lookup failed: ${error instanceof Error ? error.message : "unknown error"}`
@@ -353,7 +355,7 @@ export async function POST(request: Request) {
   const notificationRows = buildCreateEnrollmentNotificationRows({
     recordId: record.id,
     actorEmail: actorResult.actor.email,
-    assignees: [record.caller_email, record.responsible_enroll_email].filter(
+    assignees: enrollmentRecordOwnerEmails(record).filter(
       (value): value is string => Boolean(value),
     ),
     createdRecipients: taskManagerEmails,
@@ -363,31 +365,26 @@ export async function POST(request: Request) {
     : [];
 
   if (selectedStage?.triggers_qc) {
-    notificationPromises.push(
-      (async () => {
-        let adminEmails: string[] = [];
-        try {
-          adminEmails = await fetchAdminEmails();
-        } catch (error) {
-          throw new Error(
-            `Enrollment QC recipient lookup failed: ${error instanceof Error ? error.message : "unknown error"}`
-          );
-        }
-        const qcRecipients = uniqueEnrollmentNotificationRecipients(
-          [record.caller_email, record.responsible_enroll_email, ...adminEmails],
-          [actorResult.actor.email]
-        );
-        await insertEnrollmentNotifications(
+    const qcRecipients = uniqueEnrollmentNotificationRecipients(
+      [
+        ...enrollmentRecordOwnerEmails(record),
+        ...taskManagerEmails,
+      ],
+      [actorResult.actor.email],
+    );
+    if (qcRecipients.length > 0) {
+      notificationPromises.push(
+        insertEnrollmentNotifications(
           qcRecipients.map((recipient) => ({
             recipient_email: recipient,
             record_id: record.id,
-            type: "qc_needed",
+            type: "qc_needed" as const,
             actor_email: actorResult.actor.email,
             detail: selectedStage.label,
-          }))
-        );
-      })()
-    );
+          })),
+        ),
+      );
+    }
   }
 
   const notificationResults = await Promise.allSettled(notificationPromises);

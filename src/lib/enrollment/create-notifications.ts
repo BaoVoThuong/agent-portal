@@ -1,8 +1,11 @@
 import {
+  enrollmentRecordOwnerEmails,
   uniqueEnrollmentNotificationRecipients,
   uniqueEnrollmentNotificationRows,
   type EnrollmentNotificationInsertInput,
 } from "./notifications";
+import { isKeyStage } from "./key-stages";
+import type { EnrollmentOption, EnrollmentProgram } from "./types";
 
 /**
  * New enrollment records notify their caller/responsible people and every
@@ -37,31 +40,98 @@ export function buildCreateEnrollmentNotificationRows(input: {
   ]);
 }
 
-/**
- * Key pipeline stages are visible to the same task-management audience as a
- * newly created enrollment. Caller/responsible recipients remain included;
- * task managers receive the stage event even when neither role is assigned.
- */
-export function buildStageChangedEnrollmentNotificationRows(input: {
+/** Builds assignment notifications from the field-level change semantics. */
+export function buildAssignmentNotificationRows(input: {
   recordId: string;
   actorEmail: string;
   callerEmail?: string | null;
   responsibleEmail?: string | null;
-  taskManagerEmails: string[];
-  detail: string;
+  agentEmail?: string | null;
+  changedFields: readonly string[];
 }): EnrollmentNotificationInsertInput[] {
+  const agentChanged = input.changedFields.includes("agent_email");
   const recipients = uniqueEnrollmentNotificationRecipients(
-    [input.callerEmail, input.responsibleEmail, ...input.taskManagerEmails],
+    agentChanged
+      ? [input.agentEmail]
+      : [input.callerEmail, input.responsibleEmail],
     [input.actorEmail],
   );
+  const detail = agentChanged
+    ? "Enrollment agent changed"
+    : "Enrollment responsibility changed";
 
   return uniqueEnrollmentNotificationRows(
     recipients.map((recipient) => ({
       recipient_email: recipient,
       record_id: input.recordId,
-      type: "stage_changed" as const,
+      type: "assigned" as const,
       actor_email: input.actorEmail,
-      detail: input.detail,
+      detail,
     })),
   );
+}
+
+export function buildStageNotifications(input: {
+  program: EnrollmentProgram;
+  fromStage: Pick<EnrollmentOption, "is_terminal"> | null;
+  toStage: Pick<EnrollmentOption, "label" | "is_terminal" | "triggers_qc"> | null;
+  reopening: boolean;
+  recordId: string;
+  actorEmail: string;
+  callerEmail?: string | null;
+  responsibleEmail?: string | null;
+  agentEmail?: string | null;
+  managerEmails: string[];
+  reopenReason?: string | null;
+}): EnrollmentNotificationInsertInput[] {
+  const owners = enrollmentRecordOwnerEmails({
+    caller_email: input.callerEmail ?? null,
+    responsible_enroll_email: input.responsibleEmail ?? null,
+    agent_email: input.agentEmail ?? null,
+  });
+  const excluded = [input.actorEmail];
+  if (input.reopening) {
+    return uniqueEnrollmentNotificationRows(
+      uniqueEnrollmentNotificationRecipients(owners, excluded).map((recipient) => ({
+        recipient_email: recipient,
+        record_id: input.recordId,
+        type: "reopened" as const,
+        actor_email: input.actorEmail,
+        detail: input.reopenReason ?? null,
+      })),
+    );
+  }
+
+  if (!input.toStage) return [];
+  const ownerRecipients = uniqueEnrollmentNotificationRecipients(owners, excluded);
+  const keyStage = isKeyStage(input.program, input.toStage);
+  const qcRecipients = input.toStage.triggers_qc
+    ? uniqueEnrollmentNotificationRecipients(
+        keyStage ? ownerRecipients : [...ownerRecipients, ...input.managerEmails],
+        excluded,
+      )
+    : [];
+  const stageRecipients = keyStage
+    ? uniqueEnrollmentNotificationRecipients(
+        [...ownerRecipients, ...input.managerEmails],
+        [...excluded, ...qcRecipients],
+      )
+    : [];
+
+  return uniqueEnrollmentNotificationRows([
+    ...qcRecipients.map((recipient) => ({
+      recipient_email: recipient,
+      record_id: input.recordId,
+      type: "qc_needed" as const,
+      actor_email: input.actorEmail,
+      detail: input.toStage!.label,
+    })),
+    ...stageRecipients.map((recipient) => ({
+      recipient_email: recipient,
+      record_id: input.recordId,
+      type: "stage_changed" as const,
+      actor_email: input.actorEmail,
+      detail: input.toStage!.label,
+    })),
+  ]);
 }

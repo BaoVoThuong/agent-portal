@@ -67,7 +67,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   }
   if (!data) return NextResponse.json(inactiveConfigValueResponse("Option"), { status: 409 });
 
-  await broadcastTableConfigInvalidation();
+  await broadcastTableConfigInvalidation([column.scope]);
   return NextResponse.json({ option: data });
 }
 
@@ -100,6 +100,6 @@ export async function DELETE(_request: Request, { params }: Ctx) {
   if (error) return NextResponse.json({ error: "Could not archive option." }, { status: 500 });
   if (!data) return NextResponse.json(inactiveConfigValueResponse("Option"), { status: 409 });
 
-  await broadcastTableConfigInvalidation();
+  await broadcastTableConfigInvalidation([column.scope]);
   return NextResponse.json({ ok: true });
 }

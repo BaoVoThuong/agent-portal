@@ -128,7 +128,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
     }
   }
 
-  await broadcastTableConfigInvalidation();
+  await broadcastTableConfigInvalidation([column.scope]);
   return NextResponse.json({
     ok: true,
     column: data,
@@ -170,7 +170,7 @@ export async function DELETE(_request: Request, { params }: Ctx) {
   if (error) return NextResponse.json({ error: "Could not archive column." }, { status: 500 });
   if (!data) return NextResponse.json(inactiveConfigValueResponse("Column"), { status: 409 });
 
-  await broadcastTableConfigInvalidation();
+  await broadcastTableConfigInvalidation([column.scope]);
   return NextResponse.json({ ok: true });
 }
 

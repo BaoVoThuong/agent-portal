@@ -62,7 +62,7 @@ export async function POST(request: Request) {
     });
   }
 
-  await broadcastTableConfigInvalidation();
+  await broadcastTableConfigInvalidation([scope]);
   return NextResponse.json({
     ok: true,
     scope,

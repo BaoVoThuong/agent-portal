@@ -5,6 +5,10 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { notifTopic } from "@/lib/tasks/realtime";
 import type { EnrollmentProgram } from "@/lib/enrollment/types";
 import { RouteTiming } from "@/lib/server-timing";
+import { buildTaskActor, isTaskViewAdmin } from "@/lib/tasks/access";
+import { canAccessEnrollment } from "@/lib/enrollment/access";
+import { isRecordInScope, resolveEnrollmentScope } from "@/lib/enrollment/scope";
+import { redactEnrollmentNotification } from "@/lib/enrollment/notification-redaction";
 
 export const dynamic = "force-dynamic";
 
@@ -316,8 +320,21 @@ export async function GET(req: Request) {
       ? supabase.from("tasks").select("id,title,display_number").in("id", taskIds)
       : Promise.resolve({ data: [] as { id: string; title: string; display_number: number | null }[], error: null }),
     enrollmentIds.length
-      ? supabase.from("enrollment_records").select("id,client_name,display_number,program").in("id", enrollmentIds)
-      : Promise.resolve({ data: [] as { id: string; client_name: string | null; display_number: number | null; program: EnrollmentProgram }[], error: null }),
+      ? supabase
+          .from("enrollment_records")
+          .select("id,client_name,display_number,program,agent_email,caller_email,responsible_enroll_email,created_by_email,archived_at")
+          .in("id", enrollmentIds)
+      : Promise.resolve({ data: [] as {
+          id: string;
+          client_name: string | null;
+          display_number: number | null;
+          program: EnrollmentProgram;
+          agent_email: string | null;
+          caller_email: string | null;
+          responsible_enroll_email: string | null;
+          created_by_email: string | null;
+          archived_at: string | null;
+        }[], error: null }),
     timeOffIds.length
       ? supabase
           .from("time_off_requests")
@@ -402,6 +419,39 @@ export async function GET(req: Request) {
     ].map((c) => [c.id, c.body] as const)
   );
 
+  const viewerActor = buildTaskActor(session.user.permissions, email, {
+    isAdmin: isTaskViewAdmin(session.user),
+  });
+  let enrollmentScope: Awaited<ReturnType<typeof resolveEnrollmentScope>> | null = null;
+  if (enrollmentIds.length > 0 && canAccessEnrollment(viewerActor)) {
+    try {
+      enrollmentScope = await resolveEnrollmentScope(viewerActor);
+    } catch (error) {
+      // A scope lookup failure must redact content instead of turning an old
+      // notification into a data disclosure path.
+      console.warn("Enrollment notification scope lookup failed", {
+        code: error instanceof Error ? error.message : "unknown",
+      });
+    }
+  }
+  const enrollmentAccessById = new Map(
+    ((enrollmentTitlesRes.data ?? []) as Array<{
+      id: string;
+      agent_email: string | null;
+      caller_email: string | null;
+      responsible_enroll_email: string | null;
+      created_by_email: string | null;
+      archived_at: string | null;
+    }>).map((record) => [
+      record.id,
+      Boolean(
+        enrollmentScope &&
+          !record.archived_at &&
+          isRecordInScope(enrollmentScope, record),
+      ),
+    ]),
+  );
+
   const notifications = base.map((n) => ({
     ...n,
     entity_display_number:
@@ -422,7 +472,12 @@ export async function GET(req: Request) {
           : titleById.get(n.entity_id) ?? null,
     actor_name: nameByEmail.get(n.actor_email) ?? null,
     comment_body: n.comment_id ? commentById.get(n.comment_id) ?? null : null,
-  }));
+  })).map((notification) => redactEnrollmentNotification(
+    notification,
+    notification.entity_type === "enrollment"
+      ? enrollmentAccessById.get(notification.entity_id) === true
+      : true,
+  ));
   const unread =
     typeof unreadRes.count === "number" ||
     typeof enrollmentUnreadRes.count === "number" ||

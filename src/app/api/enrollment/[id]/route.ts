@@ -15,11 +15,16 @@ import {
 import { enrollmentSchemaErrorResponse } from "@/lib/enrollment/schema-errors";
 import { loadScopedEnrollmentRecord } from "@/lib/enrollment/scope";
 import {
+  enrollmentRecordOwnerEmails,
   insertEnrollmentNotifications,
   uniqueEnrollmentNotificationRecipients,
   type EnrollmentNotificationInsertInput,
 } from "@/lib/enrollment/notifications";
-import { buildStageChangedEnrollmentNotificationRows } from "@/lib/enrollment/create-notifications";
+import {
+  buildAssignmentNotificationRows,
+  buildStageNotifications,
+} from "@/lib/enrollment/create-notifications";
+import { isKeyStage } from "@/lib/enrollment/key-stages";
 import {
   broadcastEnrollmentChanged,
   broadcastEnrollmentRoom,
@@ -37,10 +42,9 @@ import {
   validateEnrollmentOwnership,
 } from "@/lib/enrollment/ownership";
 import {
-  fetchAdminEmails,
-  fetchTaskManagerEmails,
   isAgentOwnerOrAssistant,
 } from "@/lib/tasks/membership";
+import { fetchEnrollmentManagerEmails } from "@/lib/enrollment/recipients";
 import {
   findMissingRequiredFieldsFromContext,
   missingRequiredFieldsMessage,
@@ -89,12 +93,6 @@ const OPTION_FIELDS = {
   payment_status_id: "payment_status",
   aca_status_id: "aca_status",
 } as const;
-
-const KEY_STAGE_NOTIFICATIONS = new Set([
-  "5-ready to enroll",
-  "11-terminated",
-  "12-terminated",
-]);
 
 export async function GET(_request: Request, { params }: Ctx) {
   const { id } = await params;
@@ -542,85 +540,57 @@ export async function PATCH(request: Request, { params }: Ctx) {
   const notifications: EnrollmentNotificationInsertInput[] = [];
 
   if (stageChanged) {
-    if (reopening) {
-      for (const recipient of uniqueEnrollmentNotificationRecipients(
-        [updated.caller_email, updated.responsible_enroll_email],
-        [actorResult.actor.email]
-      )) {
-        notifications.push({
-          recipient_email: recipient,
-          record_id: id,
-          type: "reopened",
-          actor_email: actorResult.actor.email,
-          detail: reopenReason,
-        });
-      }
-    } else if (toStage?.triggers_qc) {
-      let adminEmails: string[] = [];
+    let managerEmails: string[] = [];
+    if (toStage && (toStage.triggers_qc || isKeyStage(updated.program, toStage))) {
       try {
-        adminEmails = await fetchAdminEmails();
+        managerEmails = await fetchEnrollmentManagerEmails();
       } catch (error) {
         mutationWarnings.push(
-          `Enrollment QC recipient lookup failed: ${error instanceof Error ? error.message : "unknown error"}`
+          `Enrollment stage recipient lookup failed: ${error instanceof Error ? error.message : "unknown error"}`
         );
       }
-      const qcRecipients = uniqueEnrollmentNotificationRecipients(
-        [updated.caller_email, updated.responsible_enroll_email, ...adminEmails],
-        [actorResult.actor.email]
-      );
-      for (const recipient of qcRecipients) {
-        notifications.push({
-          recipient_email: recipient,
-          record_id: id,
-          type: "qc_needed",
-          actor_email: actorResult.actor.email,
-          detail: toStage.label,
-        });
-      }
-    } else if (
-      toStage &&
-      KEY_STAGE_NOTIFICATIONS.has(toStage.label.trim().toLowerCase())
-    ) {
-      let taskManagerEmails: string[] = [];
-      try {
-        taskManagerEmails = await fetchTaskManagerEmails();
-      } catch (error) {
-        mutationWarnings.push(
-          `Enrollment stage-change recipient lookup failed: ${error instanceof Error ? error.message : "unknown error"}`
-        );
-      }
-      notifications.push(
-        ...buildStageChangedEnrollmentNotificationRows({
-          recordId: id,
-          actorEmail: actorResult.actor.email,
-          callerEmail: updated.caller_email,
-          responsibleEmail: updated.responsible_enroll_email,
-          taskManagerEmails,
-          detail: toStage.label,
-        })
-      );
     }
+    notifications.push(
+      ...buildStageNotifications({
+        program: updated.program,
+        fromStage,
+        toStage,
+        reopening,
+        recordId: id,
+        actorEmail: actorResult.actor.email,
+        callerEmail: updated.caller_email,
+        responsibleEmail: updated.responsible_enroll_email,
+        agentEmail: updated.agent_email,
+        managerEmails,
+        reopenReason,
+      }),
+    );
   }
 
-  if (changedFields.some((field) => field === "caller_email" || field === "responsible_enroll_email")) {
-    for (const recipient of uniqueEnrollmentNotificationRecipients(
-      [updated.caller_email, updated.responsible_enroll_email],
-      [actorResult.actor.email]
-    )) {
-      notifications.push({
-        recipient_email: recipient,
-        record_id: id,
-        type: "assigned",
-        actor_email: actorResult.actor.email,
-        detail: "Enrollment responsibility changed",
-      });
-    }
+  if (
+    changedFields.some(
+      (field) =>
+        field === "agent_email" ||
+        field === "caller_email" ||
+        field === "responsible_enroll_email",
+    )
+  ) {
+    notifications.push(
+      ...buildAssignmentNotificationRows({
+        recordId: id,
+        actorEmail: actorResult.actor.email,
+        callerEmail: updated.caller_email,
+        responsibleEmail: updated.responsible_enroll_email,
+        agentEmail: updated.agent_email,
+        changedFields,
+      }),
+    );
   }
 
   if (qcChecked !== null) {
     if (qcChecked) {
       for (const recipient of uniqueEnrollmentNotificationRecipients(
-        [updated.caller_email, updated.responsible_enroll_email],
+        enrollmentRecordOwnerEmails(updated),
         [actorResult.actor.email]
       )) {
         notifications.push({

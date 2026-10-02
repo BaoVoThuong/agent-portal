@@ -1,6 +1,7 @@
 import { broadcastEnrollmentChanged } from "@/lib/enrollment/realtime";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
-import { SLA_CONFIG_TOPIC, TABLE_CONFIG_TOPIC } from "./realtime-topics";
+import { SLA_CONFIG_TOPIC, tableConfigTopic } from "./realtime-topics";
+import { TABLE_SCOPES, type TableScope } from "./types";
 
 async function broadcastTopic(topic: string): Promise<void> {
   const url = process.env.SUPABASE_URL;
@@ -23,8 +24,10 @@ async function broadcastTopic(topic: string): Promise<void> {
   }
 }
 
-export async function broadcastTableConfigInvalidation(): Promise<void> {
-  await broadcastTopic(TABLE_CONFIG_TOPIC);
+export async function broadcastTableConfigInvalidation(
+  scopes: readonly TableScope[] = TABLE_SCOPES,
+): Promise<void> {
+  await Promise.all(scopes.map((scope) => broadcastTopic(tableConfigTopic(scope))));
 }
 
 export async function broadcastSlaConfigInvalidation(): Promise<void> {

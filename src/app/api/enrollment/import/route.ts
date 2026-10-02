@@ -27,6 +27,7 @@ import {
   missingRequiredFieldsMessage,
 } from "@/lib/table-config/required";
 import { fetchWriteValidationContext } from "@/lib/table-config/write-context";
+import { reminderResetForDueChange } from "@/lib/enrollment/due-schedule";
 
 export const dynamic = "force-dynamic";
 
@@ -207,16 +208,29 @@ export async function POST(request: Request) {
       }
 
       const record: Record<string, unknown> = { ...patch.value };
+      let currentDueDate: string | null = null;
+      let currentCustomValues: Record<string, unknown> = {};
+      if (recordId) {
+        const { data: current, error: currentError } = await supabase
+          .from("enrollment_records")
+          .select("custom_values,due_date")
+          .eq("id", recordId)
+          .eq("program", program)
+          .maybeSingle();
+        if (currentError) throw new Error(currentError.message);
+        if (!current) {
+          failed.push({ row: excelRow, error: "No record found with this ID." });
+          continue;
+        }
+        currentDueDate = current.due_date;
+        currentCustomValues = isCustomValueRecord(current.custom_values)
+          ? current.custom_values
+          : {};
+      }
       if (Object.keys(customValidation.values).length > 0) {
         if (recordId) {
-          const { data: current } = await supabase
-            .from("enrollment_records")
-            .select("custom_values")
-            .eq("id", recordId)
-            .maybeSingle();
           record.custom_values = {
-            ...(((current as { custom_values?: Record<string, unknown> } | null)
-              ?.custom_values) ?? {}),
+            ...currentCustomValues,
             ...customValidation.values,
           };
         } else {
@@ -238,6 +252,7 @@ export async function POST(request: Request) {
           .from("enrollment_records")
           .update({
             ...sanitized,
+            ...reminderResetForDueChange(currentDueDate, sanitized.due_date as string | null | undefined),
             updated_at: nowIso,
             updated_by_email: actorResult.actor.email,
           })

@@ -126,6 +126,7 @@ export default async function EnrollmentPage({
       canManageOptions={canManageEnrollmentOptions(actor)}
       canImport={canActorImport(session.user.permissions)}
       canExport={canExport}
+      initialNowIso={new Date().toISOString()}
     />
   );
 }

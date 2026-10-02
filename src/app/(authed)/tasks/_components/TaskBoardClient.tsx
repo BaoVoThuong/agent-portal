@@ -39,7 +39,7 @@ import { clearCachedTaskDetails } from "@/lib/tasks/detail-cache";
 import {
   CONFIG_CHANGED_EVENT,
   SLA_CONFIG_TOPIC,
-  TABLE_CONFIG_TOPIC,
+  tableConfigTopic,
 } from "@/lib/table-config/realtime-topics";
 import { resolveTaskCapabilities } from "@/lib/tasks/access";
 import { ChevronDown, Download, Loader2, Plus } from "lucide-react";
@@ -911,7 +911,7 @@ export function TaskBoardClient({
     const sb = getBrowserSupabase();
     if (!sb) return;
     const channel = sb
-      .channel(TABLE_CONFIG_TOPIC)
+      .channel(tableConfigTopic("cs"))
       .on("broadcast", { event: CONFIG_CHANGED_EVENT }, () => setConfigStale(true))
       .subscribe();
     return () => {
@@ -2663,5 +2663,4 @@ function isTaskDatePresetKey(value: unknown): value is TaskDatePresetKey {
 function isDateKey(value: unknown): value is string {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
-
 

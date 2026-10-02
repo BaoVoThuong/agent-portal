@@ -12,32 +12,63 @@ export type EnrollmentNotificationInsertInput = {
 };
 
 export async function insertEnrollmentNotifications(
-  rows: EnrollmentNotificationInsertInput[]
+  rows: EnrollmentNotificationInsertInput[],
+  options: { alreadyScoped?: boolean } = {},
 ): Promise<void> {
-  const uniqueRows = uniqueEnrollmentNotificationRows(rows);
-  if (uniqueRows.length === 0) return;
+  const recordIds = [...new Set(rows.map((row) => row.record_id))];
+  try {
+    const candidateRows = uniqueEnrollmentNotificationRows(rows);
+    const { kept: scopedRows, droppedCount } = options.alreadyScoped
+      ? { kept: candidateRows, droppedCount: 0 }
+      : await (async () => {
+          const { filterEnrollmentNotificationRows } = await import("./recipients");
+          return filterEnrollmentNotificationRows(candidateRows);
+        })();
+    if (droppedCount > 0) {
+      console.warn("Enrollment notifications dropped by current access scope", {
+        droppedCount,
+      });
+    }
+    const uniqueRows = uniqueEnrollmentNotificationRows(scopedRows);
+    if (uniqueRows.length === 0) return;
 
-  const { error } = await getSupabaseAdmin().from("enrollment_notifications").insert(
-    uniqueRows.map((row) => ({
-      recipient_email: row.recipient_email,
-      record_id: row.record_id,
-      type: row.type,
-      actor_email: row.actor_email,
-      comment_id: row.comment_id ?? null,
-      detail: row.detail ?? null,
-    }))
-  );
-  if (error) throw new Error(error.message);
-
-  await broadcastNotif(uniqueRows.map((row) => row.recipient_email));
-
-  // Đẩy ra ngoài trình duyệt — xem ghi chú ở lib/tasks/notifications.ts.
-  await schedulePush(async () => {
-    const { pushForEnrollmentNotifications } = await import(
-      "@/lib/notifications/push-dispatch"
+    const { error } = await getSupabaseAdmin().from("enrollment_notifications").insert(
+      uniqueRows.map((row) => ({
+        recipient_email: row.recipient_email,
+        record_id: row.record_id,
+        type: row.type,
+        actor_email: row.actor_email,
+        comment_id: row.comment_id ?? null,
+        detail: row.detail ?? null,
+      }))
     );
-    await pushForEnrollmentNotifications(uniqueRows);
-  });
+    if (error) throw new Error(error.message);
+
+    await broadcastNotif(uniqueRows.map((row) => row.recipient_email));
+
+    // Đẩy ra ngoài trình duyệt — xem ghi chú ở lib/tasks/notifications.ts.
+    await schedulePush(async () => {
+      const { pushForEnrollmentNotifications } = await import(
+        "@/lib/notifications/push-dispatch"
+      );
+      await pushForEnrollmentNotifications(uniqueRows);
+    });
+  } catch (error) {
+    console.error("enrollment.notification.failed", {
+      recordIds,
+      error: error instanceof Error ? error.message : "unknown error",
+    });
+    throw error;
+  }
+}
+
+/** The people responsible for an Enrollment record. */
+export function enrollmentRecordOwnerEmails(record: {
+  caller_email: string | null;
+  responsible_enroll_email: string | null;
+  agent_email: string | null;
+}): (string | null)[] {
+  return [record.caller_email, record.responsible_enroll_email, record.agent_email];
 }
 
 export function uniqueEnrollmentNotificationRecipients(

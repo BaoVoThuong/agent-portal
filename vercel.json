@@ -7,7 +7,7 @@
     },
     {
       "path": "/api/cron/check-enrollment-due",
-      "schedule": "0 3 * * *"
+      "schedule": "0 13 * * *"
     },
     {
       "path": "/api/cron/time-off-monthly-accrual",

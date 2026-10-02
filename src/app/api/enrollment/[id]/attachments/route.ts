@@ -17,6 +17,7 @@ import {
   validateAttachmentFile,
 } from "@/lib/tasks/attachments";
 import {
+  enrollmentRecordOwnerEmails,
   insertEnrollmentNotifications,
   uniqueEnrollmentNotificationRecipients,
 } from "@/lib/enrollment/notifications";
@@ -295,7 +296,7 @@ export async function POST(request: Request, { params }: Ctx) {
       });
       if (activityError) sideEffectWarnings.push(`Attachment activity failed: ${activityError.message}`);
       const recipients = uniqueEnrollmentNotificationRecipients(
-        [context.record.caller_email, context.record.responsible_enroll_email],
+        enrollmentRecordOwnerEmails(context.record),
         [context.actor.email],
       );
       try {
