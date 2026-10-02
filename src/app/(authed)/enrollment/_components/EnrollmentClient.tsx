@@ -150,7 +150,10 @@ import {
 import { formatAttachmentSize } from "@/lib/tasks/attachments";
 import { AvatarStack, Initials } from "../../tasks/_components/board-ui";
 import { applyFrozenOrder } from "@/lib/tasks/frozen-order";
-import { toOptimisticEnrollmentPatch } from "@/lib/enrollment/optimistic-patch";
+import {
+  canRetryAfterConflict,
+  toOptimisticEnrollmentPatch,
+} from "@/lib/enrollment/optimistic-patch";
 import { EnrollmentOverview } from "./EnrollmentOverview";
 
 type SortKey =
@@ -1566,43 +1569,59 @@ export function EnrollmentClient({
 
     const operation = state.tail
       .then(async () => {
-        let response: Response;
-        try {
-          response = await fetch(`/api/enrollment/${id}`, {
-            method: "PATCH",
-            headers: {
-              "Content-Type": "application/json",
-              "x-enrollment-client-source": liveSourceId,
-            },
-            body: JSON.stringify({ ...patch, expected_updated_at: state.confirmed.updated_at }),
-          });
-        } catch {
-          setError("Connection lost — could not update enrollment record.");
-          return;
-        }
-
-        const data = (await response.json().catch(() => null)) as
-          | { record?: EnrollmentRecordWithStats; error?: string }
-          | null;
-        if (!response.ok || !data?.record) {
-          if (response.status === 409) {
-            const canonical = await fetchCanonicalRecord(id);
-            if (canonical) {
-              state.confirmed = canonical;
-              setError("Enrollment record changed elsewhere; canonical data was reloaded.");
-            } else {
-              setError("Enrollment record changed elsewhere; refresh before editing again.");
-            }
-          } else {
-            setError(data?.error ?? "Could not update enrollment record.");
+        // Tối đa hai lượt: 409 mà không ai đụng tới các trường này (mốc giờ bị
+        // đẩy lên bởi upload file, reaction...) thì gửi lại MỘT lần với bản mới
+        // nhất, thay vì bỏ việc người dùng vừa làm — xem canRetryAfterConflict.
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          const baseline = state.confirmed;
+          let response: Response;
+          try {
+            response = await fetch(`/api/enrollment/${id}`, {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/json",
+                "x-enrollment-client-source": liveSourceId,
+              },
+              body: JSON.stringify({ ...patch, expected_updated_at: baseline.updated_at }),
+            });
+          } catch {
+            setError("Connection lost — could not update enrollment record.");
+            return;
           }
+
+          const data = (await response.json().catch(() => null)) as
+            | { record?: EnrollmentRecordWithStats; error?: string }
+            | null;
+          if (response.ok && data?.record) {
+            state.confirmed = data.record;
+            publishEnrollmentDataInvalidation({
+              recordId: id,
+              sourceId: liveSourceId,
+            });
+            return;
+          }
+          if (response.status !== 409) {
+            setError(data?.error ?? "Could not update enrollment record.");
+            return;
+          }
+
+          const canonical = await fetchCanonicalRecord(id);
+          if (!canonical) {
+            setError(
+              "Someone else changed this record and the latest version could not be loaded. Your last change was not saved.",
+            );
+            return;
+          }
+          state.confirmed = canonical;
+          if (attempt === 0 && canRetryAfterConflict(patch, baseline, canonical)) continue;
+          // Câu cũ ("canonical data was reloaded") khiến người dùng tưởng phải
+          // reload trang — reload xong thấy mất phần vừa sửa và báo "mất deal".
+          // Nói thẳng: chưa lưu, dữ liệu mới nhất đã hiện, làm lại là được.
+          setError(
+            "Someone else changed this record, so your last change was not saved. The latest data is shown — please make the change again.",
+          );
           return;
         }
-        state.confirmed = data.record;
-        publishEnrollmentDataInvalidation({
-          recordId: id,
-          sourceId: liveSourceId,
-        });
       })
       .catch(() => {
         setError("Could not update enrollment record.");
@@ -1671,7 +1690,22 @@ export function EnrollmentClient({
       updateRecords((current) => [data.record!, ...current]);
       publishEnrollmentDataInvalidation({ sourceId: liveSourceId });
       if (pendingFiles.length > 0) {
-        const failedFiles = await uploadEnrollmentFiles(data.record.id, pendingFiles);
+        const createdId = data.record.id;
+        const failedFiles = await uploadEnrollmentFiles(createdId, pendingFiles);
+        // Upload đẩy updated_at của hồ sơ lên (enrollment_touch_activity), còn
+        // tab này bỏ qua tín hiệu do chính nó phát. Không đọc lại bản thật thì
+        // dòng kẹt ở mốc lúc tạo, và lượt sửa đầu tiên bị 409 rồi bị bỏ — lỗi
+        // "tạo deal xong sửa, reload thì mất" (2026-09-30).
+        const canonical = await fetchCanonicalRecord(createdId);
+        if (canonical) {
+          updateRecords((current) =>
+            current.map((record) => (record.id === createdId ? canonical : record)),
+          );
+          const state = recordMutationStatesRef.current.get(createdId);
+          if (state && Date.parse(canonical.updated_at) > Date.parse(state.confirmed.updated_at)) {
+            state.confirmed = canonical;
+          }
+        }
         if (failedFiles.length > 0) {
           setError(
             `Enrollment was created, but these files did not upload: ${failedFiles.join(", ")}.`,
@@ -1787,10 +1821,18 @@ export function EnrollmentClient({
     <div className={shellClassName}>
       {configStale ? (
         <div className="flex items-center justify-between gap-3 border-b border-[#ffab00] bg-[#fff7d6] px-6 py-2 text-sm font-semibold text-[#7f5f00]" role="alert">
-          <span>Table configuration changed. Reload before editing enrollments.</span>
-          <button type="button" className="rounded bg-[#ffab00] px-3 py-1 text-xs font-bold text-[#172b4d]" onClick={() => window.location.reload()}>
-            Reload
-          </button>
+          {/* Reload giữa lúc đang điền form tạo mới là mất sạch form chưa lưu.
+              Thay đổi cấu hình không chặn việc lưu, nên bảo lưu/huỷ trước. */}
+          <span>
+            {creating
+              ? "Table configuration changed. Save or cancel the new enrollment first, then reload."
+              : "Table configuration changed. Reload before editing enrollments."}
+          </span>
+          {creating ? null : (
+            <button type="button" className="rounded bg-[#ffab00] px-3 py-1 text-xs font-bold text-[#172b4d]" onClick={() => window.location.reload()}>
+              Reload
+            </button>
+          )}
         </div>
       ) : null}
       {liveStatus === "degraded" ? (
@@ -4623,12 +4665,13 @@ function NewEnrollmentDialog({
   useBodyScrollLock(true);
 
   const ticketInputRef = useRef<HTMLInputElement | null>(null);
+  const [initialStageId] = useState(() => optionsBySet.stage[0]?.id ?? "");
   const [form, setForm] = useState<Record<string, string>>({
     client_name: "",
     description: "",
     fub_link: "",
     due_date: "",
-    stage_id: optionsBySet.stage[0]?.id ?? "",
+    stage_id: initialStageId,
     platform_id: "",
     consent_id: "",
     payment_status_id: "",
@@ -4693,6 +4736,24 @@ function NewEnrollmentDialog({
   useEffect(() => {
     ticketInputRef.current?.focus();
   }, []);
+
+  // Form có dữ liệu chưa lưu thì trình duyệt hỏi lại trước khi reload / đóng tab.
+  // Stage có sẵn giá trị mặc định, nên chỉ tính là thay đổi nếu người dùng đổi nó.
+  const hasUnsavedInput =
+    Object.entries(form).some(([field, value]) => field !== "stage_id" && value.trim() !== "") ||
+    form.stage_id !== initialStageId ||
+    carrierIds.length > 0 ||
+    Object.values(customValues).some((value) => value !== null && value !== undefined && value !== "") ||
+    pendingFiles.length > 0;
+  useEffect(() => {
+    if (!hasUnsavedInput) return;
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [hasUnsavedInput]);
 
   const showField = (key: EnrollmentColumnKey) =>
     visibleColumnKeys.has(key) && isColumnInProgram(program, key);

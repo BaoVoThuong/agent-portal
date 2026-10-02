@@ -6,6 +6,34 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-01 — Enrollment: tạo hồ sơ kèm file rồi sửa ngay thì mất phần vừa sửa
+
+Cheryl báo: tạo deal ở Health Obamacare Enrollment → hiện dòng bảo reload →
+reload thì "mất deal". DB cho thấy hồ sơ KHÔNG mất (3 hồ sơ còn nguyên, trong
+phạm vi của cô ấy); thứ mất là lượt sửa ngay sau khi tạo. Cả ACA / Medicare /
+Medicaid đều dính (chung `EnrollmentClient`).
+
+**Chuỗi nguyên nhân:** upload file ở form tạo mới gọi `enrollment_touch_activity`
+→ đẩy `updated_at` lên; tab của người tạo bỏ qua tín hiệu do chính nó phát
+(`live-sync.ts`) nên dòng kẹt ở mốc lúc tạo → lượt sửa đầu gửi mốc cũ → 409 →
+client BỎ lượt sửa và báo "canonical data was reloaded" → người dùng reload trang,
+thấy phần vừa sửa đã mất.
+
+**Sửa:**
+- Sau khi upload file lúc tạo, đọc lại hồ sơ từ server để dòng có mốc mới.
+- `patchRecord`: 409 mà không trường nào trong patch bị người khác đổi
+  (`canRetryAfterConflict`, so từng trường, `custom_values` so từng khoá) thì gửi
+  lại MỘT lần với bản mới nhất. Còn so cả cột server tự cập nhật: stage so
+  `closed_at`/QC, QC so stage hiện tại, Carrier so `carrier_id`. Có trường liên
+  quan bị đổi thì không đè — báo xung đột.
+- Câu báo xung đột nói rõ "chưa lưu, dữ liệu mới nhất đã hiện, làm lại", không
+  còn chữ "reloaded" xúi người dùng reload trang.
+- Banner "Table configuration changed" khi đang mở form New enrollment: bảo lưu
+  hoặc huỷ trước, ẩn nút Reload. Form có dữ liệu chưa lưu thì trình duyệt hỏi lại
+  trước khi reload / đóng tab.
+
+Plan: `docs/superpowers/plans/2026-09-30-enrollment-create-then-edit-conflict.md`.
+
 ## 2026-09-30 — Tệp đính kèm tối đa 4MB, quá thì bảo chia nhỏ
 
 CS báo một tệp PDF 10.3MB thử 10 lần trong 2 ngày vẫn "Attachment upload failed".
