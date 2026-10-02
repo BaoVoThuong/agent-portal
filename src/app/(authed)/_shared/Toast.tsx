@@ -26,10 +26,13 @@ export function Toast({
   onDismiss,
   autoDismissMs = 5000,
   stackIndex = 0,
+  action,
 }: {
   message: string | null;
   tone?: ToastTone;
   onDismiss: () => void;
+  /** Một nút hành động cạnh nút đóng, vd. "Open" để mở bản ghi vừa tạo. */
+  action?: { label: string; onClick: () => void };
   /** null disables auto-dismiss (message stays until dismissed). */
   autoDismissMs?: number | null;
   /** 0 = bottom-most. Use 1, 2… to stack several toasts on one screen. */
@@ -59,6 +62,15 @@ export function Toast({
       className={`fixed left-1/2 z-[200] flex max-w-lg -translate-x-1/2 items-center gap-3 rounded px-4 py-2.5 text-sm font-medium shadow-[0_8px_24px_rgba(9,30,66,0.32)] ${TONE_CLASS[tone]}`}
     >
       <span className="min-w-0">{message}</span>
+      {action ? (
+        <button
+          type="button"
+          onClick={action.onClick}
+          className="shrink-0 rounded px-2 py-0.5 text-sm font-semibold underline-offset-2 transition hover:bg-white/15 hover:underline"
+        >
+          {action.label}
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={onDismiss}

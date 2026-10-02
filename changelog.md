@@ -6,6 +6,13 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-02 — Enrollment: tạo hồ sơ xong không tự mở drawer
+
+- Bỏ việc tự mở drawer sau khi tạo (Task 6/B2 của plan go-live), cho giống Task CS.
+  Toast "ACA-xxx created" (kèm "— hidden by your current filters" nếu bộ lọc đang
+  che) có nút **Open** để mở hồ sơ vừa tạo, hiện 8 giây.
+- `Toast` dùng chung có thêm prop `action` (một nút cạnh nút đóng).
+
 ## 2026-10-02 — Task không còn bỏ lượt sửa khi bị 409 (plan instant feedback Phase 4)
 
 - Tách `canRetryAfterConflict` sang `src/lib/collaboration/conflict-retry.ts`, nhận

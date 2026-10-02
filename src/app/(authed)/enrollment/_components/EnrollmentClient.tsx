@@ -893,7 +893,8 @@ export function EnrollmentClient({
   const [creating, setCreating] = useState(false);
   const [layoutTableColumns, setLayoutTableColumns] = useState<TableColumn[]>(tableColumns);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  // Báo "đã tạo" kèm id để nút "Open" mở đúng hồ sơ đó.
+  const [notice, setNotice] = useState<{ message: string; recordId: string } | null>(null);
   const backgroundUploads = useBackgroundUploads();
   const runBackgroundUploads = backgroundUploads.run;
   const [warning, setWarning] = useState<string | null>(null);
@@ -2052,10 +2053,22 @@ export function EnrollmentClient({
 
       <Toast message={error} tone="error" onDismiss={() => setError(null)} />
       <Toast
-        message={notice}
+        message={notice?.message ?? null}
         tone="success"
         stackIndex={1}
+        autoDismissMs={8000}
         onDismiss={() => setNotice(null)}
+        action={
+          notice
+            ? {
+                label: "Open",
+                onClick: () => {
+                  openRecordById(notice.recordId);
+                  setNotice(null);
+                },
+              }
+            : undefined
+        }
       />
       <Toast
         message={warning}
@@ -2128,7 +2141,8 @@ export function EnrollmentClient({
           onCreate={async (payload, pendingFiles) => {
             const created = await createRecord(payload, pendingFiles);
             setCreating(false);
-            openRecordById(created.id);
+            // Không tự mở drawer nữa (giống Task CS): toast báo đã tạo, kèm nút
+            // "Open" và nói rõ nếu bộ lọc đang che hồ sơ này.
             const hidden =
               filterRecords(
                 [created],
@@ -2138,9 +2152,10 @@ export function EnrollmentClient({
                 yearColumn,
                 yearOptionLabels,
               ).length === 0;
-            setNotice(
-              `${enrollmentDisplayKey(created.display_number, created.program)} created${hidden ? " — hidden by your current filters" : ""}.`,
-            );
+            setNotice({
+              message: `${enrollmentDisplayKey(created.display_number, created.program)} created${hidden ? " — hidden by your current filters" : ""}.`,
+              recordId: created.id,
+            });
           }}
         />
       ) : null}
