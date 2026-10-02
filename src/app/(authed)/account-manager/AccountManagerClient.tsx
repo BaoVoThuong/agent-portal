@@ -369,7 +369,20 @@ export default function AccountManagerClient({
       updatedBy: user.alertsUpdatedBy,
       updatedAt: user.alertsUpdatedAt,
     };
+    const previousOverride = alertOverrides.get(user.id);
     const alertsMuted = !current.alertsMuted;
+    const optimisticPreference: AlertPreference = {
+      alertsMuted,
+      updatedBy: currentUserEmail,
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Đổi giao diện ngay khi bấm; request chỉ đồng bộ lại kết quả thật từ server.
+    setAlertOverrides((previous) => {
+      const next = new Map(previous);
+      next.set(user.id, optimisticPreference);
+      return next;
+    });
     setBusyUserId(user.id);
     setError(null);
     setMessage(null);
@@ -384,6 +397,12 @@ export default function AccountManagerClient({
       );
       const result = await readJsonResponse(response);
       if (!response.ok) {
+        setAlertOverrides((previous) => {
+          const next = new Map(previous);
+          if (previousOverride) next.set(user.id, previousOverride);
+          else next.delete(user.id);
+          return next;
+        });
         setError(result.error ?? "Unable to update notification alerts.");
         return;
       }
@@ -402,6 +421,12 @@ export default function AccountManagerClient({
         `${user.email} alerts ${result.alertsMuted === true ? "muted" : "enabled"}.`,
       );
     } catch {
+      setAlertOverrides((previous) => {
+        const next = new Map(previous);
+        if (previousOverride) next.set(user.id, previousOverride);
+        else next.delete(user.id);
+        return next;
+      });
       setError("Unable to update notification alerts. Please try again.");
     } finally {
       setBusyUserId(null);
@@ -1075,29 +1100,38 @@ function AlertToggle({
     preference.alertsMuted && preference.updatedAt
       ? `Muted by ${updatedByName ?? preference.updatedBy ?? "admin"} · ${formatTableDate(preference.updatedAt)}`
       : undefined;
+  const enabled = !preference.alertsMuted;
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={!preference.alertsMuted}
-      aria-label={preference.alertsMuted ? "Enable alerts" : "Mute alerts"}
-      title={tooltip}
-      disabled={busy}
-      onClick={onClick}
-      className={`inline-flex items-center gap-2 rounded-md px-2.5 py-1 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
-        preference.alertsMuted
-          ? "bg-slate-100 text-slate-600 hover:bg-slate-200"
-          : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
-      }`}
-    >
-      <span
-        aria-hidden
-        className={`h-2 w-2 rounded-full ${
-          preference.alertsMuted ? "bg-slate-400" : "bg-emerald-500"
+    <div className="inline-flex items-center gap-2">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={enabled}
+        aria-label={preference.alertsMuted ? "Enable alerts" : "Mute alerts"}
+        title={tooltip}
+        disabled={busy}
+        onClick={onClick}
+        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c66e4] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
+          enabled
+            ? "bg-emerald-500 hover:bg-emerald-600"
+            : "bg-slate-300 hover:bg-slate-400"
         }`}
-      />
-      {preference.alertsMuted ? "Off" : "On"}
-    </button>
+      >
+        <span
+          aria-hidden
+          className={`h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
+            enabled ? "translate-x-5" : "translate-x-0"
+          }`}
+        />
+      </button>
+      <span
+        className={`text-xs font-semibold ${
+          enabled ? "text-emerald-700" : "text-slate-500"
+        }`}
+      >
+        {enabled ? "On" : "Off"}
+      </span>
+    </div>
   );
 }
 
