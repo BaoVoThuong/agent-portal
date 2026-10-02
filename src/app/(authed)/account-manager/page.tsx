@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
 import type { AccountUser } from "@/lib/domain/account.types";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { can } from "@/lib/rbac/client";
 import {
   fetchRolesWithPermissions,
   type RoleOption,
@@ -21,9 +22,24 @@ type UserRoleRow = {
   role_id: string;
 };
 
+function isMissingNotificationPreferencesTable(error: {
+  code?: string;
+  message?: string;
+} | null): boolean {
+  const message = error?.message?.toLowerCase() ?? "";
+  return (
+    error?.code === "PGRST205" ||
+    message.includes("schema cache") ||
+    message.includes("notification_preferences")
+  );
+}
+
 export type ManagedAccountUser = AccountUser & {
   role_ids: string[];
   roles: RoleOption[];
+  alertsMuted: boolean;
+  alertsUpdatedBy: string | null;
+  alertsUpdatedAt: string | null;
 };
 
 export default async function AccountManagerPage() {
@@ -34,13 +50,22 @@ export default async function AccountManagerPage() {
   }
 
   const supabase = getSupabaseAdmin();
-  const [{ data, error }, roles, userRolesResponse] = await Promise.all([
+  const canManageAlerts = can(
+    session.user.permissions,
+    PERMISSIONS.NOTIFICATION_ALERTS,
+  );
+  const [{ data, error }, roles, userRolesResponse, notificationPreferencesResponse] = await Promise.all([
     supabase
-    .from(PORTAL_ACCOUNT_TABLE)
-    .select("id,email,name,agent_id,role,is_active,created_at")
+      .from(PORTAL_ACCOUNT_TABLE)
+      .select("id,email,name,agent_id,role,is_active,created_at")
       .order("created_at", { ascending: false }),
     fetchRolesWithPermissions(),
     supabase.from("user_roles").select("user_id,role_id"),
+    canManageAlerts
+      ? supabase
+          .from("notification_preferences")
+          .select("email,sound_enabled,updated_by_email,updated_at")
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   if (error) {
@@ -50,6 +75,23 @@ export default async function AccountManagerPage() {
   if (userRolesResponse.error) {
     throw new Error(userRolesResponse.error.message);
   }
+  if (
+    notificationPreferencesResponse.error &&
+    !isMissingNotificationPreferencesTable(notificationPreferencesResponse.error)
+  ) {
+    throw new Error(notificationPreferencesResponse.error.message);
+  }
+
+  const notificationPreferencesByEmail = new Map(
+    ((notificationPreferencesResponse.error
+      ? []
+      : notificationPreferencesResponse.data ?? []) as Array<{
+      email: string;
+      sound_enabled: boolean | null;
+      updated_by_email: string | null;
+      updated_at: string | null;
+    }>).map((preference) => [preference.email.trim().toLowerCase(), preference]),
+  );
 
   const availableRoles: RoleOption[] = roles.map((role) => ({
     id: role.id,
@@ -96,6 +138,15 @@ export default async function AccountManagerPage() {
         roles: roleIds
           .map((roleId) => rolesById.get(roleId))
           .filter((role): role is RoleOption => Boolean(role)),
+        alertsMuted:
+          notificationPreferencesByEmail.get(user.email.toLowerCase())
+            ?.sound_enabled === false,
+        alertsUpdatedBy:
+          notificationPreferencesByEmail.get(user.email.toLowerCase())
+            ?.updated_by_email ?? null,
+        alertsUpdatedAt:
+          notificationPreferencesByEmail.get(user.email.toLowerCase())
+            ?.updated_at ?? null,
       };
     }
   );
@@ -104,6 +155,7 @@ export default async function AccountManagerPage() {
     <AccountManagerClient
       currentUserEmail={session.user.email ?? ""}
       currentUserPermissions={session.user.permissions ?? []}
+      canManageAlerts={canManageAlerts}
       initialUsers={users}
       availableRoles={availableRoles}
     />

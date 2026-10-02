@@ -15,6 +15,7 @@ type SettingsClientProps = {
     avatarUrl: string | null;
   };
   vapidPublicKey: string;
+  alertsMuted: boolean;
 };
 
 function initials(name: string, email: string): string {
@@ -27,6 +28,7 @@ function initials(name: string, email: string): string {
 export default function SettingsClient({
   profile,
   vapidPublicKey,
+  alertsMuted,
 }: SettingsClientProps) {
   const router = useRouter();
   const [displayName, setDisplayName] = useState(profile.name);
@@ -402,7 +404,10 @@ export default function SettingsClient({
             </div>
           </form>
         </div>
-        <PushNotificationCard vapidPublicKey={vapidPublicKey} />
+        <PushNotificationCard
+          vapidPublicKey={vapidPublicKey}
+          alertsMuted={alertsMuted}
+        />
       </div>
     </div>
   );

@@ -7,6 +7,7 @@ import {
   type NotificationCopySource,
 } from "./copy";
 import { notificationAlertTag, shouldRenotify } from "./alert-policy";
+import { pushAllowedEmails } from "./alert-preferences";
 
 /**
  * Phía server của Web Push — xem docs/2026-09-10-web-push-notifications.md.
@@ -73,23 +74,26 @@ function normalizeEmail(email: string): string {
  * nhận. Nhờ vậy không cần backfill cho các tài khoản đang có, và một bảng chưa
  * kịp tạo cũng không làm tắt push của tất cả mọi người.
  */
-async function filterByPreference(emails: string[]): Promise<string[]> {
+async function filterByPreference(emails: string[], direct: boolean): Promise<string[]> {
   if (emails.length === 0) return [];
   const { data, error } = await getSupabaseAdmin()
     .from("notification_preferences")
-    .select("email,push_enabled")
+    .select("email,push_enabled,sound_enabled")
     .in("email", emails);
 
   // Đọc hỏng thì giữ nguyên danh sách: thà gửi thừa còn hơn im lặng nuốt mất
   // thông báo của mọi người vì một lỗi truy vấn.
   if (error) return emails;
 
-  const disabled = new Set(
-    (data ?? [])
-      .filter((row) => (row as { push_enabled: boolean }).push_enabled === false)
-      .map((row) => normalizeEmail((row as { email: string }).email))
+  return pushAllowedEmails(
+    emails,
+    (data ?? []) as {
+      email: string;
+      push_enabled?: boolean | null;
+      sound_enabled?: boolean | null;
+    }[],
+    direct,
   );
-  return emails.filter((email) => !disabled.has(email));
 }
 
 /**
@@ -119,14 +123,15 @@ async function deleteSubscriptions(endpoints: string[]): Promise<void> {
  */
 export async function sendPushToEmails(
   emails: readonly string[],
-  payload: PushPayload
+  payload: PushPayload,
+  options: { direct?: boolean } = {},
 ): Promise<{ sent: number; removed: number }> {
   const result = { sent: 0, removed: 0 };
   try {
     if (!ensureVapid()) return result;
 
     const unique = [...new Set(emails.map(normalizeEmail).filter(Boolean))];
-    const allowed = await filterByPreference(unique);
+    const allowed = await filterByPreference(unique, options.direct ?? true);
     if (allowed.length === 0) return result;
 
     const { data, error } = await getSupabaseAdmin()

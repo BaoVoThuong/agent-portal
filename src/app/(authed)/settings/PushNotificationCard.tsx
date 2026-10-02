@@ -24,8 +24,10 @@ import {
  */
 export default function PushNotificationCard({
   vapidPublicKey,
+  alertsMuted,
 }: {
   vapidPublicKey: string;
+  alertsMuted: boolean;
 }) {
   const [enabled, setEnabled] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -94,6 +96,12 @@ export default function PushNotificationCard({
       </div>
 
       <div className="px-6 py-5">
+        {alertsMuted ? (
+          <p className="mb-4 rounded-md border border-[#e6eaf0] bg-[#f7f8fa] px-3 py-2 text-sm text-[#6b778c]">
+            Notification sounds and pop-ups are turned off by an admin. You will
+            still be alerted for @mentions and assignments.
+          </p>
+        ) : null}
         {!ready ? (
           <p className="text-sm text-[#6b778c]">Checking…</p>
         ) : unsupportedReason ? (

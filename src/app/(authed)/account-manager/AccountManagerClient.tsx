@@ -6,6 +6,7 @@ import { Toast } from "../_shared/Toast";
 import type { AccountUser } from "@/lib/domain/account.types";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { formatTableDate } from "@/lib/table-config/date-format";
 import type { RoleOption } from "@/lib/rbac/role-management";
 import {
   LEGACY_SUPER_ADMIN_ROLE_NAME,
@@ -17,6 +18,7 @@ import { useBodyScrollLock } from "./../_shared/useBodyScrollLock";
 type AccountManagerClientProps = {
   currentUserEmail: string;
   currentUserPermissions: string[];
+  canManageAlerts: boolean;
   initialUsers: ManagedAccountUser[];
   availableRoles: RoleOption[];
 };
@@ -24,6 +26,9 @@ type AccountManagerClientProps = {
 type ManagedAccountUser = AccountUser & {
   role_ids: string[];
   roles: RoleOption[];
+  alertsMuted: boolean;
+  alertsUpdatedBy: string | null;
+  alertsUpdatedAt: string | null;
 };
 
 type FormState = {
@@ -38,6 +43,12 @@ type EditAccountFormState = {
   email: string;
   name: string;
   agentId: string;
+};
+
+type AlertPreference = {
+  alertsMuted: boolean;
+  updatedBy: string | null;
+  updatedAt: string | null;
 };
 
 const emptyForm: FormState = {
@@ -59,6 +70,7 @@ function isAdminRole(role: Pick<RoleOption, "name">) {
 export default function AccountManagerClient({
   currentUserEmail,
   currentUserPermissions,
+  canManageAlerts,
   initialUsers,
   availableRoles,
 }: AccountManagerClientProps) {
@@ -87,6 +99,9 @@ export default function AccountManagerClient({
   const [accountSearch, setAccountSearch] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [alertOverrides, setAlertOverrides] = useState<Map<string, AlertPreference>>(
+    () => new Map(),
+  );
   const canManageAccounts = can(
     currentUserPermissions,
     PERMISSIONS.ACCOUNT_MANAGER
@@ -142,6 +157,22 @@ export default function AccountManagerClient({
     });
   }, [accountSearch, sortedUsers]);
   const activeCount = initialUsers.filter((user) => user.is_active).length;
+  const alertPreferences = useMemo(() => {
+    const preferences = new Map<string, AlertPreference>(
+      initialUsers.map((user) => [
+        user.id,
+        {
+          alertsMuted: user.alertsMuted,
+          updatedBy: user.alertsUpdatedBy,
+          updatedAt: user.alertsUpdatedAt,
+        },
+      ]),
+    );
+    for (const [userId, preference] of alertOverrides) {
+      if (preferences.has(userId)) preferences.set(userId, preference);
+    }
+    return preferences;
+  }, [alertOverrides, initialUsers]);
 
   function openCreateForm() {
     setForm({ ...emptyForm, roleIds: defaultRoleIds });
@@ -332,6 +363,51 @@ export default function AccountManagerClient({
     }
   }
 
+  async function toggleAlerts(user: ManagedAccountUser) {
+    const current = alertPreferences.get(user.id) ?? {
+      alertsMuted: user.alertsMuted,
+      updatedBy: user.alertsUpdatedBy,
+      updatedAt: user.alertsUpdatedAt,
+    };
+    const alertsMuted = !current.alertsMuted;
+    setBusyUserId(user.id);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch(
+        `/api/admin/users/${user.id}/notification-alerts`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ alertsMuted }),
+        },
+      );
+      const result = await readJsonResponse(response);
+      if (!response.ok) {
+        setError(result.error ?? "Unable to update notification alerts.");
+        return;
+      }
+      setAlertOverrides((previous) => {
+        const next = new Map(previous);
+        next.set(user.id, {
+          alertsMuted: result.alertsMuted === true,
+          updatedBy:
+            typeof result.updatedBy === "string" ? result.updatedBy : null,
+          updatedAt:
+            typeof result.updatedAt === "string" ? result.updatedAt : null,
+        });
+        return next;
+      });
+      setMessage(
+        `${user.email} alerts ${result.alertsMuted === true ? "muted" : "enabled"}.`,
+      );
+    } catch {
+      setError("Unable to update notification alerts. Please try again.");
+    } finally {
+      setBusyUserId(null);
+    }
+  }
+
   return (
     <div className="px-8 py-8">
       <header className="mb-6">
@@ -382,13 +458,16 @@ export default function AccountManagerClient({
           <table className="w-full table-fixed border-collapse text-left">
             <thead className="bg-[#f8fafc] text-xs uppercase tracking-wide text-[#667085]">
               <tr>
-                <th className="w-[38%] px-5 py-3 font-semibold">User</th>
-                <th className="w-[16%] px-4 py-3 font-semibold">Role</th>
-                <th className="w-[16%] px-4 py-3 font-semibold">Status</th>
-                <th className="w-[20%] whitespace-nowrap px-4 py-3 text-right font-semibold">
+                <th className={`${canManageAlerts ? "w-[32%]" : "w-[38%]"} px-5 py-3 font-semibold`}>User</th>
+                <th className={`${canManageAlerts ? "w-[15%]" : "w-[16%]"} px-4 py-3 font-semibold`}>Role</th>
+                <th className={`${canManageAlerts ? "w-[12%]" : "w-[16%]"} px-4 py-3 font-semibold`}>Status</th>
+                {canManageAlerts && (
+                  <th className="w-[11%] px-4 py-3 font-semibold">Alerts</th>
+                )}
+                <th className={`${canManageAlerts ? "w-[18%]" : "w-[20%]"} whitespace-nowrap px-4 py-3 text-right font-semibold`}>
                   Created Date
                 </th>
-                <th className="w-[10%] px-5 py-3 text-right font-semibold">
+                <th className={`${canManageAlerts ? "w-[12%]" : "w-[10%]"} px-5 py-3 text-right font-semibold`}>
                   Actions
                 </th>
               </tr>
@@ -424,6 +503,34 @@ export default function AccountManagerClient({
                     <td className="px-4 py-4">
                       <StatusBadge active={user.is_active} />
                     </td>
+                    {canManageAlerts && (
+                      <td className="px-4 py-4">
+                        <AlertToggle
+                          busy={isBusy}
+                          preference={
+                            alertPreferences.get(user.id) ?? {
+                              alertsMuted: user.alertsMuted,
+                              updatedBy: user.alertsUpdatedBy,
+                              updatedAt: user.alertsUpdatedAt,
+                            }
+                          }
+                          updatedByName={
+                            initialUsers.find(
+                              (candidate) =>
+                                candidate.email.toLowerCase() ===
+                                (
+                                  alertPreferences.get(user.id)?.updatedBy ??
+                                  user.alertsUpdatedBy ??
+                                  ""
+                                ).toLowerCase(),
+                            )?.name ??
+                            alertPreferences.get(user.id)?.updatedBy ??
+                            user.alertsUpdatedBy
+                          }
+                          onClick={() => void toggleAlerts(user)}
+                        />
+                      </td>
+                    )}
                     <td className="px-4 py-4 text-right text-[#667085]">
                       {new Date(user.created_at).toLocaleDateString()}
                     </td>
@@ -494,7 +601,7 @@ export default function AccountManagerClient({
                 <tr>
                   <td
                     className="px-5 py-12 text-center text-sm text-[#667085]"
-                    colSpan={5}
+                    colSpan={canManageAlerts ? 6 : 5}
                   >
                     {accountSearch.trim()
                       ? "No accounts match your search."
@@ -946,6 +1053,51 @@ function StatusBadge({ active }: { active: boolean }) {
     >
       {active ? "Active" : "Inactive"}
     </span>
+  );
+}
+
+function AlertToggle({
+  busy,
+  preference,
+  updatedByName,
+  onClick,
+}: {
+  busy: boolean;
+  preference: {
+    alertsMuted: boolean;
+    updatedBy: string | null;
+    updatedAt: string | null;
+  };
+  updatedByName: string | null | undefined;
+  onClick: () => void;
+}) {
+  const tooltip =
+    preference.alertsMuted && preference.updatedAt
+      ? `Muted by ${updatedByName ?? preference.updatedBy ?? "admin"} · ${formatTableDate(preference.updatedAt)}`
+      : undefined;
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={!preference.alertsMuted}
+      aria-label={preference.alertsMuted ? "Enable alerts" : "Mute alerts"}
+      title={tooltip}
+      disabled={busy}
+      onClick={onClick}
+      className={`inline-flex items-center gap-2 rounded-md px-2.5 py-1 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+        preference.alertsMuted
+          ? "bg-slate-100 text-slate-600 hover:bg-slate-200"
+          : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+      }`}
+    >
+      <span
+        aria-hidden
+        className={`h-2 w-2 rounded-full ${
+          preference.alertsMuted ? "bg-slate-400" : "bg-emerald-500"
+        }`}
+      />
+      {preference.alertsMuted ? "Off" : "On"}
+    </button>
   );
 }
 

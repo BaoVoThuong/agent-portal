@@ -6,6 +6,17 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-02 — Admin điều khiển chuông, popup và Web Push theo người dùng
+
+- Thêm RBAC permission `management.notification_alerts`, bảng preference và API
+  Account Manager để bật/tắt alert cho từng tài khoản. Thông báo vẫn nằm trong
+  chuông và số chưa đọc; `mentioned`, `assigned`, `unassigned`, `reopened` vẫn
+  được báo dù người dùng đã tắt alert chung.
+- Chuông đọc preference ở server, còn Web Push lọc theo cùng luật ở server để
+  không thể lách bằng frontend. Người chưa có dòng preference mặc định vẫn bật.
+- Account Manager có cột Alerts và Settings giải thích khi admin đã tắt âm thanh
+  hoặc popup. Thêm test thuần cho mute/direct/push preference.
+
 ## 2026-10-02 — Enrollment go-live hardening
 
 - Recipient Enrollment dùng một nhóm manager thống nhất (`task.manage` + quyền xem

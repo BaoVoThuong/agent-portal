@@ -5,6 +5,7 @@ import { enrollmentDisplayKey } from "@/lib/enrollment/helpers";
 import type { EnrollmentProgram } from "@/lib/enrollment/types";
 import { buildPushPayload, sendPushToEmails } from "./push-server";
 import type { NotificationCopySource, NotificationCopyType } from "./copy";
+import { isDirectNotification } from "./alert-policy";
 
 /**
  * Biến các dòng thông báo vừa ghi thành thông báo đẩy ra ngoài trình duyệt.
@@ -118,7 +119,8 @@ async function dispatch(
         buildPushPayload(group.source, {
           actorLabel: actorLabel(group.actorEmail, labels),
           entityTitle: titles.get(group.source.entity_id ?? "") ?? null,
-        })
+        }),
+        { direct: isDirectNotification(group.source.type) },
       )
     )
   );
@@ -178,6 +180,7 @@ export async function pushForEnrollmentNotifications(
     record_id: string;
     type: string;
     actor_email: string;
+    detail?: string | null;
   }[]
 ): Promise<void> {
   try {

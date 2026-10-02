@@ -9,6 +9,7 @@ import { buildTaskActor, isTaskViewAdmin } from "@/lib/tasks/access";
 import { canAccessEnrollment } from "@/lib/enrollment/access";
 import { isRecordInScope, resolveEnrollmentScope } from "@/lib/enrollment/scope";
 import { redactEnrollmentNotification } from "@/lib/enrollment/notification-redaction";
+import { alertsMutedFromRow } from "@/lib/notifications/alert-preferences";
 
 export const dynamic = "force-dynamic";
 
@@ -148,6 +149,7 @@ export async function GET(req: Request) {
     enrollmentUnreadRes,
     timeOffUnreadRes,
     unreadAssignedRes,
+    notificationPreferencesRes,
   ] = await Promise.all([
     supabase
       .from("task_notifications")
@@ -188,6 +190,11 @@ export async function GET(req: Request) {
       .eq("recipient_email", email)
       .eq("type", "assigned")
       .eq("is_read", false),
+    supabase
+      .from("notification_preferences")
+      .select("sound_enabled")
+      .eq("email", email)
+      .maybeSingle(),
   ]);
   timing.record("lists", performance.now() - tLists);
   if (error) return respond({ error: error.message }, 500);
@@ -495,6 +502,11 @@ export async function GET(req: Request) {
     notifications,
     unread,
     unreadAssignedTaskIds,
+    alertsMuted: notificationPreferencesRes.error
+      ? false
+      : alertsMutedFromRow(
+          notificationPreferencesRes.data as { sound_enabled?: boolean | null } | null,
+        ),
     topic: notifTopic(email),
   });
 }
@@ -513,7 +525,8 @@ function isMissingOptionalTableError(error: { code?: string; message?: string })
     error.code === "PGRST205" ||
     message.includes("schema cache") ||
     message.includes("enrollment_notifications") ||
-    message.includes("time_off_notifications")
+    message.includes("time_off_notifications") ||
+    message.includes("notification_preferences")
   );
 }
 

@@ -13,13 +13,23 @@ function isLocalPasswordHash(value: string | null | undefined): boolean {
 export default async function SettingsPage() {
   const session = await requirePermission(PERMISSIONS.SETTINGS);
   const email = session?.user?.email ?? "";
-  const { data } = email
-    ? await getSupabaseAdmin()
-        .from(PORTAL_ACCOUNT_TABLE)
-        .select("email,name,agent_id,password_hash,avatar_url")
-        .eq("email", email)
-        .maybeSingle()
-    : { data: null };
+  const supabase = getSupabaseAdmin();
+  const [{ data }, { data: notificationPreference }] = await Promise.all([
+    email
+      ? supabase
+          .from(PORTAL_ACCOUNT_TABLE)
+          .select("email,name,agent_id,password_hash,avatar_url")
+          .eq("email", email)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    email
+      ? supabase
+          .from("notification_preferences")
+          .select("sound_enabled")
+          .eq("email", email.trim().toLowerCase())
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
 
   const profile = data as {
     email?: string | null;
@@ -40,6 +50,7 @@ export default async function SettingsPage() {
       // Khoá CÔNG của VAPID — đưa xuống trình duyệt là đúng thiết kế; khoá tư
       // nằm ở server và không bao giờ rời khỏi đó.
       vapidPublicKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? ""}
+      alertsMuted={notificationPreference?.sound_enabled === false}
     />
   );
 }

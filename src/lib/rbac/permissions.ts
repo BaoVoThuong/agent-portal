@@ -10,6 +10,7 @@ export const PERMISSIONS = {
   COMPANY_DASHBOARD_PC: "company_dashboard.pc",
   COMPANY_VIEW_ALL: "company.view_all",
   ACCOUNT_MANAGER: "management.account_manager",
+  NOTIFICATION_ALERTS: "management.notification_alerts",
   ROLE_MANAGER: "management.role_manager",
   TIME_OFF_USER: "timeoff.user",
   TIME_OFF_ADMIN: "timeoff.admin",
@@ -125,6 +126,15 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     groupLabel: "Management",
     description: "Create accounts, assign roles, update status, and reset passwords.",
     sortOrder: 100,
+  },
+  {
+    key: PERMISSIONS.NOTIFICATION_ALERTS,
+    label: "Notification Alerts",
+    groupKey: "management",
+    groupLabel: "Management",
+    description:
+      "Turn notification sounds, pop-ups and push on or off for each user. Mentions and assignments still alert.",
+    sortOrder: 150,
   },
   {
     key: PERMISSIONS.ROLE_MANAGER,

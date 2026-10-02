@@ -27,6 +27,7 @@ import {
   shouldRenotify,
   shouldShowNativePopup,
 } from "@/lib/notifications/alert-policy";
+import { alertableNotifications } from "@/lib/notifications/alert-preferences";
 import { isPushEnabledOnThisDevice } from "@/lib/notifications/push-client";
 import {
   isSystemNotification,
@@ -218,6 +219,7 @@ export function NotificationBell() {
   // Máy này có đăng ký Web Push không. Có thì popup ngoài trình duyệt là việc
   // của service worker, chuông không bật thêm cái thứ hai.
   const pushSubscribedRef = useRef(false);
+  const alertsMutedRef = useRef(false);
   const pingTimerRef = useRef<number | null>(null);
 
   // Mốc thời điểm của thông báo mới nhất đã được nạp đầy đủ. Dùng thời điểm
@@ -234,6 +236,7 @@ export function NotificationBell() {
       if (!res.ok) return false;
       const data = await res.json();
       const list = data.notifications as Notif[];
+      alertsMutedRef.current = data.alertsMuted === true;
       setItems(list);
       setUnread(data.unread as number);
       setTopic((data.topic as string | null) ?? null);
@@ -285,7 +288,10 @@ export function NotificationBell() {
         );
       }
       if (fresh.length > 0) {
-        void alertFreshNotifications(fresh, pushSubscribedRef.current);
+        const alertable = alertableNotifications(fresh, alertsMutedRef.current);
+        if (alertable.length > 0) {
+          void alertFreshNotifications(alertable, pushSubscribedRef.current);
+        }
       }
       return true;
     } catch {

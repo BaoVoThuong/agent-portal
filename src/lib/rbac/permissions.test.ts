@@ -33,3 +33,16 @@ describe("time-off permissions", () => {
       .toEqual(["timeoff.user", "timeoff.admin"]);
   });
 });
+
+describe("notification alert permissions", () => {
+  it("declares the management permission and definition", () => {
+    expect(PERMISSIONS.NOTIFICATION_ALERTS).toBe("management.notification_alerts");
+    expect(PERMISSION_DEFINITIONS).toContainEqual(
+      expect.objectContaining({
+        key: "management.notification_alerts",
+        groupKey: "management",
+        sortOrder: 150,
+      }),
+    );
+  });
+});

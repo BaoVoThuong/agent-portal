@@ -173,6 +173,7 @@ values
   ('company_dashboard.pc', 'Company - P&C', 'View the company-wide P&C Sales Dashboard.', 'dashboard', 'Dashboard', 400),
   ('company.view_all', 'View All Agents', 'See all agents'' data in Agent Dashboard and Customer Registration.', 'dashboard', 'Dashboard', 500),
   ('management.account_manager', 'Account Manager', 'Create accounts, assign roles, update status, and reset passwords.', 'management', 'Management', 100),
+  ('management.notification_alerts', 'Notification Alerts', 'Turn notification sounds, pop-ups and push on or off for each user. Mentions and assignments still alert.', 'management', 'Management', 150),
   ('management.role_manager', 'Role Manager', 'Create roles and manage role permissions.', 'management', 'Management', 200),
   ('timeoff.user', 'Time Off - User', 'Request personal leave, view own requests, and see the shared availability calendar.', 'time_off', 'Time Off', 100),
   ('timeoff.admin', 'Time Off - Admin', 'Review team leave, manage balances, view leave history, and manage company days off.', 'time_off', 'Time Off', 200),
@@ -2781,6 +2782,31 @@ create table if not exists task_notifications (
 
 create index if not exists task_notifications_recipient_idx
   on task_notifications (recipient_email, is_read, created_at desc);
+
+-- Web Push subscriptions and per-user notification alert preferences.
+-- The service-role API is the only writer; both tables remain protected by the
+-- RLS loop below so a leaked client key cannot read devices or preferences.
+create table if not exists push_subscriptions (
+  endpoint text primary key,
+  recipient_email text not null,
+  p256dh text not null,
+  auth text not null,
+  user_agent text,
+  created_at timestamptz not null default now(),
+  last_success_at timestamptz,
+  failure_count integer not null default 0
+);
+
+create index if not exists push_subscriptions_recipient_idx
+  on push_subscriptions (recipient_email);
+
+create table if not exists notification_preferences (
+  email text primary key,
+  push_enabled boolean not null default true,
+  sound_enabled boolean not null default true,
+  updated_at timestamptz not null default now(),
+  updated_by_email text
+);
 
 -- Optional free-text detail carried by a notification (e.g. the overdue reason).
 alter table task_notifications add column if not exists detail text;
@@ -6327,6 +6353,8 @@ declare
     'task_attachments',
     'task_activity',
     'task_notifications',
+    'push_subscriptions',
+    'notification_preferences',
     'task_participants',
     'task_assignees',
     'task_agents',
