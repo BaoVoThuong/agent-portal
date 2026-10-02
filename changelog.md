@@ -6,6 +6,16 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-02 — Enrollment: ô cột tự thêm hết lệch khung
+
+- Form tạo hồ sơ: ô cột tự thêm kiểu chữ, số, link, ngày (vd. "End Date") không
+  còn hai lớp khung lồng nhau. `ControlledCustomField` bỏ viền riêng vì khung,
+  viền đỏ khi thiếu và focus do `CreatePropertyField` vẽ; ô nay khớp ô Due date.
+  Chỉ form tạo Enrollment dùng component này; form tạo Task và Lead không bị.
+- Drawer: cột Person tự thêm (vd. "Follow up") dùng cùng menu người với
+  Responsible enroll / Caller nên không còn lệch chiều cao và vị trí chữ; lưu
+  lỗi thì viền đỏ như các ô tự thêm khác.
+
 ## 2026-10-02 — Enrollment: tạo hồ sơ xong không tự mở drawer
 
 - Bỏ việc tự mở drawer sau khi tạo (Task 6/B2 của plan go-live), cho giống Task CS.

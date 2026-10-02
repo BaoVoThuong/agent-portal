@@ -5706,6 +5706,35 @@ function EnrollmentDetailCustomFieldControl({
 }) {
   const [saveError, setSaveError] = useState(false);
 
+  if (column.type === "person") {
+    // Cùng khung với cột người hệ thống (Responsible enroll, Caller) để ô
+    // "Follow up" không lệch chiều cao/chữ so với các ô bên cạnh. Giá trị lưu
+    // email chữ thường như EditableCustomCell.
+    const peopleByEmail = new Map(
+      people.map((person) => [
+        person.email.toLowerCase(),
+        person.name?.trim() || formatEmailAsName(person.email),
+      ]),
+    );
+    const current = typeof value === "string" && value.trim() ? value.trim().toLowerCase() : null;
+    return (
+      <div className={saveError ? "rounded-lg ring-2 ring-[#ff5630] ring-offset-1" : undefined}>
+        <EnrollmentPersonMenu
+          value={current}
+          peopleByEmail={peopleByEmail}
+          emptyLabel="Unassigned"
+          surface="form-field"
+          variant="assignee"
+          canEdit={canEdit}
+          onChange={(next) => {
+            setSaveError(false);
+            onSave(next).catch(() => setSaveError(true));
+          }}
+        />
+      </div>
+    );
+  }
+
   if (column.type === "checkbox") {
     const checked = Boolean(value);
     return (

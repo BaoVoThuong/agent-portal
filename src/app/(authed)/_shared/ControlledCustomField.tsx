@@ -7,6 +7,10 @@ import type { TableColumn } from "@/lib/table-config/types";
  * Controlled scalar/checkbox editor used by create forms. Table-cell editors
  * intentionally keep their own blur/commit lifecycle; this component only
  * owns the predictable controlled-input behavior needed before a record exists.
+ *
+ * KHÔNG tự vẽ viền: nơi dùng (`CreatePropertyField` của form tạo Enrollment) đã
+ * vẽ khung, viền đỏ khi thiếu và focus. Ô từng có viền riêng nên hiện thành hai
+ * lớp khung lồng nhau (vd. cột ngày "End Date"); nay khớp ô hệ thống như Due date.
  */
 export function ControlledCustomField({
   column,
@@ -57,7 +61,8 @@ export function ControlledCustomField({
         onChange(column.type === "number" ? (raw === "" ? null : Number(raw)) : raw === "" ? null : raw);
       }}
       placeholder={column.type === "link" ? "https://..." : undefined}
-      className={`h-9 w-full rounded-lg border-2 bg-white px-2 text-sm font-semibold text-[#172b4d] outline-none placeholder:text-[#97a0af] focus:border-[#0c66e4] ${invalid ? "border-[#de350b] ring-2 ring-[#ffbdad]" : "border-[#dfe1e6]"}`}
+      aria-invalid={invalid || undefined}
+      className={`h-7 w-full min-w-0 bg-transparent px-0 text-sm outline-none placeholder:text-[#97a0af] ${column.type === "date" ? "font-medium text-[#42526e]" : "font-semibold text-[#172b4d]"}`}
     />
   );
 }
