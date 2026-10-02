@@ -118,7 +118,14 @@ type Comment = CommentWithAttachments & {
   // uploading — without this link the same comment renders twice.
   realId?: string;
   author_name?: string;
+  /** Bản sửa đang chờ server xác nhận (lớp phủ `editOverlay`). */
+  savingEdit?: boolean;
 };
+
+/** Lớp phủ sửa comment: bản đang gửi, rồi bản server trả về cho tới khi danh sách tải về theo kịp. */
+type EditOverlay =
+  | { status: "pending"; body: string }
+  | { status: "confirmed"; comment: Comment };
 
 type CommentEdit = {
   id: string;
@@ -446,6 +453,14 @@ export function CommentThread({
 }) {
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [optimisticComments, setOptimisticComments] = useState<Comment[]>([]);
+  // Sửa/xoá đổi giao diện ngay (plan instant feedback T2.4). Xoá giữ "tombstone"
+  // tới khi danh sách tải về không còn id đó: gỡ ngay sau response thì một lượt
+  // tải bắt đầu từ trước có thể làm comment đã xoá hiện lại.
+  const [deleteOverlay, setDeleteOverlay] = useState<ReadonlyMap<string, "pending" | "confirmed">>(
+    () => new Map(),
+  );
+  const [editOverlay, setEditOverlay] = useState<ReadonlyMap<string, EditOverlay>>(() => new Map());
+  const [commentMutationError, setCommentMutationError] = useState<string | null>(null);
   const [retryReleaseId, setRetryReleaseId] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<AttachmentPreview | null>(null);
   const rootRef = useRef<HTMLElement | null>(null);
@@ -1270,7 +1285,40 @@ export function CommentThread({
     }
   }
 
+  function setDeleteState(id: string, state: "pending" | "confirmed" | null) {
+    setDeleteOverlay((current) => {
+      const next = new Map(current);
+      if (state === null) next.delete(id);
+      else next.set(id, state);
+      return next;
+    });
+  }
+
+  function setEditState(id: string, state: EditOverlay | null) {
+    setEditOverlay((current) => {
+      const next = new Map(current);
+      if (state === null) next.delete(id);
+      else next.set(id, state);
+      return next;
+    });
+  }
+
+  /** Tải lại thread chạy nền: không ai phải chờ nó (trước đây chờ cả chi tiết lẫn danh sách). */
+  function reloadInBackground() {
+    void Promise.resolve(onReload()).catch(() => undefined);
+  }
+
   async function remove(id: string): Promise<MutationOutcome> {
+    // Ẩn ngay khi bấm; lỗi thì hiện lại kèm thông báo ở cấp thread (comment bị
+    // ẩn thì không còn chỗ hiện lỗi của riêng nó).
+    setDeleteState(id, "pending");
+    setCommentMutationError(null);
+    const fail = (): MutationOutcome => {
+      const message = "Could not delete the comment. Try again.";
+      setDeleteState(id, null);
+      setCommentMutationError(message);
+      return { ok: false, message };
+    };
     let res: Response;
     try {
       res = await fetch(`${apiBase}/${taskId}/comments/${id}`, {
@@ -1278,26 +1326,19 @@ export function CommentThread({
         headers: mutationHeaders(),
       });
     } catch {
-      return { ok: false, message: "Could not delete the comment. Try again." };
+      return fail();
     }
-    if (!res.ok) {
-      return { ok: false, message: "Could not delete the comment. Try again." };
-    }
+    if (!res.ok) return fail();
     const deleted = (await res.json().catch(() => null)) as {
       parent_updated_at?: string;
     } | null;
     if (deleted?.parent_updated_at) {
       onParentUpdatedAt?.(deleted.parent_updated_at);
     }
+    setDeleteState(id, "confirmed");
     onCommitted?.();
-    try {
-      const reloadResult = await onReload();
-      return reloadResult === "failed"
-        ? { ok: true, warning: "Comment deleted, but the thread could not refresh." }
-        : { ok: true };
-    } catch {
-      return { ok: true, warning: "Comment deleted, but the thread could not refresh." };
-    }
+    reloadInBackground();
+    return { ok: true };
   }
 
   async function edit(
@@ -1306,6 +1347,9 @@ export function CommentThread({
     expectedUpdatedAt: string | null,
     newMentions: string[] = [],
   ): Promise<EditOutcome> {
+    // Hiện ngay chữ mới kèm "Saving…"; server trả về thì thay bằng bản chuẩn.
+    setEditState(id, { status: "pending", body });
+    setCommentMutationError(null);
     let res: Response;
     try {
       res = await fetch(`${apiBase}/${taskId}/comments/${id}`, {
@@ -1318,10 +1362,14 @@ export function CommentThread({
         }),
       });
     } catch {
+      setEditState(id, null);
       return { ok: false, kind: "error", message: "Could not save the edit. Try again." };
     }
     if (!res.ok) {
+      setEditState(id, null);
       const message = await readResponseError(res, "Could not save the edit.");
+      // Bản mới nhất về chạy nền; form mở lại với chữ người dùng vừa gõ.
+      if (res.status === 409) reloadInBackground();
       return {
         ok: false,
         kind: res.status === 409 ? "conflict" : "error",
@@ -1330,17 +1378,13 @@ export function CommentThread({
     }
     onCommitted?.();
     const result = (await res.json().catch(() => null)) as {
+      comment?: Comment;
       parent_updated_at?: string;
     } | null;
+    if (result?.comment) setEditState(id, { status: "confirmed", comment: result.comment });
+    else setEditState(id, null);
     if (result?.parent_updated_at) onParentUpdatedAt?.(result.parent_updated_at);
-    try {
-      const reloadResult = await onReload();
-      if (reloadResult === "failed") {
-        throw new Error("Saved, but the thread could not refresh.");
-      }
-    } catch {
-      return { ok: false, kind: "error", message: "Saved, but the thread could not refresh." };
-    }
+    reloadInBackground();
     return { ok: true };
   }
 
@@ -1353,8 +1397,30 @@ export function CommentThread({
       .map((comment) => comment.realId)
       .filter((id): id is string => Boolean(id)),
   );
+  const serverIds = new Set((comments as Comment[]).map((comment) => comment.id));
+  // Tombstone "confirmed" chỉ còn tác dụng khi danh sách tải về vẫn có id đó.
+  const hiddenByDelete = (id: string) => {
+    const state = deleteOverlay.get(id);
+    return state === "pending" || (state === "confirmed" && serverIds.has(id));
+  };
+  const withEditOverlay = (comment: Comment): Comment => {
+    const overlay = editOverlay.get(comment.id);
+    if (!overlay) return comment;
+    if (overlay.status === "pending") return { ...comment, body: overlay.body, savingEdit: true };
+    // Danh sách tải về đã có bản bằng hoặc mới hơn bản server trả lúc sửa: tin nó.
+    const overlayAt = Date.parse(overlay.comment.updated_at ?? "");
+    const listAt = Date.parse(comment.updated_at ?? "");
+    if (Number.isFinite(overlayAt) && Number.isFinite(listAt)) {
+      if (listAt >= overlayAt) return comment;
+    } else if (comment.body === overlay.comment.body) {
+      return comment;
+    }
+    return { ...comment, ...overlay.comment };
+  };
   const rows = [
-    ...(comments as Comment[]).filter((comment) => !shadowedIds.has(comment.id)),
+    ...(comments as Comment[])
+      .filter((comment) => !shadowedIds.has(comment.id) && !hiddenByDelete(comment.id))
+      .map(withEditOverlay),
     ...optimisticComments,
   ];
   const timestampOf = (comment: Comment) =>
@@ -1531,6 +1597,19 @@ export function CommentThread({
             {reactionError}
           </div>
         ) : null}
+        {commentMutationError ? (
+          <div role="alert" className="mt-2 flex shrink-0 items-center justify-center gap-2 rounded border border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-xs font-semibold text-[#bf2600]">
+            <span>{commentMutationError}</span>
+            <button
+              type="button"
+              onClick={() => setCommentMutationError(null)}
+              className="rounded px-1 text-[#bf2600] hover:bg-[#ffd5cc]"
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
         {newRowsCount > 0 ? (
           <button
             type="button"
@@ -1629,6 +1708,10 @@ function CommentItem({
   onToggleReaction?: (emoji: string, add: boolean) => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
+  // Lượt sửa bị server từ chối sau khi form đã đóng: mở lại với đúng chữ vừa gõ.
+  const [editRetry, setEditRetry] = useState<{ body: string; error: string; attempt: number } | null>(
+    null,
+  );
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [mutationStatus, setMutationStatus] = useState<
@@ -1745,7 +1828,9 @@ function CommentItem({
             >
               {formatCommentTime(c.created_at, nowTick)}
             </span>
-            {wasEdited ? (
+            {c.savingEdit ? (
+              <span className="text-xs font-medium italic text-[#97a0af]">Saving…</span>
+            ) : wasEdited ? (
               <button
                 type="button"
                 onClick={toggleHistory}
@@ -1766,12 +1851,28 @@ function CommentItem({
 
           {isEditing ? (
             <EditCommentForm
-              initialBody={c.body}
+              key={editRetry ? `retry-${editRetry.attempt}` : "edit"}
+              initialBody={editRetry?.body ?? c.body}
+              initialError={editRetry?.error ?? null}
               members={members}
-              onCancel={() => setIsEditing(false)}
-              onSave={(body, expectedUpdatedAt, newMentions) =>
-                onEdit(c.id, body, expectedUpdatedAt, newMentions)
-              }
+              onCancel={() => {
+                setEditRetry(null);
+                setIsEditing(false);
+              }}
+              onSave={async (body, expectedUpdatedAt, newMentions) => {
+                // Form đóng ngay, chữ mới hiện tại chỗ (lớp phủ ở thread). Server
+                // từ chối thì mở lại form với chữ vừa gõ và lý do.
+                void onEdit(c.id, body, expectedUpdatedAt, newMentions).then((result) => {
+                  if (result.ok) return;
+                  setEditRetry((current) => ({
+                    body,
+                    error: result.message,
+                    attempt: (current?.attempt ?? 0) + 1,
+                  }));
+                  setIsEditing(true);
+                });
+                return { ok: true };
+              }}
               expectedUpdatedAt={c.updated_at ?? null}
             />
           ) : (
@@ -2098,12 +2199,15 @@ function CommentItem({
 
 function EditCommentForm({
   initialBody,
+  initialError = null,
   members,
   expectedUpdatedAt,
   onCancel,
   onSave,
 }: {
   initialBody: string;
+  /** Lỗi của lượt lưu trước (form được mở lại sau khi server từ chối). */
+  initialError?: string | null;
   members: TaskAssignee[];
   expectedUpdatedAt: string | null;
   onCancel: () => void;
@@ -2129,7 +2233,7 @@ function EditCommentForm({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const listId = useId();
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialError);
   const matches =
     query === null
       ? []

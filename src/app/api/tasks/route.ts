@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
@@ -120,7 +120,10 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const session = await auth();
+  // Chỉ đo nhánh thành công: đủ để thấy thời gian nằm ở đâu, không phải bọc mọi
+  // nhánh lỗi.
+  const timing = new RouteTiming("tasks-create");
+  const session = await timing.measure("auth", async () => auth());
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const actor = buildTaskActor(session.user.permissions, email, {
@@ -339,14 +342,16 @@ export async function POST(request: Request) {
     ...(startingBilling ? { billing_started_at: nowIso } : {}),
     ...(startingClosed ? { closed_at: nowIso } : {}),
   };
-  const { data: created, error: createError } = await supabase
-    .rpc("create_task_atomic", {
-      p_task: taskPayload,
-      p_assignees: assignedEmails,
-      p_actor_email: email,
-      p_client_request_id: clientRequestId,
-    })
-    .single();
+  const { data: created, error: createError } = await timing.measure("write", async () =>
+    supabase
+      .rpc("create_task_atomic", {
+        p_task: taskPayload,
+        p_assignees: assignedEmails,
+        p_actor_email: email,
+        p_client_request_id: clientRequestId,
+      })
+      .single()
+  );
   if (createError) {
     if (createError.message.includes("TASK_ACTOR_REQUIRED")) {
       return NextResponse.json({ error: "Task actor is required." }, { status: 400 });
@@ -364,8 +369,11 @@ export async function POST(request: Request) {
   };
   const data = result.task;
   const taskId = data.id;
+  // Rotation và dòng thông báo là dữ liệu nghiệp vụ nên vẫn ghi trong request:
+  // rotation quyết định ai được gán kế tiếp, còn `after()` không bền. Chỉ phần
+  // phát đi (realtime, push) chạy sau response.
   const warnings = result.was_created
-    ? await settleSideEffects([
+    ? await timing.measure("side_effects", async () => settleSideEffects([
         ...(assignedEmails.length > 0
           ? [
               {
@@ -422,21 +430,26 @@ export async function POST(request: Request) {
               priority,
             });
             if (notificationRows.length === 0) return true;
-            return insertNotifications(notificationRows);
+            return insertNotifications(notificationRows, { deliverAfterResponse: true });
           },
         },
-        {
-          code: "broadcast_failed",
-          message: "Other open task boards may need a refresh to see this task.",
-          run: () =>
-            broadcastTasksChanged(readTaskMutationSourceId(request)),
-        },
-      ])
+      ]))
     : [];
+  if (result.was_created) {
+    // Đọc header trước after(): xem api/tasks/[id]/comments/route.ts.
+    const sourceId = readTaskMutationSourceId(request);
+    after(async () => {
+      if (!(await broadcastTasksChanged(sourceId))) {
+        console.error("task.create.delivery_failed", { taskId, stage: "broadcast" });
+      }
+    });
+  }
 
   let task = data;
   try {
-    [task] = await attachAssigneesToTasks([data], supabase, { currentEmail: email });
+    [task] = await timing.measure("assignees", async () =>
+      attachAssigneesToTasks([data], supabase, { currentEmail: email })
+    );
   } catch (error) {
     warnings.push({
       code: "task_reload_failed",
@@ -444,5 +457,9 @@ export async function POST(request: Request) {
     });
     console.warn("Task create reconciliation failed", error);
   }
-  return NextResponse.json({ task, warnings }, { status: result.was_created ? 201 : 200 });
+  const status = result.was_created ? 201 : 200;
+  const response = NextResponse.json({ task, warnings }, { status });
+  response.headers.set("Server-Timing", timing.headerValue());
+  timing.log(status);
+  return response;
 }

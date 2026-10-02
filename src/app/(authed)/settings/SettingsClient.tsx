@@ -123,6 +123,8 @@ export default function SettingsClient({
   async function uploadAvatar(file: File) {
     setAvatarBusy(true);
     setAvatarError(null);
+    const previousUrl = avatarUrl;
+    let previewUrl: string | null = null;
     try {
       // Thu nhỏ ở TRÌNH DUYỆT trước khi gửi. Ảnh điện thoại 3-5MB mà lưu nguyên
       // cỡ thì mỗi dòng bảng task tải về một tệp như vậy.
@@ -131,11 +133,16 @@ export default function SettingsClient({
         setAvatarError(resized.error);
         return;
       }
+      // Hiện ngay ảnh vừa chọn trong lúc tải lên; lỗi thì trả ảnh cũ (plan
+      // instant feedback T3.6).
+      previewUrl = URL.createObjectURL(resized.file);
+      setAvatarUrl(previewUrl);
       const body = new FormData();
       body.append("file", resized.file);
       const response = await fetch("/api/settings/avatar", { method: "POST", body });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
+        setAvatarUrl(previousUrl);
         setAvatarError(payload?.error ?? "Couldn't upload the photo. Please try again.");
         return;
       }
@@ -144,25 +151,36 @@ export default function SettingsClient({
       // đổi ở TopBar và các bảng khác.
       router.refresh();
     } catch {
+      setAvatarUrl(previousUrl);
       setAvatarError("Couldn't upload the photo. Please try again.");
     } finally {
       setAvatarBusy(false);
+      // Ảnh xem trước đã được thay bằng URL server hoặc ảnh cũ; thu hồi sau khi
+      // React kịp đổi `src`.
+      if (previewUrl) {
+        const url = previewUrl;
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
     }
   }
 
   async function removeAvatar() {
     setAvatarBusy(true);
     setAvatarError(null);
+    const previousUrl = avatarUrl;
+    // Ẩn ảnh ngay; lỗi thì trả lại.
+    setAvatarUrl(null);
     try {
       const response = await fetch("/api/settings/avatar", { method: "DELETE" });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
+        setAvatarUrl(previousUrl);
         setAvatarError(payload?.error ?? "Couldn't remove the photo. Please try again.");
         return;
       }
-      setAvatarUrl(null);
       router.refresh();
     } catch {
+      setAvatarUrl(previousUrl);
       setAvatarError("Couldn't remove the photo. Please try again.");
     } finally {
       setAvatarBusy(false);

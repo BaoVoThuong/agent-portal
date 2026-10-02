@@ -6,6 +6,131 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-02 — Task không còn bỏ lượt sửa khi bị 409 (plan instant feedback Phase 4)
+
+- Tách `canRetryAfterConflict` sang `src/lib/collaboration/conflict-retry.ts`, nhận
+  bảng khoá riêng của từng module; Enrollment giữ nguyên hành vi qua bảng của nó.
+- `patchTask`: bị 409 mà không ai đổi các trường của lượt này (bảng Task: `status`
+  kéo theo `closed_at`, `position` theo `status`, `done_reviewed` theo cột review)
+  thì gửi lại MỘT lần với `updated_at` mới; cùng trường bị đổi thì vẫn báo xung đột
+  và hiện bản mới nhất. Trước đây mọi 409 đều làm mất lượt sửa, kể cả khi mốc giờ
+  chỉ bị đẩy lên vì người khác comment.
+- `changeAssignee`: bị 409 mà bản mới nhất đã đúng ý (đã có / đã không còn người
+  đó) thì coi như xong; chưa thì gửi lại một lần.
+
+## 2026-10-02 — Chuông, ảnh đại diện, công tắc rule stage (plan instant feedback T3.5–T3.7)
+
+- Chuông: đánh dấu đã đọc kiểm `response.ok`; lỗi thì chỉ trả lại đúng những
+  thông báo lượt đó đã đổi và lấy số chưa đọc chuẩn từ server (`loadSummary`).
+  Sửa lỗi nhỏ: trước đây số trên chuông bị trừ cả thông báo đã đọc rồi.
+- Settings: ảnh đại diện mới hiện ngay (ảnh xem trước) trong lúc tải lên; xoá ảnh
+  ẩn ngay. Lỗi thì trả ảnh cũ.
+- Config: ô Final Stage / QC của stage Enrollment đổi ngay qua lớp phủ và không
+  còn khoá cả trang Config (`run(..., { lock: false })`); vẫn khoá đúng stage đó
+  tới khi lưu và tải lại xong.
+
+## 2026-10-02 — Account Manager, Time Off, Customer Registration không còn khoá cả màn (plan instant feedback T3.1–T3.3)
+
+- Account Manager: công tắc Alerts chỉ khoá đúng công tắc đó (trước đây khoá cả
+  dòng: Edit, Role, Reset, Delete). Sửa tên/email/agent ID: hộp đóng và dòng đổi
+  ngay qua lớp phủ; server từ chối thì mở lại hộp với dữ liệu vừa nhập. Lớp phủ
+  đã xác nhận tự hết tác dụng khi `router.refresh()` mang về danh sách mới. Tạo,
+  đổi role, reset mật khẩu, xoá vẫn chờ server.
+- Time Off: Approve/Decline/Cancel đóng hộp ngay, dòng hiện "Approving…" /
+  "Declining…" / "Cancelling…"; các đơn khác vẫn bấm được (trước đây một cờ `busy`
+  chung khoá mọi nút trong hàng đợi). Số dư và lịch chỉ đổi khi server xác nhận;
+  lịch tải lại chạy nền. Lỗi thì mở lại hộp với ghi chú vừa nhập (trừ khi đang mở
+  hộp của đơn khác). Thêm/xoá ngày nghỉ công ty cũng tải lại lịch chạy nền.
+- Customer Registration (Health, P&C): `loadHistory({ silent })` tải lại không bật
+  overlay của cả bảng. Xoá dòng biến mất ngay; sửa trong hộp đóng ngay và dùng
+  `entry` server trả về, lỗi thì trả dòng cũ và mở lại hộp; sửa trong ô bị lỗi chỉ
+  trả đúng ô đó về giá trị cũ; gửi dòng mới chèn ngay các dòng POST trả về. Cảnh
+  báo "Google Sheet sync failed" của lượt sửa nay được hiện. Ghi Sheet vẫn trong
+  request (QĐ-F).
+
+## 2026-10-02 — ACA Overview: gán người phụ trách và bật/tắt hàng đợi đổi ngay (plan instant feedback T2.8)
+
+- Ô gán người phụ trách hiện ngay người vừa chọn trong lúc chờ server; lỗi thì về
+  người cũ và hiện "Failed" như trước. Ô vẫn khoá tới khi xong vì lượt sau cần
+  `expected_updated_at` mới.
+- Ô tick hàng đợi đổi ngay qua lớp phủ, khoá theo từng người (trước đây một người
+  đang lưu là chỉ người đó, nhưng phải chờ thêm một lượt tải lại cả Overview). Tắt
+  thì thẻ biến mất ngay; bật thì chờ thẻ thật từ server vì số Open/Over limit do
+  server tính. Tải lại Overview chạy nền; hỏng thì giữ lớp phủ.
+
+## 2026-10-02 — Tạo task/hồ sơ Enrollment: form đóng khi server tạo xong, file tải nền (plan instant feedback T2.1)
+
+- Thêm `uploadWithConcurrency` (`src/lib/attachments/background-uploads.ts`, tối đa
+  3 file cùng lúc, trả file lỗi theo thứ tự đầu vào) và hook
+  `useBackgroundUploads` (toast tiến trình, nhắc khi đóng tab lúc còn file đang tải).
+- Tạo task: form đóng ngay khi `POST /api/tasks` trả về; file tải nền với key cố
+  định của từng file (`silent=1`), có file vào được thì phát
+  `publishTaskDataInvalidation` như trước. File lỗi: toast nêu tên và bảo mở task
+  để đính kèm lại (thay cho việc giữ form mở để bấm Create lần nữa).
+- Tạo hồ sơ Enrollment: trả về ngay sau POST để form đóng, drawer mở. File tải nền
+  với key cố định (trước đây mỗi lần gọi tạo key mới) rồi đọc lại hồ sơ như bản
+  sửa lỗi 2026-09-30; nếu người dùng đã sửa trong lúc file đang tải thì chỉ nâng
+  bản đã xác nhận và phủ lại các lượt chờ, không đè giá trị đang hiện.
+
+## 2026-10-02 — Sửa/xoá comment và ghi tương tác lead hiện ngay (plan instant feedback T2.4, T2.5)
+
+- Comment Task/Enrollment: xoá thì comment biến mất ngay, giữ "tombstone" tới khi
+  danh sách tải về không còn id đó (lượt tải cũ không làm nó hiện lại); lỗi thì
+  hiện lại kèm thông báo ở cấp thread. Sửa thì form đóng ngay, chữ mới hiện tại
+  chỗ kèm "Saving…", rồi thay bằng `comment` PATCH trả về; server từ chối (kể cả
+  409) thì form mở lại với đúng chữ vừa gõ. Tải lại thread chạy nền, không còn
+  chờ (Enrollment từng chờ tải lại cả chi tiết lẫn danh sách).
+- Drawer Lead: hộp ghi tương tác đóng ngay, dòng "Saving interaction…" hiện trong
+  feed; lỗi thì mở lại hộp với nội dung cũ, giữ `client_request_id` để thử lại
+  không tạo trùng. Comment hiện ngay và xoá ô nhập; lỗi thì trả chữ về ô nhập.
+  Status/follow-up/số lần liên hệ của lead vẫn chỉ đổi khi server trả về.
+
+## 2026-10-02 — Leads: gán và tạo lead đổi ngay, tải lại nền không đè (plan instant feedback T2.2, T2.3)
+
+- Gán một lead đổi tên người được gán ngay, qua cùng lớp phủ `pendingPatchesRef`
+  và hàng đợi theo lead của `patchLead`; lỗi thì trả về bản trước nhưng giữ các
+  lượt sửa sau còn chờ. Gán hàng loạt đổi mọi dòng ngay, chỉ hoàn lại đúng những
+  dòng RPC không gán (vd. đã archive), giữ lựa chọn + lý do khi cả request hỏng.
+  Quy tắc "ai gán sau thắng" giữ nguyên (route không kiểm `updated_at`).
+- `reload` của danh sách lead (sửa lỗi có sẵn): phủ lại các lượt sửa đang chờ lên
+  ảnh chụp tải về, và bỏ kết quả của lượt tải bắt đầu TRƯỚC một lần ghi cục bộ
+  (bộ đếm `leadsWriteVersionRef`, như Task Board) rồi chạy lại. Trước đây lượt
+  tải nền trả về đúng lúc đang lưu làm ô nháy về giá trị cũ.
+- Tạo lead: hộp đóng ngay khi server tạo xong, không còn chờ tải lại cả danh sách
+  và tải từng file. Trang nạp đúng dòng mới qua `patchLeadsById` (có tên event);
+  file tải nền tối đa 3 cái cùng lúc với key cố định, có toast tiến trình và
+  nhắc khi đóng tab lúc còn file đang tải.
+
+## 2026-10-02 — Bộ khung optimistic dùng chung, thí điểm công tắc SLA; Overview gán không chờ tải lại (T2.0, T2.7)
+
+- Thêm `src/lib/collaboration/optimistic.ts` (`requestJson`, `MutationError`,
+  `runOptimistic` có `isLatest` để lượt cũ không đè lượt mới,
+  `createMutationTracker`), `use-pending-keys.ts`, chuyển `createKeyedSerializer`
+  sang `src/lib/collaboration/keyed-serializer.ts` (Leads export lại).
+- Công tắc SLA ở Config đổi ngay qua lớp phủ, server trả lời thì thay bằng rule
+  thật; 409 vẫn tải lại rules. Dòng chỉ đổi vị trí sắp xếp khi đã xác nhận.
+- Gán task ở Workload Overview: vòng xoay tắt ngay khi POST xong, tải lại Overview
+  chạy nền (trước đây chờ thêm một lượt tải lại cả Overview).
+
+## 2026-10-02 — API Task/Enrollment trả lời trước khi phát realtime (plan instant feedback T1.0–T1.2)
+
+- `insertNotifications` và `insertEnrollmentNotifications` có tuỳ chọn
+  `deliverAfterResponse`: **dòng thông báo vẫn ghi trong request** (dữ liệu,
+  phải bền), chỉ phần phát realtime + push chạy trong `after()`. Ngoài request
+  scope thì phát luôn như cũ. Lỗi phát ghi log `task.notification.delivery_failed`
+  / `enrollment.notification.delivery_failed`.
+- Các API Task tạo, sửa, archive, gán ở Overview, gán/bỏ gán người, reopen,
+  unlock overdue không còn chờ realtime (từng giữ response tới khoảng 3 giây khi
+  Realtime chậm). Rotation hàng đợi vẫn ghi trong request vì nó quyết định người
+  được gán kế tiếp.
+- `PATCH /api/enrollment/[id]` không đọc lại hồ sơ sau khi ghi (bỏ 3 truy vấn):
+  RPC `patch_enrollment_atomic` đã trả cả dòng; số comment/file lấy từ bản đã nạp
+  lúc kiểm quyền. `POST /api/enrollment` phát thông báo sau response.
+- Header `Server-Timing` cho nhánh thành công của `POST /api/tasks`,
+  `PATCH /api/tasks/[id]`, `POST /api/enrollment`, `PATCH /api/enrollment/[id]`,
+  `POST /api/entries` (có mốc `sheet` cho lượt ghi Google Sheet); log
+  `mutation.conflict` (chỉ id) khi Task/Enrollment trả 409.
+
 ## 2026-10-02 — Admin điều khiển chuông, popup và Web Push theo người dùng
 
 - Thêm RBAC permission `management.notification_alerts`, bảng preference và API

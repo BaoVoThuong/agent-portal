@@ -479,27 +479,45 @@ export function NotificationBell() {
     });
   }
 
-  async function markRead(ids: string[]) {
-    if (ids.length === 0) return;
-    setItems((cur) => cur.map((n) => (ids.includes(n.id) ? { ...n, is_read: true } : n)));
-    setUnread((current) => Math.max(0, current - ids.length));
-    await fetch("/api/tasks/notifications/read", {
+  /**
+   * Đánh dấu đã đọc đổi ngay; lỗi thì chỉ trả lại đúng những thông báo lượt này
+   * đã đổi, rồi lấy số chưa đọc chuẩn từ server (`loadSummary`) thay vì cộng trừ
+   * tay — poll/realtime có thể đã đổi con số đó (plan instant feedback T3.5).
+   */
+  async function postRead(body: { ids?: string[] }): Promise<boolean> {
+    return fetch("/api/tasks/notifications/read", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids }),
-    }).catch(() => {});
+      body: JSON.stringify(body),
+    })
+      .then((response) => response.ok)
+      .catch(() => false);
+  }
+
+  async function markRead(ids: string[]) {
+    if (ids.length === 0) return;
+    const known = new Map(items.map((n) => [n.id, n]));
+    // Chỉ những thông báo đang chưa đọc mới làm giảm số trên chuông (trước đây
+    // trừ cả thông báo đã đọc rồi). Id chưa có trong danh sách coi như chưa đọc.
+    const changedIds = ids.filter((id) => !known.get(id)?.is_read);
+    if (changedIds.length === 0) return;
+    const changed = new Set(changedIds);
+    setItems((cur) => cur.map((n) => (changed.has(n.id) ? { ...n, is_read: true } : n)));
+    setUnread((current) => Math.max(0, current - changedIds.length));
+    if (await postRead({ ids })) return;
+    setItems((cur) => cur.map((n) => (changed.has(n.id) ? { ...n, is_read: false } : n)));
+    void loadSummary();
   }
 
   async function markAllRead() {
     if (unread === 0) return;
+    const changed = new Set(items.filter((n) => !n.is_read).map((n) => n.id));
     setUnread(0);
     setItems((cur) => cur.map((n) => ({ ...n, is_read: true })));
     setToasts([]);
-    await fetch("/api/tasks/notifications/read", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    }).catch(() => {});
+    if (await postRead({})) return;
+    setItems((cur) => cur.map((n) => (changed.has(n.id) ? { ...n, is_read: false } : n)));
+    void loadSummary();
   }
 
   const dismissToast = (id: string) =>

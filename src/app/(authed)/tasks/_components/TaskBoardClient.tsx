@@ -92,6 +92,13 @@ import { TaskDetailDrawer } from "./TaskDetailDrawer";
 import { ReasonModal } from "./ReasonModal";
 import { CSWorkloadOverview } from "./CSWorkloadOverview";
 import { Toast } from "../../_shared/Toast";
+import { useBackgroundUploads } from "../../_shared/useBackgroundUploads";
+import { taskDisplayKey } from "@/lib/tasks/sorting";
+import {
+  assigneeChangeAlreadyApplied,
+  canRetryTaskPatchAfterConflict,
+} from "@/lib/tasks/conflict-retry";
+import type { PendingFile } from "@/lib/tasks/pending-attachments";
 import { useAnchoredMenu } from "./use-anchored-menu";
 import {
   TASK_LIST_DEFAULT_HIDDEN_COLUMN_KEYS,
@@ -251,6 +258,8 @@ export function TaskBoardClient({
     }),
     [boardInvalidationSourceId],
   );
+  const backgroundUploads = useBackgroundUploads();
+  const runBackgroundUploads = backgroundUploads.run;
   const [configStale, setConfigStale] = useState(false);
   const [slaRefreshError, setSlaRefreshError] = useState<string | null>(null);
   const slaRefreshInFlightRef = useRef(false);
@@ -1505,57 +1514,69 @@ export function TaskBoardClient({
 
     const operation = state.tail
       .then(async () => {
-        let response: Response;
-        try {
-          response = await fetch(`/api/tasks/${id}`, {
-            method: "PATCH",
-            headers: taskMutationHeaders,
-            body: JSON.stringify({
-              ...patch,
-              expected_updated_at: state.confirmed.updated_at,
-            }),
-          });
-        } catch {
-          setError("Connection lost — your changes were not saved.");
-          void refetchTasks();
-          return;
-        }
+        // Tối đa hai lượt, như patchRecord của Enrollment (6da7ee0): 409 mà không
+        // ai đụng các trường của lượt này (mốc giờ bị đẩy lên vì comment, file...)
+        // thì gửi lại MỘT lần với bản mới nhất, thay vì bỏ việc người dùng vừa làm.
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          const baseline = state.confirmed;
+          let response: Response;
+          try {
+            response = await fetch(`/api/tasks/${id}`, {
+              method: "PATCH",
+              headers: taskMutationHeaders,
+              body: JSON.stringify({
+                ...patch,
+                expected_updated_at: baseline.updated_at,
+              }),
+            });
+          } catch {
+            setError("Connection lost — your changes were not saved.");
+            void refetchTasks();
+            return;
+          }
 
-        if (!response.ok) {
-          const data = (await response.json().catch(() => null)) as
-            | { error?: string }
-            | null;
-          if (response.status === 409) {
-            const canonical = await fetchCanonicalTask(id);
-            if (canonical) {
-              state.confirmed = {
-                ...canonical,
-                viewer_is_participant:
-                  canonical.viewer_is_participant ?? state.confirmed.viewer_is_participant,
-              };
-              setError("This task changed elsewhere; reloaded the current version.");
+          if (!response.ok) {
+            const data = (await response.json().catch(() => null)) as
+              | { error?: string }
+              | null;
+            if (response.status === 409) {
+              const canonical = await fetchCanonicalTask(id);
+              if (canonical) {
+                state.confirmed = {
+                  ...canonical,
+                  viewer_is_participant:
+                    canonical.viewer_is_participant ?? state.confirmed.viewer_is_participant,
+                };
+                if (attempt === 0 && canRetryTaskPatchAfterConflict(patch, baseline, canonical)) {
+                  continue;
+                }
+                setError(
+                  "Someone else changed this task, so your last change was not saved. The latest data is shown — please make the change again."
+                );
+              } else {
+                setError("This task changed elsewhere; reload to continue.");
+              }
             } else {
-              setError("This task changed elsewhere; reload to continue.");
+              setError(data?.error ?? "Could not update the task.");
             }
+            return;
+          }
+
+          committed = true;
+          const data = (await response.json().catch(() => null)) as
+            | { task?: TaskRow }
+            | null;
+          if (data?.task?.id === id) {
+            state.confirmed = {
+              ...data.task,
+              viewer_is_participant:
+                data.task.viewer_is_participant ?? state.confirmed.viewer_is_participant,
+            };
           } else {
-            setError(data?.error ?? "Could not update the task.");
+            setError("The server did not return the task after updating.");
+            void refetchTasks();
           }
           return;
-        }
-
-        committed = true;
-        const data = (await response.json().catch(() => null)) as
-          | { task?: TaskRow }
-          | null;
-        if (data?.task?.id === id) {
-          state.confirmed = {
-            ...data.task,
-            viewer_is_participant:
-              data.task.viewer_is_participant ?? state.confirmed.viewer_is_participant,
-          };
-        } else {
-          setError("The server did not return the task after updating.");
-          void refetchTasks();
         }
       })
       .catch(() => {
@@ -1698,62 +1719,72 @@ export function TaskBoardClient({
 
     const operation = state.tail
       .then(async () => {
-        let response: Response;
-        try {
-          response = await fetch(
-            assigned
-              ? `/api/tasks/${id}/assignees`
-              : `/api/tasks/${id}/assignees/${encodeURIComponent(email)}`,
-            {
-              method: assigned ? "POST" : "DELETE",
-              headers: taskMutationHeaders,
-              body: JSON.stringify({
-                email,
-                expected_updated_at: state.confirmed.updated_at,
-              }),
-            }
-          );
-        } catch {
-          setError("Connection lost — the assignee was not updated.");
-          void refetchTasks();
-          return;
-        }
+        // Tối đa hai lượt: bị 409 mà bản mới nhất chưa đúng ý thì gửi lại MỘT lần
+        // với `updated_at` mới; đã đúng ý (người khác vừa làm đúng việc này) thì
+        // coi như xong. Trước đây mọi 409 đều làm mất lượt gán.
+        for (let attempt = 0; attempt < 2; attempt += 1) {
+          let response: Response;
+          try {
+            response = await fetch(
+              assigned
+                ? `/api/tasks/${id}/assignees`
+                : `/api/tasks/${id}/assignees/${encodeURIComponent(email)}`,
+              {
+                method: assigned ? "POST" : "DELETE",
+                headers: taskMutationHeaders,
+                body: JSON.stringify({
+                  email,
+                  expected_updated_at: state.confirmed.updated_at,
+                }),
+              }
+            );
+          } catch {
+            setError("Connection lost — the assignee was not updated.");
+            void refetchTasks();
+            return;
+          }
 
-        if (!response.ok) {
-          const data = (await response.json().catch(() => null)) as
-            | { error?: string }
-            | null;
-          if (response.status === 409) {
-            const canonical = await fetchCanonicalTask(id);
-            if (canonical) {
-              state.confirmed = {
-                ...canonical,
-                viewer_is_participant:
-                  canonical.viewer_is_participant ?? state.confirmed.viewer_is_participant,
-              };
-              setError("This task changed elsewhere; reloaded the current version.");
+          if (!response.ok) {
+            const data = (await response.json().catch(() => null)) as
+              | { error?: string }
+              | null;
+            if (response.status === 409) {
+              const canonical = await fetchCanonicalTask(id);
+              if (canonical) {
+                state.confirmed = {
+                  ...canonical,
+                  viewer_is_participant:
+                    canonical.viewer_is_participant ?? state.confirmed.viewer_is_participant,
+                };
+                if (assigneeChangeAlreadyApplied(canonical, email, assigned)) return;
+                if (attempt === 0) continue;
+                setError(
+                  "Someone else changed this task, so the assignee was not updated. The latest data is shown — please try again."
+                );
+              } else {
+                setError("This task changed elsewhere; reload to continue.");
+              }
             } else {
-              setError("This task changed elsewhere; reload to continue.");
+              setError(data?.error ?? "Could not update the assignee.");
             }
+            return;
+          }
+
+          committed = true;
+          const data = (await response.json().catch(() => null)) as
+            | { task?: TaskRow }
+            | null;
+          if (data?.task?.id === id) {
+            state.confirmed = {
+              ...data.task,
+              viewer_is_participant:
+                data.task.viewer_is_participant ?? state.confirmed.viewer_is_participant,
+            };
           } else {
-            setError(data?.error ?? "Could not update the assignee.");
+            setError("The server did not return the task after updating the assignee.");
+            void refetchTasks();
           }
           return;
-        }
-
-        committed = true;
-        const data = (await response.json().catch(() => null)) as
-          | { task?: TaskRow }
-          | null;
-        if (data?.task?.id === id) {
-          state.confirmed = {
-            ...data.task,
-            viewer_is_participant:
-              data.task.viewer_is_participant ?? state.confirmed.viewer_is_participant,
-          };
-        } else {
-          setError("The server did not return the task after updating the assignee.");
-          void refetchTasks();
         }
       })
       .catch(() => {
@@ -1789,12 +1820,13 @@ export function TaskBoardClient({
         | null;
       if (!response.ok) {
         setOverviewSnapshot(before);
-        await loadOverview(true);
         setOverviewNotice(
           response.status === 409
             ? "This task changed while you were reviewing it. The dashboard has been refreshed."
             : data?.error ?? "Could not assign this task."
         );
+        // Tải lại chạy nền: Overview đã trả về bản trước, nút không phải chờ.
+        void loadOverview(true);
         return;
       }
       const replacedLocalTask = Boolean(
@@ -1806,10 +1838,12 @@ export function TaskBoardClient({
         sourceId: replacedLocalTask ? boardInvalidationSourceId : undefined,
       });
       setOverviewError(null);
-      await loadOverview(true);
       setOverviewNotice(
         `Task assigned to ${assigneeLabelByEmail.get(email) ?? formatEmailAsName(email)}.`
       );
+      // Overview đã đổi lạc quan từ lúc bấm; lượt tải lại chỉ để lấy số liệu
+      // server tính (hàng đợi, số task đang giữ), không bắt vòng xoay chờ nó.
+      void loadOverview(true);
     } catch {
       setOverviewSnapshot(before);
       setOverviewError("Connection lost — the assignment was not confirmed.");
@@ -1817,6 +1851,38 @@ export function TaskBoardClient({
     } finally {
       setAssigningOverviewTaskId(null);
     }
+  }
+
+  /**
+   * File của task vừa tạo, tải chạy nền sau khi form đã đóng (plan instant
+   * feedback T2.1): tối đa 3 file cùng lúc, key cố định của từng file làm
+   * `client_request_id` nên tải lại không tạo bản trùng.
+   */
+  function uploadCreatedTaskFiles(
+    task: { id: string; display_number?: number | null },
+    files: PendingFile[],
+  ) {
+    void runBackgroundUploads({
+      label: taskDisplayKey(task.display_number),
+      items: files,
+      nameOf: (item) => item.name,
+      retryHint: "Open the task to attach them again.",
+      upload: async (item) => {
+        const body = new FormData();
+        body.append("file", item.file);
+        body.append("silent", "1");
+        body.append("client_request_id", item.key);
+        const response = await fetch(`/api/tasks/${task.id}/attachments`, {
+          method: "POST",
+          headers: { [TASK_MUTATION_SOURCE_HEADER]: boardInvalidationSourceId },
+          body,
+        });
+        return response.ok;
+      },
+    }).then((failed) => {
+      // Như trước: có file vào được thì báo để bảng và chi tiết cập nhật số file.
+      if (failed.length < files.length) publishTaskDataInvalidation({ taskId: task.id });
+    });
   }
 
   async function createTask(payload: NewTaskPayload): Promise<TaskRow> {
@@ -2216,7 +2282,6 @@ export function TaskBoardClient({
       {creating && canCreateTasks ? (
         <NewTaskDialog
           open={creating}
-          mutationSourceId={boardInvalidationSourceId}
           isManager={isManager}
           currentEmail={currentEmail}
           myAssistantAgents={myAssistantAgents}
@@ -2235,6 +2300,7 @@ export function TaskBoardClient({
           columnByKey={columnByKey}
           onClose={() => setCreating(false)}
           onCreate={createTask}
+          onBackgroundUpload={uploadCreatedTaskFiles}
         />
       ) : null}
 
@@ -2332,6 +2398,13 @@ export function TaskBoardClient({
       />
 
       <Toast message={error} tone="error" onDismiss={() => setError(null)} />
+      <Toast
+        message={backgroundUploads.notice?.message ?? null}
+        tone={backgroundUploads.notice?.tone ?? "info"}
+        onDismiss={backgroundUploads.dismiss}
+        autoDismissMs={backgroundUploads.notice?.tone === "success" ? 5000 : null}
+        stackIndex={error ? 1 : 0}
+      />
     </div>
   );
 }

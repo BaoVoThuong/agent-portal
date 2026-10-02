@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, isTaskViewAdmin, canChangeTaskStatus } from "@/lib/tasks/access";
@@ -132,7 +132,8 @@ export async function POST(req: Request, { params }: Ctx) {
         task_id: id,
         type: "reopened",
         actor_email: actor.email,
-      }))
+      })),
+      { deliverAfterResponse: true }
     ),
   ]);
   const reopenNotification = notificationResult[0];
@@ -147,19 +148,18 @@ export async function POST(req: Request, { params }: Ctx) {
     );
   }
 
-  const broadcastResults = await Promise.allSettled([
-    broadcastTasksChanged(readTaskMutationSourceId(req)),
-    broadcastTaskRoom(id, readTaskMutationSourceId(req)),
-  ]);
-  for (const result of broadcastResults) {
-    if (result.status === "rejected" || !result.value) {
-      mutationWarnings.push(
-        result.status === "rejected" && result.reason instanceof Error
-          ? result.reason.message
-          : "Task broadcast failed."
-      );
+  // Phát realtime sau response (xem api/tasks/[id]/route.ts PATCH). Đọc header
+  // trước after().
+  const sourceId = readTaskMutationSourceId(req);
+  after(async () => {
+    const delivered = await Promise.allSettled([
+      broadcastTasksChanged(sourceId),
+      broadcastTaskRoom(id, sourceId),
+    ]);
+    if (delivered.some((result) => result.status === "rejected" || !result.value)) {
+      console.error("task.reopen.delivery_failed", { taskId: id, stage: "broadcast" });
     }
-  }
+  });
 
   let task2 = updated as TaskRow;
   try {

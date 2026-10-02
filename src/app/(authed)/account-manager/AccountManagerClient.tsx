@@ -14,6 +14,7 @@ import {
   SYSTEM_ROLE_NAMES,
 } from "@/lib/rbac/system-roles";
 import { useBodyScrollLock } from "./../_shared/useBodyScrollLock";
+import { usePendingKeys } from "@/lib/collaboration/use-pending-keys";
 
 type AccountManagerClientProps = {
   currentUserEmail: string;
@@ -102,6 +103,41 @@ export default function AccountManagerClient({
   const [alertOverrides, setAlertOverrides] = useState<Map<string, AlertPreference>>(
     () => new Map(),
   );
+  // Công tắc Alerts khoá theo đúng công tắc đó, không khoá cả dòng (plan
+  // instant feedback T3.1).
+  const {
+    pending: alertPendingIds,
+    start: startAlertToggle,
+    finish: finishAlertToggle,
+  } = usePendingKeys();
+  /**
+   * Sửa tên/email/agent ID hiện ngay trên bảng. `base` là danh sách server lúc
+   * ghi: lượt đã xác nhận chỉ còn tác dụng tới khi `router.refresh()` mang về
+   * danh sách mới (đã có thay đổi đó). Lượt đang chờ thì luôn áp.
+   */
+  const [userOverrides, setUserOverrides] = useState<
+    ReadonlyMap<
+      string,
+      {
+        patch: Partial<Pick<ManagedAccountUser, "email" | "name" | "agent_id">>;
+        pending: boolean;
+        base: ManagedAccountUser[];
+      }
+    >
+  >(() => new Map());
+  const initialUsersRef = useRef(initialUsers);
+  useEffect(() => {
+    initialUsersRef.current = initialUsers;
+  });
+  const users = useMemo(
+    () =>
+      initialUsers.map((user) => {
+        const override = userOverrides.get(user.id);
+        if (!override || (!override.pending && override.base !== initialUsers)) return user;
+        return { ...user, ...override.patch };
+      }),
+    [initialUsers, userOverrides],
+  );
   const canManageAccounts = can(
     currentUserPermissions,
     PERMISSIONS.ACCOUNT_MANAGER
@@ -119,7 +155,7 @@ export default function AccountManagerClient({
 
   const sortedUsers = useMemo(
     () =>
-      [...initialUsers].sort((firstUser, secondUser) => {
+      [...users].sort((firstUser, secondUser) => {
         const firstIsAdmin = firstUser.roles.some(isAdminRole);
         const secondIsAdmin = secondUser.roles.some(isAdminRole);
 
@@ -136,7 +172,7 @@ export default function AccountManagerClient({
           new Date(firstUser.created_at).getTime()
         );
       }),
-    [initialUsers]
+    [users]
   );
   const filteredUsers = useMemo(() => {
     const query = accountSearch.trim().toLowerCase();
@@ -298,19 +334,51 @@ export default function AccountManagerClient({
     });
   }
 
+  function setUserOverride(
+    userId: string,
+    value:
+      | {
+          patch: Partial<Pick<ManagedAccountUser, "email" | "name" | "agent_id">>;
+          pending: boolean;
+        }
+      | null,
+  ) {
+    setUserOverrides((current) => {
+      const next = new Map(current);
+      if (value === null) next.delete(userId);
+      else next.set(userId, { ...value, base: initialUsersRef.current });
+      return next;
+    });
+  }
+
   async function handleEditAccount(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editUser) return;
+    const user = editUser;
+    const draft = { ...editForm };
+    const patch = {
+      email: draft.email.trim(),
+      name: draft.name.trim() || null,
+      agent_id: draft.agentId.trim() || null,
+    };
 
-    const updated = await updateUser(editUser, {
-      email: editForm.email.trim(),
-      name: editForm.name.trim() || null,
-      agentId: editForm.agentId.trim(),
+    // Đóng hộp và đổi dòng ngay; server từ chối thì mở lại hộp với dữ liệu
+    // vừa nhập (updateUser đã hiện lỗi).
+    setUserOverride(user.id, { patch, pending: true });
+    setEditUser(null);
+    setEditForm({ email: "", name: "", agentId: "" });
+    const updated = await updateUser(user, {
+      email: patch.email,
+      name: patch.name,
+      agentId: draft.agentId.trim(),
     });
 
     if (updated) {
-      setEditUser(null);
-      setEditForm({ email: "", name: "", agentId: "" });
+      setUserOverride(user.id, { patch, pending: false });
+    } else {
+      setUserOverride(user.id, null);
+      setEditUser(user);
+      setEditForm(draft);
     }
   }
 
@@ -364,6 +432,7 @@ export default function AccountManagerClient({
   }
 
   async function toggleAlerts(user: ManagedAccountUser) {
+    if (!startAlertToggle(user.id)) return;
     const current = alertPreferences.get(user.id) ?? {
       alertsMuted: user.alertsMuted,
       updatedBy: user.alertsUpdatedBy,
@@ -383,7 +452,6 @@ export default function AccountManagerClient({
       next.set(user.id, optimisticPreference);
       return next;
     });
-    setBusyUserId(user.id);
     setError(null);
     setMessage(null);
     try {
@@ -426,7 +494,7 @@ export default function AccountManagerClient({
       });
       setError("Unable to update notification alerts. Please try again.");
     } finally {
-      setBusyUserId(null);
+      finishAlertToggle(user.id);
     }
   }
 
@@ -528,7 +596,7 @@ export default function AccountManagerClient({
                     {canManageAlerts && (
                       <td className="px-4 py-4">
                         <AlertToggle
-                          busy={isBusy}
+                          busy={isBusy || alertPendingIds.has(user.id)}
                           preference={
                             alertPreferences.get(user.id) ?? {
                               alertsMuted: user.alertsMuted,

@@ -364,8 +364,17 @@ export function ConfigClient({
     }
   }
 
-  async function run(action: () => Promise<unknown>, success: string) {
-    setBusy(true);
+  /**
+   * `lock: false` dành cho thao tác đã tự khoá theo đúng mục của nó (vd. công
+   * tắc rule stage): vẫn hiện thông báo, nhưng không khoá cả trang Config.
+   */
+  async function run(
+    action: () => Promise<unknown>,
+    success: string,
+    options: { lock?: boolean } = {}
+  ) {
+    const lock = options.lock !== false;
+    if (lock) setBusy(true);
     setNotice(null);
     setNoticeTone("info");
     try {
@@ -388,7 +397,7 @@ export function ConfigClient({
       setNoticeTone("error");
       setNotice(error instanceof Error ? error.message : "Something went wrong.");
     } finally {
-      setBusy(false);
+      if (lock) setBusy(false);
     }
   }
 
@@ -698,7 +707,11 @@ function ConfigTableSection({
   busy: boolean;
   available: boolean;
   availabilityError?: string;
-  run: (action: () => Promise<unknown>, success: string) => Promise<void>;
+  run: (
+    action: () => Promise<unknown>,
+    success: string,
+    options?: { lock?: boolean }
+  ) => Promise<void>;
   refreshScope: (scope?: TableScope) => Promise<void>;
 }) {
   const [newLabel, setNewLabel] = useState("");
@@ -1574,7 +1587,11 @@ function ConfigDropdownValuesSection({
   availabilityError?: string;
   categoriesAvailable: boolean;
   categoriesError?: string;
-  run: (action: () => Promise<unknown>, success: string) => Promise<void>;
+  run: (
+    action: () => Promise<unknown>,
+    success: string,
+    options?: { lock?: boolean }
+  ) => Promise<void>;
   refreshScope: (scope?: TableScope) => Promise<void>;
   onCategoriesChange: Dispatch<SetStateAction<TaskCategory[]>>;
   onOptionDataChange: () => Promise<void>;
@@ -1676,6 +1693,11 @@ function ConfigDropdownValuesSection({
   const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
   const [archiveUsage, setArchiveUsage] = useState<{ id: string; count: number } | null>(null);
   const [pendingStageRuleIds, setPendingStageRuleIds] = useState<Set<string>>(new Set());
+  // Giá trị ô Final Stage / QC đang chờ lưu: ô đổi ngay, bỏ khi lượt cuối của
+  // stage đó xong và dữ liệu đã tải lại (plan instant feedback T3.7).
+  const [stageRuleOverrides, setStageRuleOverrides] = useState<
+    ReadonlyMap<string, { is_terminal?: boolean; triggers_qc?: boolean }>
+  >(() => new Map());
   const stageRuleQueuesRef = useRef(new Map<string, Promise<void>>());
   const pendingStageRuleCountsRef = useRef(new Map<string, number>());
 
@@ -1887,6 +1909,9 @@ function ConfigDropdownValuesSection({
     const pendingCount = (pendingStageRuleCountsRef.current.get(id) ?? 0) + 1;
     pendingStageRuleCountsRef.current.set(id, pendingCount);
     setPendingStageRuleIds((current) => new Set(current).add(id));
+    setStageRuleOverrides((current) =>
+      new Map(current).set(id, { ...current.get(id), ...patch })
+    );
 
     const previous = stageRuleQueuesRef.current.get(id) ?? Promise.resolve();
     const operation = previous
@@ -1909,6 +1934,13 @@ function ConfigDropdownValuesSection({
         pendingStageRuleCountsRef.current.delete(id);
         setPendingStageRuleIds((current) => {
           const next = new Set(current);
+          next.delete(id);
+          return next;
+        });
+        // Thành công thì option data đã tải lại xong trong hàng đợi; lỗi thì ô
+        // về giá trị server.
+        setStageRuleOverrides((current) => {
+          const next = new Map(current);
           next.delete(id);
           return next;
         });
@@ -2246,11 +2278,14 @@ function ConfigDropdownValuesSection({
                                 <input
                                   type="checkbox"
                                   disabled={controlsDisabled || pendingStageRuleIds.has(row.id)}
-                                  checked={Boolean(row.isTerminal)}
+                                  checked={Boolean(
+                                    stageRuleOverrides.get(row.id)?.is_terminal ?? row.isTerminal
+                                  )}
                                   onChange={(event) =>
                                     void run(
                                       () => toggleStageRule(row.id, { is_terminal: event.target.checked }),
-                                      "Option updated."
+                                      "Option updated.",
+                                      { lock: false }
                                     )
                                   }
                                 />
@@ -2260,11 +2295,14 @@ function ConfigDropdownValuesSection({
                                 <input
                                   type="checkbox"
                                   disabled={controlsDisabled || pendingStageRuleIds.has(row.id)}
-                                  checked={Boolean(row.triggersQc)}
+                                  checked={Boolean(
+                                    stageRuleOverrides.get(row.id)?.triggers_qc ?? row.triggersQc
+                                  )}
                                   onChange={(event) =>
                                     void run(
                                       () => toggleStageRule(row.id, { triggers_qc: event.target.checked }),
-                                      "Option updated."
+                                      "Option updated.",
+                                      { lock: false }
                                     )
                                   }
                                 />
@@ -2489,7 +2527,11 @@ function ConfigAssistantSection({
   busy: boolean;
   available: boolean;
   availabilityError?: string;
-  run: (action: () => Promise<unknown>, success: string) => Promise<void>;
+  run: (
+    action: () => Promise<unknown>,
+    success: string,
+    options?: { lock?: boolean }
+  ) => Promise<void>;
   setMembers: Dispatch<SetStateAction<AssistantMember[]>>;
   onAgentsChange: Dispatch<SetStateAction<TaskAgent[]>>;
   settingsView: AssistantSettingsView;

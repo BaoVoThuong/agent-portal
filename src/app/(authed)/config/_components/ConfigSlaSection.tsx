@@ -26,6 +26,12 @@ import {
 } from "@/lib/tasks/reminder-settings";
 import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
 import { broadcastSlaConfigChanged } from "@/lib/table-config/realtime-client";
+import {
+  MutationError,
+  createMutationTracker,
+  requestJson,
+  runOptimistic,
+} from "@/lib/collaboration/optimistic";
 
 type ReminderSettingsResponse = {
   settings?: ReminderSettings;
@@ -70,6 +76,20 @@ export function ConfigSlaSection({
   const reminderQueuesRef = useRef(new Map<ReminderSettingKey, Promise<void>>());
   const pendingReminderValuesRef = useRef(new Map<ReminderSettingKey, number>());
   const [error, setError] = useState<string | null>(null);
+  // Giá trị công tắc đang chờ server xác nhận, theo key `priority:categoryId`.
+  const [enabledOverrides, setEnabledOverrides] = useState<ReadonlyMap<string, boolean>>(
+    () => new Map()
+  );
+  const toggleTrackerRef = useRef(createMutationTracker());
+
+  function setEnabledOverride(key: string, value: boolean | null) {
+    setEnabledOverrides((current) => {
+      const next = new Map(current);
+      if (value === null) next.delete(key);
+      else next.set(key, value);
+      return next;
+    });
+  }
 
   function markSaving(key: string, saving: boolean) {
     setSavingKeys((current) => {
@@ -150,37 +170,45 @@ export function ConfigSlaSection({
     const existing = rules.find(
       (rule) => rule.priority === priority && rule.category_id === categoryId
     );
-    try {
-      const res = await fetch("/api/admin/task-sla-rules", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          priority,
-          category_id: categoryId,
-          duration_minutes: existing?.duration_minutes ?? minutesFor(categoryId),
-          is_enabled: nextEnabled,
-          expected_updated_at: existing?.updated_at ?? null,
-        }),
-      });
-      const data = (await res.json().catch(() => null)) as
-        | { rule?: TaskSlaRule; error?: string }
-        | null;
-      if (!res.ok || !data?.rule) {
-        if (res.status === 409) await reloadRules().catch(() => undefined);
-        throw new Error(data?.error ?? "Could not change this setting.");
-      }
-      onRulesChange((currentRules) => [
-        ...currentRules.filter(
-          (r) => !(r.priority === priority && r.category_id === categoryId)
-        ),
-        data.rule!,
-      ]);
-      void broadcastSlaConfigChanged();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not change this setting.");
-    } finally {
-      markSaving(key, false);
-    }
+    // Thí điểm bộ khung optimistic (plan instant feedback T2.0): công tắc đổi
+    // ngay qua lớp phủ, server trả lời thì thay bằng rule thật. Ô vẫn khoá tới
+    // khi xong vì lượt sau cần `updated_at` mới.
+    const mutation = toggleTrackerRef.current.begin(key);
+    await runOptimistic({
+      apply: () => setEnabledOverride(key, nextEnabled),
+      request: async () => {
+        const data = await requestJson<{ rule?: TaskSlaRule }>("/api/admin/task-sla-rules", {
+          method: "POST",
+          body: JSON.stringify({
+            priority,
+            category_id: categoryId,
+            duration_minutes: existing?.duration_minutes ?? minutesFor(categoryId),
+            is_enabled: nextEnabled,
+            expected_updated_at: existing?.updated_at ?? null,
+          }),
+        });
+        if (!data?.rule) throw new MutationError("Could not change this setting.", 500);
+        return data.rule;
+      },
+      commit: (rule) => {
+        onRulesChange((currentRules) => [
+          ...currentRules.filter(
+            (r) => !(r.priority === priority && r.category_id === categoryId)
+          ),
+          rule,
+        ]);
+        setEnabledOverride(key, null);
+        void broadcastSlaConfigChanged();
+      },
+      rollback: (failure) => {
+        setEnabledOverride(key, null);
+        setError(failure.message || "Could not change this setting.");
+        if (failure.isConflict) void reloadRules().catch(() => undefined);
+      },
+      isLatest: mutation.isLatest,
+    });
+    mutation.end();
+    markSaving(key, false);
   }
 
   async function reloadRules() {
@@ -404,7 +432,7 @@ export function ConfigSlaSection({
                       label={row.name}
                       color={row.color}
                       minutes={minutesFor(categoryId)}
-                      enabled={enabledFor(categoryId)}
+                      enabled={enabledOverrides.get(key) ?? enabledFor(categoryId)}
                       showReset={hasOverride(categoryId)}
                       saving={saving}
                       onSave={(totalMinutes) => save(categoryId, totalMinutes, key)}

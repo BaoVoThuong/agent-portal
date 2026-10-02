@@ -134,15 +134,19 @@ export async function DELETE(req: Request, { params }: Ctx) {
   const mutationWarnings: string[] = [];
   if (wasAssigned) {
     if (email !== ctx.actor.email) {
+      // Ghi dòng trong request; realtime + push của nó chạy sau response.
       const notificationResult = await Promise.allSettled([
-        insertNotifications([
-          {
-            recipient_email: email,
-            task_id: id,
-            type: "unassigned",
-            actor_email: ctx.actor.email,
-          },
-        ]),
+        insertNotifications(
+          [
+            {
+              recipient_email: email,
+              task_id: id,
+              type: "unassigned",
+              actor_email: ctx.actor.email,
+            },
+          ],
+          { deliverAfterResponse: true }
+        ),
       ]);
       const unassignmentNotification = notificationResult[0];
       if (

@@ -1,3 +1,8 @@
+import {
+  canRetryAfterConflict as canRetryAfterConflictWith,
+  type ConflictRetryTables,
+} from "@/lib/collaboration/conflict-retry";
+
 // Most enrollment patch keys are column names, so an optimistic row is just a
 // spread of the request over the previous row. `qc_checked` is the exception:
 // it is request-only, and the API translates it into qc_checked_at /
@@ -57,54 +62,22 @@ const RELATED_COLUMNS_FOR_REQUEST_KEY: Record<string, readonly string[]> = {
   ],
 };
 
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function sameValue(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
-}
+const ENROLLMENT_CONFLICT_RETRY_TABLES: ConflictRetryTables = {
+  requestOnlyKeys: REQUEST_ONLY_KEYS,
+  relatedColumns: RELATED_COLUMNS_FOR_REQUEST_KEY,
+};
 
 /**
- * Một lượt sửa bị 409 có gửi lại được với bản mới nhất không.
- *
- * 409 chỉ nói `updated_at` đã đổi, không nói ĐỔI GÌ. Mốc giờ bị đẩy lên bởi cả
- * những thứ không đụng tới trường nào — upload file (`enrollment_touch_activity`),
- * reaction... Bỏ luôn lượt sửa trong những trường hợp đó là làm mất việc người
- * dùng vừa làm vì một thay đổi họ không hề xung đột (lỗi 2026-09-30: tạo hồ sơ
- * kèm file rồi sửa ngay).
- *
- * Gửi lại được khi MỌI trường trong patch vẫn giữ nguyên giá trị giữa bản người
- * dùng đã nhìn (`before`) và bản server hiện tại (`canonical`) — tức không ai sửa
- * cùng trường. `custom_values` so từng khoá con. Có trường đã bị đổi thì trả
- * false: đè lên thay đổi của người khác là thứ kiểm tra `updated_at` sinh ra để chặn.
+ * Một lượt sửa Enrollment bị 409 có gửi lại được với bản mới nhất không. Logic
+ * dùng chung ở lib/collaboration/conflict-retry.ts; ở đây chỉ là bảng khoá của
+ * Enrollment (`stage_id` kéo theo closed/QC, `carrier_ids` kéo theo `carrier_id`).
  */
 export function canRetryAfterConflict(
   patch: Record<string, unknown>,
   before: Record<string, unknown>,
   canonical: Record<string, unknown>,
 ): boolean {
-  for (const [key, value] of Object.entries(patch)) {
-    if (REQUEST_ONLY_KEYS.has(key)) continue;
-    if (key === "custom_values") {
-      if (!isPlainRecord(value)) return false;
-      const beforeValues = isPlainRecord(before.custom_values) ? before.custom_values : {};
-      const canonicalValues = isPlainRecord(canonical.custom_values)
-        ? canonical.custom_values
-        : {};
-      for (const subKey of Object.keys(value)) {
-        if (!sameValue(beforeValues[subKey], canonicalValues[subKey])) return false;
-      }
-      continue;
-    }
-    const columns = RELATED_COLUMNS_FOR_REQUEST_KEY[key] ?? [key];
-    for (const column of columns) {
-      // Trường không có trên hồ sơ thì không biết nó đổi hay chưa — không đoán.
-      if (!(column in before) && !(column in canonical)) return false;
-      if (!sameValue(before[column], canonical[column])) return false;
-    }
-  }
-  return true;
+  return canRetryAfterConflictWith(patch, before, canonical, ENROLLMENT_CONFLICT_RETRY_TABLES);
 }
 
 /**

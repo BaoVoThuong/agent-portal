@@ -135,6 +135,7 @@ import { MultiValueBadges } from "../../_shared/MultiValueBadges";
 import { ControlledCustomField } from "../../_shared/ControlledCustomField";
 import { SearchableListboxPanel } from "../../_shared/SearchableListboxPanel";
 import { Toast } from "../../_shared/Toast";
+import { useBackgroundUploads } from "../../_shared/useBackgroundUploads";
 import { CommentThread } from "../../tasks/_components/CommentThread";
 import { ActivityFeed } from "../../tasks/_components/ActivityFeed";
 import { AttachmentStrip } from "../../tasks/_components/AttachmentStrip";
@@ -893,6 +894,8 @@ export function EnrollmentClient({
   const [layoutTableColumns, setLayoutTableColumns] = useState<TableColumn[]>(tableColumns);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const backgroundUploads = useBackgroundUploads();
+  const runBackgroundUploads = backgroundUploads.run;
   const [warning, setWarning] = useState<string | null>(null);
   const [timeProgressNow, setTimeProgressNow] = useState(() => new Date(initialNowIso));
   const [reopenRequest, setReopenRequest] = useState<{
@@ -1685,28 +1688,61 @@ export function EnrollmentClient({
     return operation.then(() => saved);
   }
 
-  async function uploadEnrollmentFiles(
-    recordId: string,
+  /** Một file đính kèm của hồ sơ. Key cố định của file làm `client_request_id`: tải lại không trùng. */
+  async function uploadEnrollmentFile(recordId: string, pending: PendingFile): Promise<boolean> {
+    try {
+      const form = new FormData();
+      form.append("file", pending.file);
+      form.append("client_request_id", pending.key);
+      const response = await fetch(`/api/enrollment/${recordId}/attachments`, {
+        method: "POST",
+        headers: { "x-enrollment-client-source": liveSourceId },
+        body: form,
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * File của hồ sơ vừa tạo, tải chạy nền sau khi form đã đóng và drawer đã mở
+   * (plan instant feedback T2.1). Xong thì đọc lại hồ sơ như bản sửa lỗi
+   * 2026-09-30 — nhưng không đè lượt sửa người dùng đang chờ lưu.
+   */
+  async function attachFilesToCreatedRecord(
+    record: EnrollmentRecordWithStats,
     files: readonly PendingFile[],
-  ): Promise<string[]> {
-    const results = await Promise.all(
-      files.map(async (pending) => {
-        try {
-          const form = new FormData();
-          form.append("file", pending.file);
-          form.append("client_request_id", crypto.randomUUID());
-          const response = await fetch(`/api/enrollment/${recordId}/attachments`, {
-            method: "POST",
-            headers: { "x-enrollment-client-source": liveSourceId },
-            body: form,
-          });
-          return { name: pending.name, ok: response.ok };
-        } catch {
-          return { name: pending.name, ok: false };
+  ) {
+    const failed = await runBackgroundUploads({
+      label: enrollmentDisplayKey(record.display_number, record.program),
+      items: files,
+      nameOf: (item) => item.name,
+      retryHint: "Open the record to attach them again.",
+      upload: (item) => uploadEnrollmentFile(record.id, item),
+    });
+    if (failed.length === files.length) return;
+    // Upload đẩy updated_at của hồ sơ lên (enrollment_touch_activity), còn tab
+    // này bỏ qua tín hiệu do chính nó phát. Không đọc lại bản thật thì dòng kẹt
+    // ở mốc lúc tạo, và lượt sửa đầu tiên bị 409 rồi bị bỏ — lỗi "tạo deal xong
+    // sửa, reload thì mất" (2026-09-30).
+    const canonical = await fetchCanonicalRecord(record.id);
+    if (canonical) {
+      const state = recordMutationStatesRef.current.get(record.id);
+      if (state) {
+        // Người dùng đã sửa trong lúc file đang tải: chỉ nâng bản đã xác nhận,
+        // rồi phủ lại các lượt đang chờ — không đè giá trị đang hiện.
+        if (Date.parse(canonical.updated_at) > Date.parse(state.confirmed.updated_at)) {
+          state.confirmed = canonical;
+          rebasePendingEnrollmentPatches(record.id, state);
         }
-      }),
-    );
-    return results.filter((result) => !result.ok).map((result) => result.name);
+      } else {
+        updateRecords((current) =>
+          current.map((row) => (row.id === record.id ? canonical : row)),
+        );
+      }
+    }
+    publishEnrollmentDataInvalidation({ recordId: record.id, sourceId: liveSourceId });
   }
 
   async function createRecord(
@@ -1721,6 +1757,7 @@ export function EnrollmentClient({
     const pendingKey = `create:${Date.now()}`;
     writeVersionRef.current += 1;
     const finishPendingMutation = beginPending(pendingKey);
+    let created: EnrollmentRecordWithStats;
     try {
       const response = await fetch("/api/enrollment", {
         method: "POST",
@@ -1737,41 +1774,16 @@ export function EnrollmentClient({
         throw new Error(data?.error ?? "Could not create enrollment record.");
       }
       if (data.warnings?.length) setWarning("Saved. Some notifications could not be sent.");
-      updateRecords((current) => [data.record!, ...current]);
-      let createdRecord = data.record;
+      created = data.record;
+      updateRecords((current) => [created, ...current]);
       publishEnrollmentDataInvalidation({ sourceId: liveSourceId });
-      if (pendingFiles.length > 0) {
-        const createdId = data.record.id;
-        const failedFiles = await uploadEnrollmentFiles(createdId, pendingFiles);
-        // Upload đẩy updated_at của hồ sơ lên (enrollment_touch_activity), còn
-        // tab này bỏ qua tín hiệu do chính nó phát. Không đọc lại bản thật thì
-        // dòng kẹt ở mốc lúc tạo, và lượt sửa đầu tiên bị 409 rồi bị bỏ — lỗi
-        // "tạo deal xong sửa, reload thì mất" (2026-09-30).
-        const canonical = await fetchCanonicalRecord(createdId);
-        if (canonical) {
-          createdRecord = canonical;
-          updateRecords((current) =>
-            current.map((record) => (record.id === createdId ? canonical : record)),
-          );
-          const state = recordMutationStatesRef.current.get(createdId);
-          if (state && Date.parse(canonical.updated_at) > Date.parse(state.confirmed.updated_at)) {
-            state.confirmed = canonical;
-          }
-        }
-        if (failedFiles.length > 0) {
-          setError(
-            `Enrollment was created, but these files did not upload: ${failedFiles.join(", ")}.`,
-          );
-        }
-        publishEnrollmentDataInvalidation({
-          recordId: data.record.id,
-          sourceId: liveSourceId,
-        });
-      }
-      return createdRecord;
     } finally {
       finishPendingMutation();
     }
+    // Hồ sơ đã có trên server: trả về ngay để form đóng, drawer mở. File và
+    // lần đọc lại chạy nền.
+    if (pendingFiles.length > 0) void attachFilesToCreatedRecord(created, pendingFiles);
+    return created;
   }
 
   async function archiveRecord(id: string) {
@@ -2050,6 +2062,13 @@ export function EnrollmentClient({
         tone="info"
         stackIndex={2}
         onDismiss={() => setWarning(null)}
+      />
+      <Toast
+        message={backgroundUploads.notice?.message ?? null}
+        tone={backgroundUploads.notice?.tone ?? "info"}
+        stackIndex={3}
+        autoDismissMs={backgroundUploads.notice?.tone === "success" ? 5000 : null}
+        onDismiss={backgroundUploads.dismiss}
       />
       <ReasonModal
         open={reopenRequest !== null}

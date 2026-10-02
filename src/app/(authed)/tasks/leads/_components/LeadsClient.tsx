@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CircleAlert, Plus, Search, Shuffle, Upload, X } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
+import { requestJson } from "@/lib/collaboration/optimistic";
+import type { PendingFile } from "@/lib/tasks/pending-attachments";
+import { leadDisplayKey } from "@/lib/leads/display";
+import { useBackgroundUploads } from "../../../_shared/useBackgroundUploads";
 import { type LeadAlert } from "@/lib/leads/alerts";
 import {
   isLeadHealth,
@@ -173,6 +177,23 @@ export function LeadsClient({
   const router = useRouter();
   const searchParams = useSearchParams();
   const [leads, setLeads] = useState(initialLeads);
+  /**
+   * Bộ đếm ghi cục bộ, như `tasksWriteVersionRef` của Task Board. Mọi lần ghi
+   * vào `leads` (lạc quan hay bản server) đi qua `writeLeads` và tăng bộ đếm;
+   * một lượt `reload` bắt đầu TRƯỚC lần ghi đó thì không được áp kết quả (nó là
+   * ảnh chụp cũ) mà chạy lại. Không có cái này, lượt tải nền 5 phút/realtime
+   * echo trả về đúng lúc vừa gán hay vừa tạo làm dòng nháy về bản cũ.
+   */
+  const leadsWriteVersionRef = useRef(0);
+  const writeLeads = useCallback(
+    (updater: (current: LeadRow[]) => LeadRow[]) => {
+      leadsWriteVersionRef.current += 1;
+      setLeads(updater);
+    },
+    [],
+  );
+  /** Lượt sửa đã hiện trên màn hình mà server chưa trả lời, theo từng lead. */
+  const pendingPatchesRef = useRef(new Map<string, Record<string, unknown>[]>());
   const [total, setTotal] = useState(initialTotal);
   const [truncated, setTruncated] = useState(initialTruncated);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -331,6 +352,7 @@ export function LeadsClient({
       return;
     }
     requestInFlight.current = true;
+    const writeVersionAtStart = leadsWriteVersionRef.current;
     try {
       const params = new URLSearchParams();
       if (productFilter) params.set("product", productFilter);
@@ -341,8 +363,19 @@ export function LeadsClient({
       const payload = await response.json().catch(() => null);
       if (!response.ok)
         throw new Error(payload?.error ?? "Could not refresh leads.");
+      if (leadsWriteVersionRef.current !== writeVersionAtStart) {
+        // Màn hình đã ghi thứ mới hơn ảnh chụp này (gán, tạo, sửa) trong lúc
+        // nó đang bay: bỏ kết quả, chạy lại một lượt ở `finally`.
+        pendingRefresh.current = true;
+        return;
+      }
       if (Array.isArray(payload?.leads)) {
-        const refreshedLeads = payload.leads as LeadRow[];
+        // Phủ lại các lượt sửa vẫn đang chờ server: ảnh chụp này có thể được
+        // đọc trước khi chúng ghi xong, áp thẳng sẽ làm ô nháy về giá trị cũ.
+        const refreshedLeads = (payload.leads as LeadRow[]).map((lead) => {
+          const pending = pendingPatchesRef.current.get(lead.id);
+          return pending && pending.length > 0 ? overlayPendingPatches(lead, pending) : lead;
+        });
         setLeads(refreshedLeads);
         // The detail modal owns a copy of the selected row. Keep it in sync
         // after a manager reassigns from that modal, otherwise the list refresh
@@ -398,7 +431,7 @@ export function LeadsClient({
     const byId = new Map(fresh.map((lead) => [lead.id, lead]));
     const wanted = new Set(ids);
 
-    setLeads((current) => {
+    writeLeads((current) => {
       const seen = new Set<string>();
       const next = current
         .map((lead) => {
@@ -444,7 +477,7 @@ export function LeadsClient({
   const applyReturnedLeads = useCallback((returned: readonly LeadRow[]) => {
     if (returned.length === 0) return;
     const byId = new Map(returned.map((lead) => [lead.id, lead]));
-    setLeads((current) =>
+    writeLeads((current) =>
       current.map((lead) => {
         const updated = byId.get(lead.id);
         if (!updated) return lead;
@@ -464,7 +497,7 @@ export function LeadsClient({
         : current,
     );
     void patchLeadsByIdRef.current(returned.map((lead) => lead.id)).catch(() => {});
-  }, []);
+  }, [writeLeads]);
 
   const reloadRef = useRef(reload);
   useEffect(() => {
@@ -638,7 +671,7 @@ export function LeadsClient({
         : currentLead.interaction_history;
       return { ...nextLead, interaction_history: history };
     };
-    setLeads((current) =>
+    writeLeads((current) =>
       current.map((lead) => (lead.id === nextLead.id ? mergeLead(lead) : lead)),
     );
     setSelectedLead((current) =>
@@ -652,14 +685,14 @@ export function LeadsClient({
     if (activeAlert) {
       void patchLeadsByIdRef.current([nextLead.id]).catch(() => void reloadRef.current());
     }
-  }, [activeAlert]);
+  }, [activeAlert, writeLeads]);
 
   const touchLead = useCallback((id: string, updatedAt: string) => {
     const touch = (lead: LeadRow) =>
       lead.id === id ? touchLeadUpdatedAt(lead, updatedAt) : lead;
-    setLeads((current) => current.map(touch));
+    writeLeads((current) => current.map(touch));
     setSelectedLead((current) => (current ? touch(current) : current));
-  }, []);
+  }, [writeLeads]);
 
   const toggleLead = useCallback((id: string) => {
     setSelected((current) => {
@@ -672,8 +705,6 @@ export function LeadsClient({
 
   // Sửa inline CÙNG một lead thì xếp hàng — xem createKeyedSerializer.
   const patchSerializerRef = useRef(createKeyedSerializer());
-  /** Lượt sửa đã hiện trên màn hình mà server chưa trả lời, theo từng lead. */
-  const pendingPatchesRef = useRef(new Map<string, Record<string, unknown>[]>());
 
   /**
    * One inline edit. The cell has already repainted optimistically, so a
@@ -699,7 +730,7 @@ export function LeadsClient({
     // một mảng thiếu product vừa tick ở cú đầu.
     const optimistic = (lead: LeadRow) =>
       lead.id === id ? mergeLeadPatch(lead, patch) : lead;
-    setLeads((current) => current.map(optimistic));
+    writeLeads((current) => current.map(optimistic));
     setSelectedLead((current) => (current ? optimistic(current) : current));
     try {
       const saved = await patchSerializerRef.current(id, async () => {
@@ -737,7 +768,7 @@ export function LeadsClient({
       if (previous) {
         // Về bản trước lượt này, nhưng giữ các lượt sau vẫn đang chờ ghi.
         const restored = overlayPendingPatches(previous, pending);
-        setLeads((current) =>
+        writeLeads((current) =>
           current.map((lead) => (lead.id === id ? restored : lead)),
         );
         setSelectedLead((current) => (current?.id === id ? restored : current));
@@ -756,7 +787,7 @@ export function LeadsClient({
       }
       throw error;
     }
-  }, [sourceId, activeAlert, updateLead]);
+  }, [sourceId, activeAlert, updateLead, writeLeads]);
 
   const archiveLead = useCallback(async function archiveLead(id: string) {
     const before = leadsRef.current.find((lead) => lead.id === id);
@@ -765,7 +796,7 @@ export function LeadsClient({
 
     // Remove it immediately, like Task Board, so an archived lead cannot be
     // edited again while the request is in flight.
-    setLeads((current) => current.filter((lead) => lead.id !== id));
+    writeLeads((current) => current.filter((lead) => lead.id !== id));
     setSelected((current) => {
       if (!current.has(id)) return current;
       const next = new Set(current);
@@ -794,7 +825,7 @@ export function LeadsClient({
       }
       setEditError(null);
     } catch (error) {
-      setLeads((current) => {
+      writeLeads((current) => {
         if (current.some((lead) => lead.id === id)) return current;
         const restored = [...current];
         restored.splice(Math.min(Math.max(beforeIndex, 0), restored.length), 0, before);
@@ -806,72 +837,150 @@ export function LeadsClient({
       );
       void reloadRef.current();
     }
-  }, [sourceId]);
+  }, [sourceId, writeLeads]);
 
-  /** Reassigning one lead from its cell, through the route that keeps history. */
+  /**
+   * Gọi route gán (route này ghi lịch sử gán). Trả về những dòng vừa đổi và số
+   * dòng RPC đã gán thật. `leads` rỗng mà `assigned` > 0 nghĩa là lượt đọc lại
+   * phía server hỏng (xem api/leads/assign/route.ts) — không biết dòng nào đổi.
+   */
+  const postAssign = useCallback(
+    async (ids: readonly string[], toEmail: string | null, reason: string) => {
+      const payload = await requestJson<{ leads?: LeadRow[]; assigned?: number }>(
+        "/api/leads/assign",
+        {
+          method: "POST",
+          headers: { "x-lead-client-source": sourceId },
+          body: JSON.stringify({ lead_ids: ids, to_email: toEmail, reason }),
+        },
+      );
+      return {
+        leads: payload?.leads ?? [],
+        assigned: typeof payload?.assigned === "number" ? payload.assigned : 0,
+      };
+    },
+    [sourceId],
+  );
+
+  /**
+   * Reassigning one lead from its cell, through the route that keeps history.
+   *
+   * Đi đúng đường của patchLead: tên người được gán đổi NGAY qua lớp phủ
+   * `pendingPatchesRef` (lượt tải nền không làm nó nháy về người cũ), và xếp
+   * hàng chung với các lượt sửa cùng lead. Ai gán sau thắng — route không kiểm
+   * `updated_at` (QĐ-G của plan instant feedback).
+   */
   const assignLead = useCallback(async function assignLead(
     id: string,
     toEmail: string | null,
   ) {
+    const previous = leadsRef.current.find((lead) => lead.id === id);
+    const patch: Record<string, unknown> = { assigned_to_email: toEmail };
+    const pendingById = pendingPatchesRef.current;
+    const pending = pendingById.get(id) ?? [];
+    pending.push(patch);
+    pendingById.set(id, pending);
+    const settle = () => {
+      const index = pending.indexOf(patch);
+      if (index >= 0) pending.splice(index, 1);
+      if (pending.length === 0 && pendingById.get(id) === pending) pendingById.delete(id);
+    };
+    const optimistic = (lead: LeadRow) =>
+      lead.id === id ? mergeLeadPatch(lead, patch) : lead;
+    writeLeads((current) => current.map(optimistic));
+    setSelectedLead((current) => (current ? optimistic(current) : current));
     try {
-      const response = await fetch("/api/leads/assign", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-lead-client-source": sourceId,
-        },
-        body: JSON.stringify({ lead_ids: [id], to_email: toEmail, reason: "" }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error ?? "Could not assign that lead.");
-      // Route đã trả về chính những dòng vừa đổi. Kéo lại cả danh sách để lấy
-      // thứ mình đang cầm trên tay là tốn vô ích — ở 5.000 lead thì đó là vài
-      // MB cho một thao tác đổi một ô.
-      const returned = (payload?.leads ?? []) as LeadRow[];
-      if (returned.length > 0) {
-        applyReturnedLeads(returned);
+      const result = await patchSerializerRef.current(id, () =>
+        postAssign([id], toEmail, ""),
+      );
+      settle();
+      const saved = result.leads.find((lead) => lead.id === id);
+      if (saved) {
+        // Route đã trả về chính dòng vừa đổi; phủ thêm các lượt sau còn chờ.
+        applyReturnedLeads([overlayPendingPatches(saved, pending)]);
       } else {
-        setSelectedLead((current) =>
-          current?.id === id ? { ...current, assigned_to_email: toEmail } : current,
-        );
-        await reloadRef.current();
+        void reloadRef.current();
       }
       setEditError(null);
     } catch (error) {
+      settle();
+      if (previous) {
+        // Về bản trước lượt này, nhưng giữ các lượt sau vẫn đang chờ ghi.
+        const restored = overlayPendingPatches(previous, pending);
+        writeLeads((current) =>
+          current.map((lead) => (lead.id === id ? restored : lead)),
+        );
+        setSelectedLead((current) => (current?.id === id ? restored : current));
+      }
       setEditError(
         error instanceof Error ? error.message : "Could not assign that lead.",
       );
+      if (pending.length === 0) {
+        void patchLeadsByIdRef.current([id]).catch(() => void reloadRef.current());
+      }
       throw error;
     }
-  }, [sourceId, applyReturnedLeads]);
+  }, [applyReturnedLeads, postAssign, writeLeads]);
 
+  /**
+   * Gán hàng loạt: mọi dòng được chọn đổi ngay, ô chọn bỏ ngay; chỉ nút còn
+   * xoay. Dòng nào RPC không gán (vd. đã archive) thì trả về đúng dòng đó.
+   */
   async function assignSelected(toEmail: string | null) {
     if (selected.size === 0 || assigning) return;
+    const ids = [...selected];
+    const idSet = new Set(ids);
+    const previousById = new Map(
+      leadsRef.current.filter((lead) => idSet.has(lead.id)).map((lead) => [lead.id, lead]),
+    );
+    const reason = assignmentReason;
+    const patch: Record<string, unknown> = { assigned_to_email: toEmail };
+    const restore = (restoreIds: readonly string[]) => {
+      const restoreSet = new Set(restoreIds);
+      writeLeads((current) =>
+        current.map((lead) =>
+          restoreSet.has(lead.id) ? previousById.get(lead.id) ?? lead : lead,
+        ),
+      );
+      setSelectedLead((current) =>
+        current && restoreSet.has(current.id)
+          ? previousById.get(current.id) ?? current
+          : current,
+      );
+    };
     setAssigning(true);
     setAssignmentError(null);
+    writeLeads((current) =>
+      current.map((lead) => (idSet.has(lead.id) ? mergeLeadPatch(lead, patch) : lead)),
+    );
+    setSelectedLead((current) =>
+      current && idSet.has(current.id) ? mergeLeadPatch(current, patch) : current,
+    );
+    setAssignmentEmail("");
+    setAssignmentReason("");
+    setSelected(new Set());
     try {
-      const response = await fetch("/api/leads/assign", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-lead-client-source": sourceId,
-        },
-        body: JSON.stringify({
-          lead_ids: [...selected],
-          to_email: toEmail,
-          reason: assignmentReason,
-        }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok)
-        throw new Error(payload?.error ?? "Could not assign leads.");
-      setAssignmentEmail("");
-      setAssignmentReason("");
-      setSelected(new Set());
-      const returned = (payload?.leads ?? []) as LeadRow[];
-      if (returned.length > 0) applyReturnedLeads(returned);
-      else await reload();
+      const result = await postAssign(ids, toEmail, reason);
+      if (result.leads.length === 0) {
+        // Đã gán nhưng server không đọc lại được dòng nào: không biết dòng nào
+        // đổi, hỏi lại cả danh sách.
+        void reload();
+        return;
+      }
+      applyReturnedLeads(result.leads);
+      const assignedIds = new Set(result.leads.map((lead) => lead.id));
+      const notAssigned = ids.filter((id) => !assignedIds.has(id));
+      if (notAssigned.length > 0) {
+        restore(notAssigned);
+        setAssignmentError(
+          `${notAssigned.length} of ${ids.length} leads were not assigned. They may have been archived or closed.`,
+        );
+      }
     } catch (assignError) {
+      restore(ids);
+      // Giữ lựa chọn và lý do để người dùng thử lại ngay.
+      setSelected(new Set(ids));
+      setAssignmentReason(reason);
       setAssignmentError(
         assignError instanceof Error
           ? assignError.message
@@ -881,6 +990,41 @@ export function LeadsClient({
       setAssigning(false);
     }
   }
+
+  const backgroundUploads = useBackgroundUploads();
+  const runBackgroundUploads = backgroundUploads.run;
+  /**
+   * Lead vừa được server tạo (hộp tạo đã đóng). Nạp đúng dòng đó theo bộ lọc
+   * đang bật thay vì kéo lại cả danh sách: response của POST thiếu
+   * `event_name`/`interaction_history` mà bảng cần. File tải nền.
+   */
+  const handleLeadCreated = useCallback(
+    (lead: LeadRow, files: PendingFile[]) => {
+      // Lượt tải cả danh sách đang bay (bắt đầu trước khi có lead này) phải
+      // chạy lại thay vì áp, nếu không lead mới nháy mất.
+      leadsWriteVersionRef.current += 1;
+      void patchLeadsByIdRef.current([lead.id]).catch(() => void reloadRef.current());
+      if (files.length === 0) return;
+      void runBackgroundUploads({
+        label: leadDisplayKey(lead.display_number),
+        items: files,
+        nameOf: (item) => item.name,
+        retryHint: "Open the lead to attach them again.",
+        upload: async (item) => {
+          const body = new FormData();
+          body.append("file", item.file);
+          // Key cố định của file: tải lại không tạo bản trùng.
+          body.append("client_request_id", item.key);
+          const response = await fetch(`/api/leads/${lead.id}/attachments`, {
+            method: "POST",
+            body,
+          });
+          return response.ok;
+        },
+      });
+    },
+    [runBackgroundUploads],
+  );
 
   // The list is loaded client-side (fetchAllLeads pages until complete, up to
   // LEAD_MAX_ROWS — past that `truncated` says so), so filtering and sorting
@@ -1543,6 +1687,13 @@ export function LeadsClient({
         tone="success"
         onDismiss={() => setImportToast(null)}
       />
+      <Toast
+        message={backgroundUploads.notice?.message ?? null}
+        tone={backgroundUploads.notice?.tone ?? "info"}
+        onDismiss={backgroundUploads.dismiss}
+        autoDismissMs={backgroundUploads.notice?.tone === "success" ? 5000 : null}
+        stackIndex={importToast ? 1 : 0}
+      />
       <LeadImportDialog
         open={importOpen}
         productFilter={productFilter}
@@ -1568,7 +1719,7 @@ export function LeadsClient({
         columnOptions={columnOptions}
         statuses={statuses}
         onClose={() => setAddOpen(false)}
-        onCreated={() => reload()}
+        onCreated={handleLeadCreated}
       />
     </main>
   );

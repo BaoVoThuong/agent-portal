@@ -170,15 +170,19 @@ export async function POST(req: Request, { params }: Ctx) {
     }
 
     if (email !== ctx.actor.email) {
+      // Ghi dòng trong request; realtime + push của nó chạy sau response.
       const notificationResult = await Promise.allSettled([
-        insertNotifications([
-          {
-            recipient_email: email,
-            task_id: id,
-            type: "assigned",
-            actor_email: ctx.actor.email,
-          },
-        ]),
+        insertNotifications(
+          [
+            {
+              recipient_email: email,
+              task_id: id,
+              type: "assigned",
+              actor_email: ctx.actor.email,
+            },
+          ],
+          { deliverAfterResponse: true }
+        ),
       ]);
       const assigneeNotification = notificationResult[0];
       if (

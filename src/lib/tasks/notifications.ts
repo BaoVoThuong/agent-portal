@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { runAfterResponse } from "@/lib/after-response";
 import { broadcastNotif } from "./realtime";
 
 export const TASK_NOTIFICATION_TYPES = [
@@ -86,8 +87,21 @@ export function resolveCommentRecipients(
   return out;
 }
 
+export type NotificationDeliveryOptions = {
+  /**
+   * Phát realtime + push SAU khi response đã trả, thay vì bắt request chờ.
+   * Dòng thông báo vẫn ghi ngay trong request: đó là dữ liệu, còn `after()`
+   * chỉ là chạy nền, không bền (xem lib/after-response.ts).
+   *
+   * Lượt phát realtime có thể thử 2 lần × 1,5 giây (realtime.ts), nên chờ nó
+   * trong request là giữ người dùng tới khoảng 3 giây khi Realtime chậm.
+   */
+  deliverAfterResponse?: boolean;
+};
+
 export async function insertNotifications(
-  rows: NotificationInsertInput[]
+  rows: NotificationInsertInput[],
+  options: NotificationDeliveryOptions = {}
 ): Promise<boolean> {
   if (rows.length === 0) return true;
   const supabase = getSupabaseAdmin();
@@ -95,6 +109,14 @@ export async function insertNotifications(
     toNotificationInsertRows(rows)
   );
   if (error) throw new Error(error.message);
+
+  if (
+    options.deliverAfterResponse &&
+    (await runAfterResponse(() => deliverTaskNotifications(rows)))
+  ) {
+    // Dòng đã ghi xong; phần phát đi tự ghi log nếu hỏng.
+    return true;
+  }
 
   // Realtime "ping" so recipients' open tabs toast instantly (content stays in DB).
   const broadcast = await broadcastNotif(rows.map((r) => r.recipient_email));
@@ -107,6 +129,40 @@ export async function insertNotifications(
   });
 
   return broadcast;
+}
+
+/**
+ * Phần "phát đi" của thông báo: realtime cho tab đang mở, rồi push ra ngoài
+ * trình duyệt. Đã chạy trong `after()` nên gọi push thẳng, không lồng thêm
+ * `after()`. Không ném lỗi: response đã trả, chỉ còn ghi log.
+ */
+async function deliverTaskNotifications(rows: NotificationInsertInput[]): Promise<void> {
+  const taskIds = [...new Set(rows.map((row) => row.task_id))];
+  try {
+    const delivered = await broadcastNotif(rows.map((row) => row.recipient_email));
+    if (!delivered) {
+      console.error("task.notification.delivery_failed", { taskIds, stage: "broadcast" });
+    }
+  } catch (error) {
+    // Realtime can throw before it gets to its own retry/error path (for
+    // example, a missing production topic secret). That must not prevent the
+    // independent browser-push delivery below.
+    console.error("task.notification.delivery_failed", {
+      taskIds,
+      stage: "broadcast",
+      error: error instanceof Error ? error.message : "unknown error",
+    });
+  }
+  try {
+    const { pushForTaskNotifications } = await import("@/lib/notifications/push-dispatch");
+    await pushForTaskNotifications(rows);
+  } catch (error) {
+    console.error("task.notification.delivery_failed", {
+      taskIds,
+      stage: "push",
+      error: error instanceof Error ? error.message : "unknown error",
+    });
+  }
 }
 
 /**

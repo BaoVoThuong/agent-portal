@@ -10,6 +10,7 @@ import type { EnrollmentProgram } from "@/lib/enrollment/types";
 import { AvatarStack, Initials } from "../../tasks/_components/board-ui";
 import { AcaAssignPicker } from "./AcaAssignPicker";
 import { AcaOverviewScorecards } from "./AcaOverviewScorecards";
+import { usePendingKeys } from "@/lib/collaboration/use-pending-keys";
 
 type Props = { program: EnrollmentProgram; from: string; to: string; onOpenRecord: (id: string) => void };
 
@@ -36,11 +37,15 @@ export function AcaOverviewDashboard({ program, from, to, onOpenRecord }: Props)
   const [matrixMode, setMatrixMode] = useState<"occupancy" | "speed">("occupancy");
   const [threshold, setThreshold] = useState<AcaOverviewThresholdDays | null>(null);
   const [editingQueue, setEditingQueue] = useState(false);
-  const [updatingQueueEmail, setUpdatingQueueEmail] = useState<string | null>(null);
+  // Ô tick hàng đợi đổi ngay qua lớp phủ; khoá theo từng người, không khoá cả
+  // danh sách (plan instant feedback T2.8).
+  const [queueOverrides, setQueueOverrides] = useState<ReadonlyMap<string, boolean>>(() => new Map());
+  const { pending: queuePendingKeys, start: startQueueKey, finish: finishQueueKey } = usePendingKeys();
   const [queueError, setQueueError] = useState<string | null>(null);
   const [loading, setLoading] = useState(() => !overviewSnapshotCache.has(cacheKey)); const [error, setError] = useState<string | null>(null);
   const sequence = useRef(0);
-  const load = useCallback(async () => {
+  /** true khi snapshot mới đã được áp. */
+  const load = useCallback(async (): Promise<boolean> => {
     const current = ++sequence.current; setLoading(true); setError(null);
     try {
       const params = new URLSearchParams();
@@ -54,8 +59,10 @@ export function AcaOverviewDashboard({ program, from, to, onOpenRecord }: Props)
         const nextSnapshot = payload as AcaOverviewSnapshot;
         rememberOverviewSnapshot(cacheKey, nextSnapshot);
         setSnapshot(nextSnapshot);
+        return true;
       }
-    } catch (cause) { if (current === sequence.current) setError(cause instanceof Error ? cause.message : `Could not load ${programLabel} overview.`); }
+      return false;
+    } catch (cause) { if (current === sequence.current) setError(cause instanceof Error ? cause.message : `Could not load ${programLabel} overview.`); return false; }
     finally { if (current === sequence.current) setLoading(false); }
   }, [cacheKey, from, program, programLabel, threshold, to]);
   // Fetching the snapshot is the external synchronization this effect owns.
@@ -67,16 +74,27 @@ export function AcaOverviewDashboard({ program, from, to, onOpenRecord }: Props)
   // that render and called on the next one — which is exactly the "rendered
   // more hooks than during the previous render" crash.
   const handleToggleQueue = useCallback(async (email: string, enabled: boolean) => {
-    setUpdatingQueueEmail(email); setQueueError(null);
+    if (!startQueueKey(email)) return;
+    setQueueError(null);
+    const setOverride = (value: boolean | null) => setQueueOverrides((current) => {
+      const next = new Map(current);
+      if (value === null) next.delete(email); else next.set(email, value);
+      return next;
+    });
+    setOverride(enabled);
     try {
       const response = await fetch("/api/enrollment/aca-overview/queue-members", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, enabled, program }) });
       const payload = await response.json().catch(() => null) as { error?: string } | null;
       if (!response.ok) throw new Error(payload?.error ?? "Could not update the assignment queue.");
-      await load();
+      // Thẻ hàng đợi (Open, Over limit, lần gán cuối) do server tính: tải lại
+      // chạy nền, bỏ lớp phủ khi snapshot mới đã về. Tải lại hỏng thì giữ lớp
+      // phủ — nó đúng với server hơn snapshot cũ.
+      void load().then((applied) => { if (applied) setOverride(null); });
     } catch (cause) {
+      setOverride(null);
       setQueueError(cause instanceof Error ? cause.message : "Could not update the assignment queue.");
-    } finally { setUpdatingQueueEmail(null); }
-  }, [load, program]);
+    } finally { finishQueueKey(email); }
+  }, [finishQueueKey, load, program, startQueueKey]);
   if (loading && !snapshot) {
     return (
       <div className="flex min-h-[28rem] items-center justify-center text-sm text-[#667085]">
@@ -88,6 +106,8 @@ export function AcaOverviewDashboard({ program, from, to, onOpenRecord }: Props)
   if (error && !snapshot) return <Message error={error} onRetry={() => void load()} />;
   if (!snapshot) return <Message>No {programLabel} overview data.</Message>;
   const period = snapshot.period.from && snapshot.period.to ? `${snapshot.period.from} – ${snapshot.period.to}` : "All dates";
+  // Tắt khỏi hàng đợi thì ẩn thẻ ngay; bật thì chờ server trả thẻ thật.
+  const visibleQueue = snapshot.queue.filter((card) => queueOverrides.get(card.email) !== false);
   const people = snapshot.people.filter((person) => person.email).map((person) => ({ email: person.email!, name: person.name, canWork: true, queueEnabled: true }));
   const handleAssigned = (recordId: string, email: string | null, updatedAt?: string) => setSnapshot((current) => {
     if (!current) return current;
@@ -129,7 +149,7 @@ export function AcaOverviewDashboard({ program, from, to, onOpenRecord }: Props)
     <ActionSection title="Needs action" rows={snapshot.actions} onOpenRecord={onOpenRecord} people={people} onAssigned={handleAssigned}/>
     <section className="overflow-hidden rounded-lg border border-[#e6eaf0] bg-white"><Header title="People" caption="Open enrollments currently assigned to each person or group."/><div className="max-h-[420px] overflow-auto"><table className="w-full min-w-[820px] table-fixed text-sm"><thead className="sticky top-0 z-10 whitespace-nowrap bg-[#fafbfc] text-left text-[11px] font-bold uppercase tracking-wide text-[#6b778c]"><tr className="divide-x divide-[#e6eaf0]"><th className="w-[28%] px-4 py-3">Owner / team member</th><th title="Open enrollments currently assigned" className="w-[16%] px-4 py-3 text-right">Open enrollments</th><th title="Enrollments beyond the attention threshold" className="w-[16%] px-4 py-3 text-right">Over stage limit</th><th title="Enrollments with no recent activity" className="w-[16%] px-4 py-3 text-right">No recent activity</th><th className="w-[14%] px-4 py-3 text-right">Typical wait</th><th className="w-[10%] px-4 py-3 text-right">Completed</th></tr></thead><tbody>{snapshot.people.map((row) => <tr key={row.email ?? row.kind} className="divide-x divide-[#e6eaf0] border-t border-[#ebecf0]"><td className="whitespace-nowrap px-4 py-3 font-semibold text-[#42526e]">{row.name ?? row.email ?? "Unassigned"}</td><td className="whitespace-nowrap px-4 py-3 text-right font-bold">{row.holding}</td><td className="whitespace-nowrap px-4 py-3 text-right">{row.stuck}</td><td className="whitespace-nowrap px-4 py-3 text-right">{row.silent}</td><td className="whitespace-nowrap px-4 py-3 text-right">{formatDays(row.medianWaitDays)}</td><td className="whitespace-nowrap px-4 py-3 text-right">{row.doneInPeriod}</td></tr>)}</tbody></table></div></section>
     <section className="overflow-hidden rounded-lg border border-[#e6eaf0] bg-white"><div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#ebecf0] px-4 py-3"><div><h2 className="text-sm font-bold text-[#172b4d]">Owner × stage</h2><p className="mt-0.5 text-xs text-[#6b778c]">{matrixMode === "occupancy" ? "Open enrollments by owner and stage. Over stage limit means the work has waited too long." : "Typical completion time by owner and stage. Fewer than 10 completed enrollments shows —."}</p></div><div className="inline-flex rounded border border-[#cfd8e5] p-0.5 text-xs font-bold"><button type="button" onClick={() => setMatrixMode("occupancy")} className={`rounded px-2 py-1 ${matrixMode === "occupancy" ? "bg-[#e9f2ff] text-[#0c66e4]" : "text-[#6b778c]"}`}>Current workload</button><button type="button" onClick={() => setMatrixMode("speed")} className={`rounded px-2 py-1 ${matrixMode === "speed" ? "bg-[#e9f2ff] text-[#0c66e4]" : "text-[#6b778c]"}`}>Completion speed</button></div></div><div className="max-h-[420px] overflow-auto"><table className="w-full min-w-[1700px] table-fixed text-sm"><thead className="sticky top-0 z-10 whitespace-nowrap bg-[#fafbfc] text-left text-[11px] font-bold tracking-wide text-[#6b778c]"><tr className="divide-x divide-[#e6eaf0]"><th className="sticky left-0 z-10 w-[180px] whitespace-nowrap bg-[#fafbfc] px-4 py-3">Owner / team member</th>{snapshot.matrix.stageLabels.map((label, index) => <th key={snapshot.matrix.stageIds[index] ?? `stage-${index}`} className="w-[170px] whitespace-nowrap px-4 py-3 text-right">{label}</th>)}</tr></thead><tbody>{snapshot.matrix.rows.map((row) => <tr key={row.email ?? row.name ?? "unassigned"} className="divide-x divide-[#e6eaf0] border-t border-[#ebecf0]"><td className="sticky left-0 z-10 w-[180px] whitespace-nowrap bg-white px-4 py-3 font-semibold text-[#42526e]">{row.name ?? "Unassigned"}</td>{row.cells.map((cell, index) => <td key={snapshot.matrix.stageIds[index] ?? `stage-${index}`} className="whitespace-nowrap px-4 py-3 text-right">{matrixMode === "occupancy" ? <><span className="font-bold">{cell.tasks}</span><span className="ml-1 text-xs text-[#8993a4]">({cell.stuck} over limit)</span></> : row.email ? <span className="font-bold text-[#42526e]">{snapshot.personStageTiming.cells[row.email]?.[snapshot.matrix.stageIds[index]]?.medianDays == null ? "—" : `${snapshot.personStageTiming.cells[row.email][snapshot.matrix.stageIds[index]].medianDays}d`}</span> : "—"}</td>)}</tr>)}</tbody></table></div></section>
-    <section className="overflow-hidden rounded-lg border border-[#e6eaf0] bg-white"><div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#ebecf0] px-4 py-3"><div><h2 className="text-sm font-bold text-[#172b4d]">Assignment queue</h2><p className="mt-0.5 text-xs text-[#6b778c]">Never assigned first, then oldest assignment. Open = currently assigned; over limit = waiting too long. · {period}</p></div><button type="button" onClick={() => { setEditingQueue((value) => !value); setQueueError(null); }} className="rounded border border-[#cfd8e5] bg-white px-3 py-1.5 text-xs font-bold text-[#344054]">{editingQueue ? "Done" : "Edit queue"}</button></div>{editingQueue ? <div className="border-b border-[#ebecf0] bg-[#fbfdff] px-4 py-3">{queueError ? <p className="mb-2 rounded border border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-xs font-semibold text-[#bf2600]">{queueError}</p> : null}<div className="max-h-[420px] grid gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{snapshot.people.filter((person) => person.email).map((person) => { const email = person.email!; const enabled = snapshot.queue.some((card) => card.email === email); return <label key={email} className={`flex items-center justify-between gap-3 rounded border px-3 py-2 text-sm font-semibold ${enabled ? "border-[#b3d4ff] bg-white text-[#172b4d]" : "border-[#dfe3ea] bg-[#f4f5f7] text-[#667085]"}`}><span className="min-w-0 truncate">{person.name ?? email}</span><input type="checkbox" checked={enabled} disabled={updatingQueueEmail === email} onChange={(event) => void handleToggleQueue(email, event.target.checked)} className="h-4 w-4 shrink-0 rounded border-[#c1c7d0] disabled:opacity-50" /></label>; })}</div></div> : null}<div className="flex gap-3 overflow-x-auto p-4 pb-5">{snapshot.queue.map((person) => <div key={person.email} className="min-w-[180px] rounded-lg border border-[#dfe1e6] bg-[#fafbfc] p-3"><p className="font-bold text-[#172b4d]">{person.name ?? person.email}</p><p className="mt-2 text-xs text-[#6b778c]">Open <b>{person.holding}</b> · Over limit <b>{person.stuck}</b></p><p className="mt-1 text-[11px] text-[#8993a4]">{person.lastAssignedAt ? `Last assigned ${new Date(person.lastAssignedAt).toLocaleDateString()}` : "Never assigned"}</p></div>)}{snapshot.queue.length === 0 ? <p className="text-sm text-[#8993a4]">Nobody is enabled in the queue.</p> : null}</div></section>
+    <section className="overflow-hidden rounded-lg border border-[#e6eaf0] bg-white"><div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#ebecf0] px-4 py-3"><div><h2 className="text-sm font-bold text-[#172b4d]">Assignment queue</h2><p className="mt-0.5 text-xs text-[#6b778c]">Never assigned first, then oldest assignment. Open = currently assigned; over limit = waiting too long. · {period}</p></div><button type="button" onClick={() => { setEditingQueue((value) => !value); setQueueError(null); }} className="rounded border border-[#cfd8e5] bg-white px-3 py-1.5 text-xs font-bold text-[#344054]">{editingQueue ? "Done" : "Edit queue"}</button></div>{editingQueue ? <div className="border-b border-[#ebecf0] bg-[#fbfdff] px-4 py-3">{queueError ? <p className="mb-2 rounded border border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-xs font-semibold text-[#bf2600]">{queueError}</p> : null}<div className="max-h-[420px] grid gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">{snapshot.people.filter((person) => person.email).map((person) => { const email = person.email!; const enabled = queueOverrides.get(email) ?? snapshot.queue.some((card) => card.email === email); return <label key={email} className={`flex items-center justify-between gap-3 rounded border px-3 py-2 text-sm font-semibold ${enabled ? "border-[#b3d4ff] bg-white text-[#172b4d]" : "border-[#dfe3ea] bg-[#f4f5f7] text-[#667085]"}`}><span className="min-w-0 truncate">{person.name ?? email}</span><input type="checkbox" checked={enabled} disabled={queuePendingKeys.has(email)} onChange={(event) => void handleToggleQueue(email, event.target.checked)} className="h-4 w-4 shrink-0 rounded border-[#c1c7d0] disabled:opacity-50" /></label>; })}</div></div> : null}<div className="flex gap-3 overflow-x-auto p-4 pb-5">{visibleQueue.map((person) => <div key={person.email} className="min-w-[180px] rounded-lg border border-[#dfe1e6] bg-[#fafbfc] p-3"><p className="font-bold text-[#172b4d]">{person.name ?? person.email}</p><p className="mt-2 text-xs text-[#6b778c]">Open <b>{person.holding}</b> · Over limit <b>{person.stuck}</b></p><p className="mt-1 text-[11px] text-[#8993a4]">{person.lastAssignedAt ? `Last assigned ${new Date(person.lastAssignedAt).toLocaleDateString()}` : "Never assigned"}</p></div>)}{visibleQueue.length === 0 ? <p className="text-sm text-[#8993a4]">Nobody is enabled in the queue.</p> : null}</div></section>
     <ActionSection title="Unassigned" rows={snapshot.unassigned} onOpenRecord={onOpenRecord} people={people} onAssigned={handleAssigned} assignable/>
     </div>
   </div>;

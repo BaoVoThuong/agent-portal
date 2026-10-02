@@ -9,6 +9,7 @@ import {
   LEAD_PRODUCT_LABEL,
   LEAD_PRODUCTS,
   type LeadProduct,
+  type LeadRow,
   type LeadStatus,
 } from "@/lib/leads/types";
 import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
@@ -38,7 +39,11 @@ type LeadAddDialogProps = {
   statuses: LeadStatus[];
   assignees: { email: string; name: string | null }[];
   onClose: () => void;
-  onCreated: () => Promise<void>;
+  /**
+   * Gọi ngay khi server đã tạo lead; hộp đóng luôn, không chờ. Trang cha nạp
+   * dòng mới và tải file chạy nền (plan instant feedback T2.3).
+   */
+  onCreated: (lead: LeadRow, files: PendingFile[]) => void;
 };
 
 type DistributionAgent = {
@@ -193,8 +198,6 @@ export function LeadAddDialog({
   const [saving, setSaving] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [fileError, setFileError] = useState<string | null>(null);
-  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
-  const [createdLeadId, setCreatedLeadId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const createRequestIdRef = useRef<string | null>(null);
   // Only asked for when the screen is not already scoped to one product.
@@ -310,8 +313,6 @@ export function LeadAddDialog({
     setCustomValues({});
     setPendingFiles([]);
     setFileError(null);
-    setUploadingIndex(null);
-    setCreatedLeadId(null);
     createRequestIdRef.current = null;
     setError(null);
     setEventsState("idle");
@@ -322,7 +323,7 @@ export function LeadAddDialog({
     if (saving) return;
     // The button is disabled without one, but the guard belongs here too: a
     // lead filed under the wrong product is invisible to the team that owns it.
-    if (!product && !createdLeadId) {
+    if (!product) {
       setError("Choose a product for this lead.");
       return;
     }
@@ -343,7 +344,7 @@ export function LeadAddDialog({
           : customValues[column.key];
         return !isFilled(value, column.type);
       });
-    if (!createdLeadId && (missing.length > 0 || !phone.trim())) {
+    if (missing.length > 0 || !phone.trim()) {
       const labels = [
         ...missing.map((field) => field.label),
         ...(phone.trim() ? [] : ["Phone"]),
@@ -355,67 +356,37 @@ export function LeadAddDialog({
     setSaving(true);
     setError(null);
     try {
-      let leadId = createdLeadId;
-      if (!leadId) {
-        createRequestIdRef.current ??= crypto.randomUUID();
-        const response = await fetch("/api/leads", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-lead-client-source": sourceId,
-          },
-          body: JSON.stringify({
-            product,
-            full_name: fullName,
-            phone,
-            email,
-            fub_link: fubLink.trim() || null,
-            description: description.trim() || null,
-            event_name: eventName.trim() || null,
-            status_id: selectedStatusId || null,
-            assigned_to_email: assignedToEmail,
-            collaborator_emails: collaboratorEmails,
-            custom_values: customValues,
-            client_request_id: createRequestIdRef.current,
-          }),
-        });
-        const payload = await response.json().catch(() => null);
-        if (!response.ok || !payload?.lead?.id)
-          throw new Error(payload?.error ?? "Could not create lead.");
-        leadId = payload.lead.id as string;
-        setCreatedLeadId(leadId);
-        await onCreated();
-      }
-      if (pendingFiles.length > 0) {
-        const failed: PendingFile[] = [];
-        const reasons: string[] = [];
-        for (const [index, item] of pendingFiles.entries()) {
-          setUploadingIndex(index);
-          const body = new FormData();
-          body.append("file", item.file);
-          body.append("client_request_id", item.key);
-          try {
-            const response = await fetch(`/api/leads/${leadId}/attachments`, {
-              method: "POST",
-              body,
-            });
-            if (!response.ok) {
-              const payload = await response.json().catch(() => null);
-              failed.push(item);
-              reasons.push(`${item.name}: ${payload?.error ?? "Upload failed."}`);
-            }
-          } catch {
-            failed.push(item);
-            reasons.push(`${item.name}: Upload failed.`);
-          }
-        }
-        setUploadingIndex(null);
-        if (failed.length > 0) {
-          setPendingFiles(failed);
-          setFileError(`Lead created, but ${failed.length} file(s) did not upload. ${reasons.join(" ")}`);
-          return;
-        }
-      }
+      // Cùng `client_request_id` cho mọi lần bấm của một lần mở hộp: mạng rớt
+      // sau khi server đã ghi thì bấm lại nhận về đúng lead đó, không tạo trùng.
+      createRequestIdRef.current ??= crypto.randomUUID();
+      const response = await fetch("/api/leads", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-lead-client-source": sourceId,
+        },
+        body: JSON.stringify({
+          product,
+          full_name: fullName,
+          phone,
+          email,
+          fub_link: fubLink.trim() || null,
+          description: description.trim() || null,
+          event_name: eventName.trim() || null,
+          status_id: selectedStatusId || null,
+          assigned_to_email: assignedToEmail,
+          collaborator_emails: collaboratorEmails,
+          custom_values: customValues,
+          client_request_id: createRequestIdRef.current,
+        }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.lead?.id)
+        throw new Error(payload?.error ?? "Could not create lead.");
+      // Lead đã có trên server: đóng hộp ngay. Trang cha nạp dòng mới và tải
+      // file chạy nền — không bắt người dùng chờ tải lại cả danh sách và từng
+      // file như trước.
+      onCreated(payload.lead as LeadRow, pendingFiles);
       resetAndClose();
     } catch (saveError) {
       setError(
@@ -424,7 +395,6 @@ export function LeadAddDialog({
           : "Could not create lead.",
       );
     } finally {
-      setUploadingIndex(null);
       setSaving(false);
     }
   }
@@ -463,7 +433,7 @@ export function LeadAddDialog({
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="grid min-h-full lg:grid-cols-[minmax(0,1fr)_20rem]">
             <section className="min-w-0 space-y-4 px-6 py-5">
-              <fieldset disabled={Boolean(createdLeadId)} className="space-y-4">
+              <fieldset disabled={saving} className="space-y-4">
               <label className="block space-y-1">
                 <span className={LABEL_CLASS}>
                   {fieldLabel(columns, "name", "Client name")}
@@ -549,13 +519,12 @@ export function LeadAddDialog({
                     ))}
                   </ul>
                 ) : null}
-                {uploadingIndex !== null ? <p className="text-xs font-semibold text-[#5e6c84]">Uploading file {uploadingIndex + 1} of {pendingFiles.length}…</p> : null}
                 {fileError ? <p role="alert" className="text-xs font-semibold text-[#bf2600]">{fileError}</p> : null}
               </div>
             </section>
 
             <aside className="border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0">
-              <fieldset disabled={Boolean(createdLeadId)} className="space-y-4">
+              <fieldset disabled={saving} className="space-y-4">
               <div className="flex items-center justify-between border-b border-[#dfe1e6] pb-3">
                 <span className="text-xs font-bold uppercase tracking-[0.08em] text-[#667085]">
                   Lead properties
@@ -720,7 +689,7 @@ export function LeadAddDialog({
                     keywords: [person.email],
                   }))}
                   onChange={setCollaboratorEmails}
-                  disabled={Boolean(createdLeadId) || saving}
+                  disabled={saving}
                   buttonClassName={SELECT_BUTTON_CLASS}
                 />
               </div>
@@ -766,16 +735,16 @@ export function LeadAddDialog({
             disabled={saving}
             className="rounded px-4 py-2 text-sm font-semibold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:opacity-50"
           >
-            {createdLeadId ? "Close" : "Cancel"}
+            Cancel
           </button>
           <button
             type="button"
             onClick={() => void submit()}
-            disabled={saving || (!product && !createdLeadId)}
+            disabled={saving || !product}
             title={product ? undefined : "Choose a product first."}
             className="inline-flex h-9 items-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {saving ? uploadingIndex !== null ? "Uploading..." : "Creating..." : createdLeadId ? pendingFiles.length > 0 ? "Retry uploads" : "Finish" : "Create lead"}
+            {saving ? "Creating..." : "Create lead"}
           </button>
         </footer>
       </div>

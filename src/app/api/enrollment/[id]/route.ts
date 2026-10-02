@@ -45,6 +45,7 @@ import {
   isAgentOwnerOrAssistant,
 } from "@/lib/tasks/membership";
 import { fetchEnrollmentManagerEmails } from "@/lib/enrollment/recipients";
+import { RouteTiming } from "@/lib/server-timing";
 import {
   findMissingRequiredFieldsFromContext,
   missingRequiredFieldsMessage,
@@ -112,9 +113,11 @@ export async function GET(_request: Request, { params }: Ctx) {
 }
 
 export async function PATCH(request: Request, { params }: Ctx) {
+  // Chỉ đo nhánh thành công (header Server-Timing trên response 200).
+  const timing = new RouteTiming("enrollment-update");
   const sourceId = readEnrollmentMutationSourceId(request);
   const { id } = await params;
-  const actorResult = await loadEnrollmentActor();
+  const actorResult = await timing.measure("auth", () => loadEnrollmentActor());
   if (!actorResult.ok) {
     return NextResponse.json(
       { error: actorResult.error },
@@ -135,7 +138,9 @@ export async function PATCH(request: Request, { params }: Ctx) {
     );
   }
 
-  const scoped = await loadScopedEnrollmentRecord(id, actorResult.actor);
+  const scoped = await timing.measure("load", () =>
+    loadScopedEnrollmentRecord(id, actorResult.actor)
+  );
   if (!scoped.ok) {
     return NextResponse.json({ error: scoped.error }, { status: scoped.status });
   }
@@ -514,18 +519,24 @@ export async function PATCH(request: Request, { params }: Ctx) {
   const rpcGenericChangedFields = changedFields.filter((field) => !["stage_id", "caller_email", "responsible_enroll_email", "qc_checked", "qc_cleared"].includes(field));
   if (rpcGenericChangedFields.length > 0) rpcActivityRows.push({ type: "field_changed", meta: { fields: rpcGenericChangedFields } });
 
-  const { data: updatedData, error: updateError } = await supabase.rpc("patch_enrollment_atomic", {
-    p_record_id: id,
-    p_expected_updated_at: expectedUpdatedAt,
-    p_patch: sanitizedPatch,
-    p_actor_email: actorResult.actor.email,
-    p_activity: rpcActivityRows,
-    p_now: nowIso,
-  });
+  const { data: updatedData, error: updateError } = await timing.measure("write", async () =>
+    supabase.rpc("patch_enrollment_atomic", {
+      p_record_id: id,
+      p_expected_updated_at: expectedUpdatedAt,
+      p_patch: sanitizedPatch,
+      p_actor_email: actorResult.actor.email,
+      p_activity: rpcActivityRows,
+      p_now: nowIso,
+    })
+  );
   const schemaResponse = enrollmentSchemaErrorResponse(updateError);
   if (schemaResponse) return schemaResponse;
   if (updateError) {
-    if (updateError.message?.includes("ENROLLMENT_CONFLICT")) return NextResponse.json({ error: "Enrollment record was updated by someone else. Refresh and try again." }, { status: 409 });
+    if (updateError.message?.includes("ENROLLMENT_CONFLICT")) {
+      // Chỉ id, không nội dung: đếm số 409 trước/sau khi đổi giao diện.
+      console.warn("mutation.conflict", { route: "enrollment.update", id });
+      return NextResponse.json({ error: "Enrollment record was updated by someone else. Refresh and try again." }, { status: 409 });
+    }
     if (updateError.message?.includes("ENROLLMENT_NOT_FOUND")) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
@@ -604,7 +615,11 @@ export async function PATCH(request: Request, { params }: Ctx) {
   }
 
   try {
-    await insertEnrollmentNotifications(notifications);
+    // Ghi dòng (và lọc người nhận theo quyền xem) trong request; realtime + push
+    // chạy sau response — xem lib/after-response.ts.
+    await timing.measure("notify", () =>
+      insertEnrollmentNotifications(notifications, { deliverAfterResponse: true })
+    );
   } catch (error) {
     mutationWarnings.push(
       error instanceof Error ? error.message : "Enrollment notification write failed."
@@ -622,24 +637,26 @@ export async function PATCH(request: Request, { params }: Ctx) {
     }
   });
 
-  let record: EnrollmentRecordWithStats | null = null;
-  try {
-    record = await fetchEnrollmentRecordById(id);
-  } catch (error) {
-    mutationWarnings.push(
-      `Enrollment canonical reload failed: ${error instanceof Error ? error.message : "unknown error"}`
-    );
-  }
+  // RPC trả về CẢ dòng (`to_jsonb(next_record)`), nên không đọc lại hồ sơ (3 truy
+  // vấn) nữa. PATCH không đổi số comment hay số file: lấy từ bản đã nạp lúc
+  // kiểm quyền. `updated` đã có `description` mặc định; `custom_values` mặc định
+  // là đúng việc coerceEnrollmentRecord làm.
+  const record: EnrollmentRecordWithStats = {
+    ...updated,
+    custom_values: updated.custom_values ?? {},
+    comment_count: scoped.record.comment_count,
+    attachment_count: scoped.record.attachment_count,
+  };
   if (mutationWarnings.length > 0) {
     console.error("Enrollment update committed with side-effect warnings", {
       recordId: id,
       warnings: mutationWarnings,
     });
   }
-  return NextResponse.json({
-    record: record ?? { ...updated, comment_count: 0, attachment_count: 0 },
-    warnings: mutationWarnings,
-  });
+  const response = NextResponse.json({ record, warnings: mutationWarnings });
+  response.headers.set("Server-Timing", timing.headerValue());
+  timing.log(200);
+  return response;
 }
 
 export async function DELETE(request: Request, { params }: Ctx) {

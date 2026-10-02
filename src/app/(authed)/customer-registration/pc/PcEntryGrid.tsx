@@ -68,7 +68,6 @@ export default function PcEntryGrid({
   const [submitting, setSubmitting] = useState(false);
   const [quickFilter, setQuickFilter] = useState("");
   const [editingEntry, setEditingEntry] = useState<PcEntry | null>(null);
-  const [isUpdating, setIsUpdating] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<{
     kind: "ok" | "err";
     text: string;
@@ -393,8 +392,13 @@ export default function PcEntryGrid({
     [],
   );
 
-  const loadHistory = useCallback(async () => {
-    setLoading(true);
+  /**
+   * `silent`: tải lại chạy nền sau một thao tác, KHÔNG bật overlay loading của
+   * cả bảng (plan instant feedback T3.3). Chỉ lần tải chủ động mới hiện overlay.
+   */
+  const loadHistory = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent === true;
+    if (!silent) setLoading(true);
     try {
       const res = await fetch("/api/pc-entries", { cache: "no-store" });
       const json = await res.json();
@@ -403,49 +407,60 @@ export default function PcEntryGrid({
     } catch (error) {
       setHistoryMessage({ kind: "err", text: (error as Error).message });
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
   const handleDelete = useCallback(async (id: string) => {
     if (!window.confirm("Are you sure you want to delete this entry?")) return;
+    // Bỏ dòng ngay, không phủ loading lên cả bảng (plan instant feedback T3.3).
+    setHistory((current) => current.filter((entry) => entry.id !== id));
     try {
-      setLoading(true);
       const res = await fetch(`/api/pc-entries/${id}`, { method: "DELETE" });
       if (!res.ok) {
-        const json = await res.json();
-        throw new Error(json.error ?? "Failed to delete");
+        const json = await res.json().catch(() => null);
+        throw new Error(json?.error ?? "Failed to delete");
       }
-      await loadHistory();
       setHistoryMessage({ kind: "ok", text: "Entry deleted successfully." });
     } catch (err) {
       setHistoryMessage({ kind: "err", text: (err as Error).message });
-      setLoading(false);
+    } finally {
+      // Thành công thì đồng bộ lại; lỗi thì dòng hiện lại từ server.
+      void loadHistory({ silent: true });
     }
   }, [loadHistory]);
 
   const handleUpdate = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!editingEntry) return;
-
-    setIsUpdating(true);
+    // Đóng hộp và đổi dòng ngay; server từ chối thì trả dòng cũ và mở lại hộp
+    // với đúng dữ liệu vừa nhập (plan instant feedback T3.3).
+    const draft = editingEntry;
+    const previous = history.find((entry) => entry.id === draft.id) ?? null;
+    setHistory((current) => current.map((entry) => (entry.id === draft.id ? draft : entry)));
+    setEditingEntry(null);
     try {
-      const res = await fetch(`/api/pc-entries/${editingEntry.id}`, {
+      const res = await fetch(`/api/pc-entries/${draft.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editingEntry),
+        body: JSON.stringify(draft),
       });
-      if (!res.ok) {
-        const json = await res.json();
-        throw new Error(json.error ?? "Failed to update");
+      const json = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(json?.error ?? "Failed to update");
+      const saved = json?.entry as PcEntry | undefined;
+      if (saved) {
+        setHistory((current) => current.map((entry) => (entry.id === saved.id ? saved : entry)));
       }
-      setHistoryMessage({ kind: "ok", text: "Entry updated successfully." });
-      setEditingEntry(null);
-      await loadHistory();
+      setHistoryMessage({
+        kind: "ok",
+        text: json?.warning ? `Entry updated. ${json.warning}` : "Entry updated successfully.",
+      });
     } catch (err) {
+      if (previous) {
+        setHistory((current) => current.map((entry) => (entry.id === draft.id ? previous : entry)));
+      }
+      setEditingEntry(draft);
       setHistoryMessage({ kind: "err", text: (err as Error).message });
-    } finally {
-      setIsUpdating(false);
     }
   };
 
@@ -468,7 +483,18 @@ export default function PcEntryGrid({
       setHistoryMessage({ kind: "ok", text: "Entry updated successfully." });
     } catch (err) {
       setHistoryMessage({ kind: "err", text: (err as Error).message });
-      loadHistory();
+      // Trả đúng ô đó về giá trị cũ thay vì tải lại cả bảng. Bảng dùng
+      // getRowId nên AG Grid tự cập nhật đúng dòng từ `history`.
+      const field = event.colDef.field as keyof PcEntry | undefined;
+      if (field) {
+        setHistory((current) =>
+          current.map((entry) =>
+            entry.id === event.data.id ? { ...entry, [field]: event.oldValue } : entry,
+          ),
+        );
+      } else {
+        void loadHistory({ silent: true });
+      }
     }
   }, [loadHistory]);
 
@@ -532,7 +558,17 @@ export default function PcEntryGrid({
       if (!res.ok) throw new Error(json.error ?? "Failed to submit");
 
       setDrafts(makeEmptyRows(10));
-      await loadHistory();
+      // Dòng mới đã có trong response: chèn ngay lên đầu, đồng bộ lại chạy nền
+      // (không còn chờ thêm một lượt tải lại có overlay cả bảng).
+      const inserted = Array.isArray(json.entries) ? (json.entries as PcEntry[]) : [];
+      if (inserted.length > 0) {
+        const insertedIds = new Set(inserted.map((entry) => entry.id));
+        setHistory((current) => [
+          ...inserted,
+          ...current.filter((entry) => !insertedIds.has(entry.id)),
+        ]);
+      }
+      void loadHistory({ silent: true });
       setSubmitMessage({
         kind: "ok",
         text: json.warning
@@ -839,10 +875,9 @@ export default function PcEntryGrid({
                 </button>
                 <button
                   type="submit"
-                  disabled={isUpdating}
                   className="rounded bg-[#15345f] px-6 py-2 text-sm font-bold text-white shadow-lg hover:bg-[#102b52] disabled:opacity-50"
                 >
-                  {isUpdating ? "Saving..." : "Save Changes"}
+                  Save Changes
                 </button>
               </div>
             </form>

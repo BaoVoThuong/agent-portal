@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { runAfterResponse } from "@/lib/after-response";
 import { broadcastNotif } from "@/lib/tasks/realtime";
 import type { EnrollmentNotificationType } from "./types";
 
@@ -13,7 +14,14 @@ export type EnrollmentNotificationInsertInput = {
 
 export async function insertEnrollmentNotifications(
   rows: EnrollmentNotificationInsertInput[],
-  options: { alreadyScoped?: boolean } = {},
+  options: {
+    alreadyScoped?: boolean;
+    /**
+     * Phát realtime + push sau khi response đã trả. Lọc người nhận theo quyền
+     * xem và ghi dòng vẫn chạy trong request — xem lib/tasks/notifications.ts.
+     */
+    deliverAfterResponse?: boolean;
+  } = {},
 ): Promise<void> {
   const recordIds = [...new Set(rows.map((row) => row.record_id))];
   try {
@@ -44,6 +52,13 @@ export async function insertEnrollmentNotifications(
     );
     if (error) throw new Error(error.message);
 
+    if (
+      options.deliverAfterResponse &&
+      (await runAfterResponse(() => deliverEnrollmentNotifications(uniqueRows)))
+    ) {
+      return;
+    }
+
     await broadcastNotif(uniqueRows.map((row) => row.recipient_email));
 
     // Đẩy ra ngoài trình duyệt — xem ghi chú ở lib/tasks/notifications.ts.
@@ -59,6 +74,42 @@ export async function insertEnrollmentNotifications(
       error: error instanceof Error ? error.message : "unknown error",
     });
     throw error;
+  }
+}
+
+/**
+ * Phần "phát đi" khi chạy trong `after()`: realtime rồi push, gọi thẳng. Không
+ * ném lỗi — response đã trả, chỉ còn ghi log.
+ */
+async function deliverEnrollmentNotifications(
+  rows: EnrollmentNotificationInsertInput[],
+): Promise<void> {
+  const recordIds = [...new Set(rows.map((row) => row.record_id))];
+  try {
+    const delivered = await broadcastNotif(rows.map((row) => row.recipient_email));
+    if (!delivered) {
+      console.error("enrollment.notification.delivery_failed", { recordIds, stage: "broadcast" });
+    }
+  } catch (error) {
+    // Push is independent from Realtime. Keep attempting it even if Realtime
+    // cannot initialise or its transport unexpectedly rejects.
+    console.error("enrollment.notification.delivery_failed", {
+      recordIds,
+      stage: "broadcast",
+      error: error instanceof Error ? error.message : "unknown error",
+    });
+  }
+  try {
+    const { pushForEnrollmentNotifications } = await import(
+      "@/lib/notifications/push-dispatch"
+    );
+    await pushForEnrollmentNotifications(rows);
+  } catch (error) {
+    console.error("enrollment.notification.delivery_failed", {
+      recordIds,
+      stage: "push",
+      error: error instanceof Error ? error.message : "unknown error",
+    });
   }
 }
 

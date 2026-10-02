@@ -25,12 +25,9 @@ import {
   addPendingFiles,
   ATTACHMENT_ACCEPT_ATTRIBUTE,
   removePendingFile,
-  summariseUploadResults,
   type PendingFile,
 } from "@/lib/tasks/pending-attachments";
 import { formatAttachmentSize } from "@/lib/tasks/attachments";
-import { publishTaskDataInvalidation } from "@/lib/tasks/client-events";
-import { TASK_MUTATION_SOURCE_HEADER } from "@/lib/tasks/realtime-topics";
 import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
 
 const SIDE_INPUT_CLASS =
@@ -70,7 +67,6 @@ const ASSIGNED_STATUS_OPTIONS = TASK_STATUSES.filter((status) => status !== "bac
 
 export function NewTaskDialog({
   open,
-  mutationSourceId,
   isManager,
   currentEmail,
   myAssistantAgents,
@@ -88,9 +84,9 @@ export function NewTaskDialog({
   columnByKey,
   onClose,
   onCreate,
+  onBackgroundUpload,
 }: {
   open: boolean;
-  mutationSourceId?: string;
   isManager: boolean;
   currentEmail: string;
   myAssistantAgents: string[];
@@ -109,7 +105,15 @@ export function NewTaskDialog({
   requiredColumnKeys: ReadonlySet<string>;
   columnByKey: ReadonlyMap<string, { label: string }>;
   onClose: () => void;
-  onCreate: (payload: NewTaskPayload) => Promise<{ id: string }>;
+  onCreate: (payload: NewTaskPayload) => Promise<{ id: string; display_number?: number | null }>;
+  /**
+   * Task đã tạo xong và form đã đóng: giao file cho trang tải chạy nền (plan
+   * instant feedback T2.1). Mỗi file giữ `key` cố định làm `client_request_id`.
+   */
+  onBackgroundUpload: (
+    task: { id: string; display_number?: number | null },
+    files: PendingFile[],
+  ) => void;
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -124,7 +128,6 @@ export function NewTaskDialog({
   const [invalidKeys, setInvalidKeys] = useState<ReadonlySet<string>>(new Set());
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [fileError, setFileError] = useState<string | null>(null);
-  const [uploadingIndex, setUploadingIndex] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const createRequestIdRef = useRef<string | null>(null);
 
@@ -274,44 +277,9 @@ export function NewTaskDialog({
           : {}),
         client_request_id: createRequestIdRef.current ?? crypto.randomUUID(),
       });
-      if (pendingFiles.length > 0) {
-        const results: { name: string; ok: boolean }[] = [];
-        const failedKeys = new Set<string>();
-        let uploadedAny = false;
-        for (const [index, item] of pendingFiles.entries()) {
-          setUploadingIndex(index);
-          const body = new FormData();
-          body.append("file", item.file);
-          body.append("silent", "1");
-          body.append("client_request_id", item.key);
-          try {
-            const response = await fetch(`/api/tasks/${created.id}/attachments`, {
-              method: "POST",
-              headers: mutationSourceId
-                ? { [TASK_MUTATION_SOURCE_HEADER]: mutationSourceId }
-                : undefined,
-              body,
-            });
-            const ok = response.ok;
-            results.push({ name: item.name, ok });
-            if (ok) uploadedAny = true;
-            else failedKeys.add(item.key);
-          } catch {
-            results.push({ name: item.name, ok: false });
-            failedKeys.add(item.key);
-          }
-        }
-        if (uploadedAny) {
-          publishTaskDataInvalidation({ taskId: created.id });
-        }
-        setUploadingIndex(null);
-        const uploadSummary = summariseUploadResults(results);
-        if (uploadSummary) {
-          setPendingFiles((current) => current.filter((item) => failedKeys.has(item.key)));
-          setFileError(uploadSummary);
-          return;
-        }
-      }
+      // Task đã có trên server (và đã hiện trên bảng): đóng form ngay. File tải
+      // chạy nền ở TaskBoardClient thay vì giữ form chờ từng file một.
+      const files = pendingFiles;
       setTitle("");
       setDescription("");
       setFubLink("");
@@ -324,13 +292,10 @@ export function NewTaskDialog({
       setPendingFiles([]);
       setFileError(null);
       onClose();
+      if (files.length > 0) onBackgroundUpload(created, files);
     } catch {
       // TaskBoardClient owns the visible error toast.
     } finally {
-      // Belt and braces: the loop clears this on its own path, but a throw
-      // between two files would otherwise leave "Uploading file N of M…" on
-      // screen for as long as the dialog stays open.
-      setUploadingIndex(null);
       setSaving(false);
     }
   }
@@ -454,9 +419,6 @@ export function NewTaskDialog({
                       </li>
                     ))}
                   </ul>
-                ) : null}
-                {uploadingIndex !== null ? (
-                  <p className="text-xs font-semibold text-[#5e6c84]">Uploading file {uploadingIndex + 1} of {pendingFiles.length}…</p>
                 ) : null}
                 {fileError ? <p role="alert" className="text-xs font-semibold text-[#bf2600]">{fileError}</p> : null}
               </div>

@@ -6,6 +6,7 @@ import type { EntryInput, Entry } from "@/lib/domain/entry.types";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { buildVisibleEntriesFilter, normalizeAgentName } from "@/lib/agent-name";
+import { RouteTiming } from "@/lib/server-timing";
 
 export async function GET() {
   const session = await auth();
@@ -76,7 +77,10 @@ function sanitizeRow(row: Partial<EntryInput>): EntryInput | null {
 }
 
 export async function POST(request: Request) {
-  const session = await auth();
+  // Đo nhánh thành công, để biết lượt ghi Google Sheet tốn bao lâu (QĐ-F của
+  // plan instant feedback).
+  const timing = new RouteTiming("entries-create");
+  const session = await timing.measure("auth", async () => auth());
   const email = session?.user?.email;
   const name = session?.user?.name ?? null;
   if (
@@ -118,25 +122,30 @@ export async function POST(request: Request) {
   }));
 
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
-    .from("health_entries")
-    .insert(toInsert)
-    .select("*");
+  const { data, error } = await timing.measure("write", async () =>
+    supabase.from("health_entries").insert(toInsert).select("*")
+  );
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   const inserted = (data ?? []) as Entry[];
+  const respond = (body: unknown) => {
+    const response = NextResponse.json(body);
+    response.headers.set("Server-Timing", timing.headerValue());
+    timing.log(200);
+    return response;
+  };
   try {
-    await appendEntriesToSheet(inserted);
+    await timing.measure("sheet", () => appendEntriesToSheet(inserted));
   } catch (err) {
     console.error("Sheet sync failed", err);
-    return NextResponse.json({
+    return respond({
       entries: inserted,
       warning: "Saved to database but Google Sheet sync failed",
     });
   }
 
-  return NextResponse.json({ entries: inserted });
+  return respond({ entries: inserted });
 }

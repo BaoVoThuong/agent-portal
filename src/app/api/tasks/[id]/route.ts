@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
+import { RouteTiming } from "@/lib/server-timing";
 import { TASK_DUE_DATE_KEY } from "@/lib/tasks/due-date";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -220,8 +221,10 @@ export async function GET(_req: Request, { params }: Ctx) {
 }
 
 export async function PATCH(req: Request, { params }: Ctx) {
+  // Chỉ đo nhánh thành công (header Server-Timing trên response 200).
+  const timing = new RouteTiming("tasks-update");
   const { id } = await params;
-  const r = await loadActorAndTask(id);
+  const r = await timing.measure("load", async () => loadActorAndTask(id));
   if ("error" in r) return NextResponse.json({ error: r.error }, { status: r.status });
 
   const body = await req.json().catch(() => null);
@@ -584,9 +587,8 @@ export async function PATCH(req: Request, { params }: Ctx) {
     })),
   ]);
 
-  const { data: atomicData, error: atomicError } = await r.supabase.rpc(
-    "patch_task_atomic",
-    {
+  const { data: atomicData, error: atomicError } = await timing.measure("write", async () =>
+    r.supabase.rpc("patch_task_atomic", {
       p_task_id: id,
       p_expected_updated_at: expectedUpdatedAt,
       p_patch: resolved.patch,
@@ -603,10 +605,12 @@ export async function PATCH(req: Request, { params }: Ctx) {
           }
         : null,
       p_now: nowIso,
-    }
+    })
   );
   if (atomicError) {
     if (atomicError.message.includes("TASK_CONFLICT")) {
+      // Chỉ id, không nội dung: đếm số 409 trước/sau khi đổi giao diện.
+      console.warn("mutation.conflict", { route: "tasks.update", id });
       return NextResponse.json(
         { error: "Task was updated by someone else. Refresh and try again." },
         { status: 409 }
@@ -625,9 +629,15 @@ export async function PATCH(req: Request, { params }: Ctx) {
 
   const data = atomicData as TaskRow;
 
-  const notificationResults = await Promise.allSettled([
-    notificationRows.length > 0 ? insertNotifications(notificationRows) : null,
-  ]);
+  // Dòng thông báo ghi trong request (dữ liệu); realtime + push của nó chạy sau
+  // response — xem lib/tasks/notifications.ts.
+  const notificationResults = await timing.measure("notify", async () =>
+    Promise.allSettled([
+      notificationRows.length > 0
+        ? insertNotifications(notificationRows, { deliverAfterResponse: true })
+        : null,
+    ])
+  );
   for (const result of notificationResults) {
     if (result.status === "rejected" || result.value === false) {
       mutationWarnings.push(
@@ -638,19 +648,18 @@ export async function PATCH(req: Request, { params }: Ctx) {
     }
   }
 
-  const broadcastResults = await Promise.allSettled([
-    broadcastTasksChanged(readTaskMutationSourceId(req)),
-    broadcastTaskRoom(id, readTaskMutationSourceId(req)),
-  ]);
-  for (const result of broadcastResults) {
-    if (result.status === "rejected" || !result.value) {
-      mutationWarnings.push(
-        result.status === "rejected" && result.reason instanceof Error
-          ? result.reason.message
-          : "Task broadcast failed."
-      );
+  // Phát realtime sau response: mỗi lượt có thể thử 2 lần × 1,5 giây, từng giữ
+  // người dùng tới khoảng 3 giây khi Realtime chậm. Đọc header trước after().
+  const sourceId = readTaskMutationSourceId(req);
+  after(async () => {
+    const delivered = await Promise.allSettled([
+      broadcastTasksChanged(sourceId),
+      broadcastTaskRoom(id, sourceId),
+    ]);
+    if (delivered.some((result) => result.status === "rejected" || !result.value)) {
+      console.error("task.update.delivery_failed", { taskId: id, stage: "broadcast" });
     }
-  }
+  });
 
   let task: TaskRow & { assignees: string[]; assignee_started_at: string | null } = {
     ...(data as TaskRow),
@@ -658,9 +667,11 @@ export async function PATCH(req: Request, { params }: Ctx) {
     assignee_started_at: null,
   };
   try {
-    [task] = await attachAssigneesToTasks([data as TaskRow], r.supabase, {
-      currentEmail: r.actor.email,
-    });
+    [task] = await timing.measure("assignees", async () =>
+      attachAssigneesToTasks([data as TaskRow], r.supabase, {
+        currentEmail: r.actor.email,
+      })
+    );
   } catch (error) {
     mutationWarnings.push(
       `Task assignee reload failed: ${error instanceof Error ? error.message : "unknown error"}`
@@ -672,7 +683,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
       warnings: mutationWarnings,
     });
   }
-  return NextResponse.json({ task, warnings: mutationWarnings });
+  const response = NextResponse.json({ task, warnings: mutationWarnings });
+  response.headers.set("Server-Timing", timing.headerValue());
+  timing.log(200);
+  return response;
 }
 
 export async function DELETE(req: Request, { params }: Ctx) {
@@ -713,26 +727,19 @@ export async function DELETE(req: Request, { params }: Ctx) {
     .maybeSingle();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) {
+    console.warn("mutation.conflict", { route: "tasks.archive", id });
     return NextResponse.json(
       { error: "Task was updated by someone else. Refresh and try again." },
       { status: 409 }
     );
   }
 
-  const warnings: string[] = [];
-  const broadcastResult = await Promise.allSettled([
-    broadcastTasksChanged(readTaskMutationSourceId(req)),
-  ]);
-  const taskBroadcast = broadcastResult[0];
-  if (
-    taskBroadcast?.status === "rejected" ||
-    (taskBroadcast?.status === "fulfilled" && !taskBroadcast.value)
-  ) {
-    warnings.push(
-      taskBroadcast?.status === "rejected" && taskBroadcast.reason instanceof Error
-        ? taskBroadcast.reason.message
-        : "Task broadcast failed."
-    );
-  }
-  return NextResponse.json({ ok: true, warnings });
+  // Phát realtime sau response; xem PATCH ở trên.
+  const sourceId = readTaskMutationSourceId(req);
+  after(async () => {
+    if (!(await broadcastTasksChanged(sourceId).catch(() => false))) {
+      console.error("task.archive.delivery_failed", { taskId: id, stage: "broadcast" });
+    }
+  });
+  return NextResponse.json({ ok: true, warnings: [] });
 }

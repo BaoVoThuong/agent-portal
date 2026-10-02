@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canAssign, isTaskViewAdmin } from "@/lib/tasks/access";
@@ -96,6 +96,8 @@ export async function POST(request: Request, { params }: Ctx) {
     return NextResponse.json({ error: assignError.message }, { status: 500 });
   }
 
+  // Dòng thông báo ghi trong request; realtime của nó, cùng hai lượt phát cho
+  // bảng và trang chi tiết, chạy sau response (xem lib/after-response.ts).
   const [taskResult, warnings] = await Promise.all([
     supabase.from("tasks").select(TASK_COLUMNS).eq("id", id).single(),
     settleSideEffects([
@@ -103,28 +105,30 @@ export async function POST(request: Request, { params }: Ctx) {
         code: "notification_failed",
         message: "The task was assigned but the assignee notification may be delayed.",
         run: () =>
-          insertNotifications([
-            {
-              recipient_email: email,
-              task_id: id,
-              type: "assigned",
-              actor_email: actorEmail,
-            },
-          ]),
-      },
-      {
-        code: "board_broadcast_failed",
-        message: "The task was assigned but other boards may refresh on fallback.",
-        run: () =>
-          broadcastTasksChanged(readTaskMutationSourceId(request)),
-      },
-      {
-        code: "detail_broadcast_failed",
-        message: "The task was assigned but open task details may refresh on fallback.",
-        run: () => broadcastTaskRoom(id, readTaskMutationSourceId(request)),
+          insertNotifications(
+            [
+              {
+                recipient_email: email,
+                task_id: id,
+                type: "assigned",
+                actor_email: actorEmail,
+              },
+            ],
+            { deliverAfterResponse: true }
+          ),
       },
     ]),
   ]);
+  const sourceId = readTaskMutationSourceId(request);
+  after(async () => {
+    const delivered = await Promise.allSettled([
+      broadcastTasksChanged(sourceId),
+      broadcastTaskRoom(id, sourceId),
+    ]);
+    if (delivered.some((result) => result.status === "rejected" || !result.value)) {
+      console.error("task.assign.delivery_failed", { taskId: id, stage: "broadcast" });
+    }
+  });
 
   const { data, error: taskError } = taskResult;
   if (taskError || !data) {

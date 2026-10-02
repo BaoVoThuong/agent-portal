@@ -130,8 +130,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  // Chỉ đo nhánh thành công (header Server-Timing trên response 201/200).
+  const timing = new RouteTiming("enrollment-create");
   const sourceId = readEnrollmentMutationSourceId(request);
-  const actorResult = await loadEnrollmentActor();
+  const actorResult = await timing.measure("auth", () => loadEnrollmentActor());
   if (!actorResult.ok) {
     return NextResponse.json(
       { error: actorResult.error },
@@ -330,12 +332,14 @@ export async function POST(request: Request) {
   if (selectedStage?.triggers_qc) {
     activityRows.push({ type: "qc_needed", meta: { stage: selectedStage.label } });
   }
-  const { data, error } = await supabase.rpc("create_enrollment_atomic", {
-    p_record: sanitizedPatch,
-    p_actor_email: actorResult.actor.email,
-    p_activity: activityRows,
-    p_now: nowIso,
-  });
+  const { data, error } = await timing.measure("write", async () =>
+    supabase.rpc("create_enrollment_atomic", {
+      p_record: sanitizedPatch,
+      p_actor_email: actorResult.actor.email,
+      p_activity: activityRows,
+      p_now: nowIso,
+    })
+  );
   const schemaResponse = enrollmentSchemaErrorResponse(error);
   if (schemaResponse) return schemaResponse;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -360,8 +364,10 @@ export async function POST(request: Request) {
     ),
     createdRecipients: taskManagerEmails,
   });
+  // Ghi dòng thông báo trong request (dữ liệu, phải bền); realtime + push của
+  // chúng chạy sau response — xem lib/after-response.ts.
   const notificationPromises: Promise<void>[] = notificationRows.length > 0
-    ? [insertEnrollmentNotifications(notificationRows)]
+    ? [insertEnrollmentNotifications(notificationRows, { deliverAfterResponse: true })]
     : [];
 
   if (selectedStage?.triggers_qc) {
@@ -382,12 +388,15 @@ export async function POST(request: Request) {
             actor_email: actorResult.actor.email,
             detail: selectedStage.label,
           })),
+          { deliverAfterResponse: true },
         ),
       );
     }
   }
 
-  const notificationResults = await Promise.allSettled(notificationPromises);
+  const notificationResults = await timing.measure("notify", () =>
+    Promise.allSettled(notificationPromises)
+  );
   for (const result of notificationResults) {
     if (result.status === "rejected") {
       mutationWarnings.push(
@@ -412,10 +421,13 @@ export async function POST(request: Request) {
       warnings: mutationWarnings,
     });
   }
-  return NextResponse.json({
+  const response = NextResponse.json({
     record: { ...record, comment_count: 0, attachment_count: 0 },
     warnings: mutationWarnings,
   });
+  response.headers.set("Server-Timing", timing.headerValue());
+  timing.log(200);
+  return response;
 }
 
 function cleanText(value: unknown): string | null {

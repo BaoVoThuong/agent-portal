@@ -61,6 +61,18 @@ type FeedItem =
   | { kind: "comment"; timestamp: string; comment: LeadComment }
   | { kind: "interaction"; timestamp: string; interaction: LeadInteraction };
 
+/** Tương tác đã bấm Save, đang chờ server (plan instant feedback T2.5). */
+type PendingInteraction = {
+  tempId: string;
+  requestId: string;
+  typeId: string;
+  statusId: string;
+  note: string;
+  followUpAt: string;
+};
+
+type PendingComment = { tempId: string; requestId: string; body: string };
+
 function relativeTime(value: string): string {
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) return value;
@@ -121,11 +133,17 @@ export function InteractionLog({
   const [followUpAt, setFollowUpAt] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
   const [commentBody, setCommentBody] = useState("");
-  const [commentSaving, setCommentSaving] = useState(false);
   const [commentError, setCommentError] = useState<string | null>(null);
   const requestIdRef = useRef<string | null>(null);
+  // Hộp ghi tương tác đóng ngay khi bấm Save; dòng tạm "Saving…" hiện trong feed
+  // cho tới khi server trả lời. Status, follow-up, số lần liên hệ của lead do
+  // server tính nên chỉ đổi khi có kết quả thật.
+  const [pendingInteractions, setPendingInteractions] = useState<PendingInteraction[]>([]);
+  const [pendingComments, setPendingComments] = useState<PendingComment[]>([]);
+  const composerOpenRef = useRef(false);
+  /** Comment vừa hỏng: gửi lại đúng chữ đó thì dùng lại request id, không tạo trùng. */
+  const failedCommentRef = useRef<{ body: string; requestId: string } | null>(null);
 
   const feedItems = useMemo<FeedItem[]>(
     () =>
@@ -169,68 +187,93 @@ export function InteractionLog({
 
   function openComposer() {
     resetComposer();
+    composerOpenRef.current = true;
     setComposerOpen(true);
   }
 
   function closeComposer() {
-    if (saving) return;
     resetComposer();
+    composerOpenRef.current = false;
     setComposerOpen(false);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canSubmit || saving) return;
+    if (!canSubmit) return;
     const requestId = requestIdRef.current ?? crypto.randomUUID();
-    requestIdRef.current = requestId;
-    setSaving(true);
-    setError(null);
+    const draft: PendingInteraction = {
+      tempId: `temp-${requestId}`,
+      requestId,
+      typeId,
+      statusId,
+      note,
+      followUpAt,
+    };
+    setPendingInteractions((current) => [
+      ...current.filter((item) => item.requestId !== requestId),
+      draft,
+    ]);
+    closeComposer();
     try {
       const result = await onSave({
-        type_id: typeId,
-        status_id: statusId,
-        note,
-        follow_up_at: followUpAt ? new Date(followUpAt).toISOString() : null,
+        type_id: draft.typeId,
+        status_id: draft.statusId,
+        note: draft.note,
+        follow_up_at: draft.followUpAt ? new Date(draft.followUpAt).toISOString() : null,
         client_request_id: requestId,
       });
       // Không tự giữ danh sách nữa: cha thêm dòng rồi truyền xuống. Một nguồn
       // sự thật thì badge và danh sách không thể lệch nhau.
       onInteractionSaved?.(result.interaction);
-      resetComposer();
-      setComposerOpen(false);
     } catch (saveError) {
-      setError(
-        saveError instanceof Error
-          ? saveError.message
-          : "Could not save interaction.",
-      );
-      // Keep requestIdRef intact: retrying this failed network request is idempotent.
+      const message =
+        saveError instanceof Error ? saveError.message : "Could not save interaction.";
+      if (composerOpenRef.current) {
+        // Người dùng đang soạn một tương tác khác: không ghi đè chữ họ đang gõ.
+        setError(`The previous interaction was not saved: ${message}`);
+      } else {
+        // Mở lại hộp với đúng nội dung vừa nhập. Giữ request id: thử lại không
+        // tạo trùng.
+        setTypeId(draft.typeId);
+        setStatusId(draft.statusId);
+        setFollowUpAt(draft.followUpAt);
+        setNote(draft.note);
+        requestIdRef.current = requestId;
+        setError(message);
+        composerOpenRef.current = true;
+        setComposerOpen(true);
+      }
     } finally {
-      setSaving(false);
+      setPendingInteractions((current) =>
+        current.filter((item) => item.tempId !== draft.tempId),
+      );
     }
   }
 
   async function submitComment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const body = commentBody.trim();
-    if (!body || !canComment || commentSaving) return;
-    setCommentSaving(true);
+    if (!body || !canComment) return;
+    const failed = failedCommentRef.current;
+    const requestId = failed && failed.body === body ? failed.requestId : crypto.randomUUID();
+    failedCommentRef.current = null;
+    const pending: PendingComment = { tempId: `temp-${requestId}`, requestId, body };
+    // Comment hiện ngay, ô nhập xoá ngay.
+    setPendingComments((current) => [...current, pending]);
+    setCommentBody("");
     setCommentError(null);
     try {
-      const result = await onSaveComment({
-        body,
-        client_request_id: crypto.randomUUID(),
-      });
+      const result = await onSaveComment({ body, client_request_id: requestId });
       onCommentSaved?.(result.comment);
-      setCommentBody("");
     } catch (saveError) {
+      failedCommentRef.current = { body, requestId };
+      // Trả chữ về ô nhập, trừ khi người dùng đã gõ cái mới.
+      setCommentBody((current) => (current.trim() ? current : body));
       setCommentError(
-        saveError instanceof Error
-          ? saveError.message
-          : "Could not save comment.",
+        saveError instanceof Error ? saveError.message : "Could not save comment.",
       );
     } finally {
-      setCommentSaving(false);
+      setPendingComments((current) => current.filter((item) => item.tempId !== pending.tempId));
     }
   }
 
@@ -274,7 +317,6 @@ export function InteractionLog({
               <button
                 type="button"
                 onClick={closeComposer}
-                disabled={saving}
                 aria-label="Close interaction composer"
                 className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-[#626f86] transition hover:bg-[#f4f5f7] hover:text-[#172b4d] disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -298,7 +340,7 @@ export function InteractionLog({
                   label: type.label,
                 }))}
                 placeholder="Choose interaction"
-                disabled={!canLog || saving}
+                disabled={!canLog}
                 searchable
                 className="mt-1 w-full"
                 buttonClassName={INTERACTION_SELECT_BUTTON_CLASS}
@@ -318,7 +360,7 @@ export function InteractionLog({
                   label: candidate.label,
                 }))}
                 placeholder="Choose result"
-                disabled={!canLog || saving}
+                disabled={!canLog}
                 searchable
                 className="mt-1 w-full"
                 buttonClassName={INTERACTION_SELECT_BUTTON_CLASS}
@@ -341,7 +383,7 @@ export function InteractionLog({
                 min={formatDateTimeInput(new Date())}
                 value={followUpAt}
                 onChange={(event) => setFollowUpAt(event.target.value)}
-                disabled={!canLog || saving}
+                disabled={!canLog}
                 required
               />
             </label>
@@ -354,7 +396,7 @@ export function InteractionLog({
               className="mt-1 min-h-20 w-full resize-y rounded-md border border-[#cfd8e5] bg-white px-3 py-2 text-sm text-[#172b4d] outline-none focus:border-[#0c66e4]"
               value={note}
               onChange={(event) => setNote(event.target.value)}
-              disabled={!canLog || saving}
+              disabled={!canLog}
               placeholder="What happened?"
               maxLength={4000}
             />
@@ -368,7 +410,6 @@ export function InteractionLog({
             <button
               type="button"
               onClick={closeComposer}
-              disabled={saving}
               className="inline-flex h-9 items-center rounded px-3 text-sm font-semibold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:cursor-not-allowed disabled:opacity-50"
             >
               Cancel
@@ -376,9 +417,9 @@ export function InteractionLog({
             <button
               className="inline-flex h-9 items-center rounded bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-50"
               type="submit"
-              disabled={!canSubmit || saving}
+              disabled={!canSubmit}
             >
-              {saving ? "Saving..." : "Log interaction"}
+              Log interaction
             </button>
           </div>
             </form>
@@ -409,7 +450,9 @@ export function InteractionLog({
           >
             Loading activity…
           </p>
-        ) : feedItems.length === 0 ? null : (
+        ) : feedItems.length === 0 &&
+          pendingInteractions.length === 0 &&
+          pendingComments.length === 0 ? null : (
           feedItems.map((item) => {
             if (item.kind === "comment") {
               const comment = item.comment;
@@ -516,6 +559,54 @@ export function InteractionLog({
             );
           })
         )}
+        {pendingInteractions.map((pending) => {
+          const pendingType = interactionTypes.find((candidate) => candidate.id === pending.typeId);
+          const pendingStatus = statuses.find((candidate) => candidate.id === pending.statusId);
+          return (
+            <article
+              key={pending.tempId}
+              className="flex gap-2.5 opacity-60"
+              aria-busy="true"
+            >
+              <div className="min-w-0 flex-1 rounded border border-dashed border-[#c1c7d0] px-3 py-2">
+                <p className="text-xs font-semibold italic text-[#6b778c]">Saving interaction…</p>
+                <div className="mt-1 flex flex-wrap gap-1.5">
+                  {pendingType ? (
+                    <span
+                      className="inline-flex items-center rounded px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.04em]"
+                      style={badgeStyle(pendingType.id, pendingType.label, pendingType.color)}
+                    >
+                      {pendingType.label}
+                    </span>
+                  ) : null}
+                  {pendingStatus ? (
+                    <span
+                      className="inline-flex items-center rounded px-2 py-0.5 text-[11px] font-bold"
+                      style={badgeStyle(pendingStatus.id, pendingStatus.label, pendingStatus.color)}
+                    >
+                      {pendingStatus.label}
+                    </span>
+                  ) : null}
+                </div>
+                {pending.note ? (
+                  <p className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-5 text-[#172b4d] [overflow-wrap:anywhere]">
+                    {pending.note}
+                  </p>
+                ) : null}
+              </div>
+            </article>
+          );
+        })}
+        {pendingComments.map((pending) => (
+          <article key={pending.tempId} className="flex gap-2.5 opacity-60" aria-busy="true">
+            <div className="min-w-0 flex-1 rounded border border-dashed border-[#c1c7d0] px-3 py-2">
+              <p className="text-xs font-semibold italic text-[#6b778c]">Sending…</p>
+              <p className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-5 text-[#172b4d] [overflow-wrap:anywhere]">
+                {pending.body}
+              </p>
+            </div>
+          </article>
+        ))}
       </div>
       {canComment ? (
         <form
@@ -528,7 +619,6 @@ export function InteractionLog({
               setCommentBody(event.target.value);
               if (commentError) setCommentError(null);
             }}
-            disabled={commentSaving}
             maxLength={4000}
             placeholder="Add a comment…"
             className="min-h-20 w-full resize-y rounded border border-[#cfd8e5] bg-white px-3 py-2 text-sm text-[#172b4d] outline-none placeholder:text-[#8993a4] focus:border-[#0c66e4] disabled:bg-[#f4f5f7]"
@@ -555,10 +645,10 @@ export function InteractionLog({
               ) : null}
               <button
                 type="submit"
-                disabled={!commentBody.trim() || commentSaving}
+                disabled={!commentBody.trim()}
                 className="inline-flex h-8 items-center rounded bg-[#0c66e4] px-3 text-xs font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {commentSaving ? "Sending…" : "Send comment"}
+                Send comment
               </button>
             </div>
           </div>

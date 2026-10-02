@@ -196,6 +196,7 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
   const [showMonthlyAccrual, setShowMonthlyAccrual] = useState(false);
   const [showBulkAdjustment, setShowBulkAdjustment] = useState(false);
   const [decisionRequest, setDecisionRequest] = useState<TimeOffRequest | null>(null);
+  const decisionRequestRef = useRef<TimeOffRequest | null>(null);
   const [decisionAction, setDecisionAction] = useState<"approve" | "reject" | "cancel" | null>(null);
   // Đơn vừa được quyết trong phiên này. `router.refresh()` là đường chính để
   // dữ liệu mới về, nhưng nó không đảm bảo kịp trước lần render kế — nên đơn đã
@@ -203,6 +204,12 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
   // "This request has already been decided." Giữ danh sách id ở client để bỏ
   // dòng đó ra NGAY, refresh về sau chỉ xác nhận lại.
   const [decidedIds, setDecidedIds] = useState<ReadonlySet<string>>(new Set());
+  // Đơn đã bấm Approve/Decline/Cancel, đang chờ server (plan instant feedback
+  // T3.2): hộp đóng ngay, dòng hiện "Approving…". Số dư và lịch chỉ đổi khi
+  // server xác nhận.
+  const [decidingIds, setDecidingIds] = useState<
+    ReadonlyMap<string, "approve" | "reject" | "cancel">
+  >(() => new Map());
   const [decisionNote, setDecisionNote] = useState("");
   const [decisionError, setDecisionError] = useState<string | null>(null);
   const [requestPolicy, setRequestPolicy] = useState(initialData.policies[0]?.code ?? "vacation");
@@ -550,6 +557,10 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
   }
 
   function openDecision(request: TimeOffRequest, action: "approve" | "reject" | "cancel") {
+    // Keep the ref in sync in the same event. A rejected request can return
+    // before React has committed setState, and then needs to restore this
+    // exact dialog unless the user has opened another one.
+    decisionRequestRef.current = request;
     setError(null);
     setDecisionError(null);
     setDecisionRequest(request);
@@ -557,31 +568,49 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
     setDecisionNote("");
   }
 
-  async function decide(request: TimeOffRequest, action: "approve" | "reject" | "cancel", note = "") {
-    setBusy(`${action}-${request.id}`);
-    setError(null);
+  function closeDecision() {
+    decisionRequestRef.current = null;
+    setDecisionRequest(null);
+    setDecisionAction(null);
+    setDecisionNote("");
     setDecisionError(null);
+  }
+
+  async function decide(request: TimeOffRequest, action: "approve" | "reject" | "cancel", note = "") {
+    if (decidingIds.has(request.id)) return;
+    setDecidingIds((current) => new Map(current).set(request.id, action));
+    closeDecision();
+    setError(null);
     try {
       await readResponse(await fetch(`/api/time-off/requests/${request.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, note }),
       }));
-      if (action === "approve") await refreshVisibleCalendar();
       setDecidedIds((current) => new Set(current).add(request.id));
-      setDecisionRequest(null);
-      setDecisionAction(null);
-      setDecisionNote("");
-      setDecisionError(null);
       setNotice(action === "approve" ? "Request approved." : action === "reject" ? "Request declined." : "Request cancelled.");
       if (action === "approve" || action === "reject") selectTab("approvals");
+      // Lịch tải lại chạy nền; trước đây duyệt phải chờ cả lượt này.
+      if (action === "approve") void refreshVisibleCalendar().catch(() => undefined);
       router.refresh();
     } catch (requestError) {
       const message = requestError instanceof Error ? requestError.message : "Unable to update request.";
       setError(message);
-      setDecisionError(message);
+      // Mở lại hộp với ghi chú vừa nhập — trừ khi người dùng đang mở hộp của
+      // một đơn khác.
+      if (!decisionRequestRef.current) {
+        decisionRequestRef.current = request;
+        setDecisionRequest(request);
+        setDecisionAction(action);
+        setDecisionNote(note);
+        setDecisionError(message);
+      }
     } finally {
-      setBusy(null);
+      setDecidingIds((current) => {
+        const next = new Map(current);
+        next.delete(request.id);
+        return next;
+      });
     }
   }
 
@@ -599,7 +628,7 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
       setHolidayDate("");
       setHolidayName("");
       setNotice("Company day off added to the calendar.");
-      await refreshVisibleCalendar();
+      void refreshVisibleCalendar().catch(() => undefined);
       router.refresh();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to add company day off.");
@@ -692,7 +721,7 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
     try {
       await readResponse(await fetch(`/api/time-off/holidays/${holiday.id}`, { method: "DELETE" }));
       setNotice("Company day off removed.");
-      await refreshVisibleCalendar();
+      void refreshVisibleCalendar().catch(() => undefined);
       router.refresh();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to remove company day off.");
@@ -775,7 +804,7 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
 
   const sidebar = (
     <aside className="space-y-4">
-      <section className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-[#1769e8]" /><h2 className="text-sm font-semibold text-[#172e55]">My requests</h2></div>{recentMyRequests.length === 0 ? <p className="mt-3 text-[13px] leading-5 text-slate-500">You have not submitted any time-off requests yet.</p> : <div className="mt-3 divide-y divide-slate-100">{recentMyRequests.map((request) => { const policy = policiesByCode.get(request.policy_code); const isCancelling = busy === `cancel-${request.id}`; return <div key={request.id} className="py-2.5 first:pt-0 last:pb-0"><div className="flex items-start justify-between gap-2"><p className="min-w-0 truncate text-sm font-semibold text-[#1e355c]">{policy?.label ?? request.policy_code}</p><StatusBadge status={request.status} /></div><p className="mt-1 text-xs text-slate-500">{formatDateRange(request.start_date, request.end_date)} · {request.total_days} day{request.total_days === 1 ? "" : "s"}</p>{request.status === "pending" && !decidedIds.has(request.id) && <button type="button" disabled={Boolean(busy)} onClick={() => openDecision(request, "cancel")} className="mt-2 text-xs font-semibold text-rose-600 hover:text-rose-700 disabled:cursor-wait disabled:opacity-60">{isCancelling ? "Cancelling…" : "Cancel request"}</button>}</div>; })}</div>}{initialData.my_requests.length > 0 && <button type="button" onClick={() => setShowMyRequests(true)} className="mt-3 text-xs font-semibold text-[#1769e8] hover:text-[#115bca]">View full history ({initialData.my_requests.length})</button>}</section>
+      <section className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex items-center gap-2"><CalendarDays className="h-4 w-4 text-[#1769e8]" /><h2 className="text-sm font-semibold text-[#172e55]">My requests</h2></div>{recentMyRequests.length === 0 ? <p className="mt-3 text-[13px] leading-5 text-slate-500">You have not submitted any time-off requests yet.</p> : <div className="mt-3 divide-y divide-slate-100">{recentMyRequests.map((request) => { const policy = policiesByCode.get(request.policy_code); const isCancelling = decidingIds.get(request.id) === "cancel"; return <div key={request.id} className="py-2.5 first:pt-0 last:pb-0"><div className="flex items-start justify-between gap-2"><p className="min-w-0 truncate text-sm font-semibold text-[#1e355c]">{policy?.label ?? request.policy_code}</p><StatusBadge status={request.status} /></div><p className="mt-1 text-xs text-slate-500">{formatDateRange(request.start_date, request.end_date)} · {request.total_days} day{request.total_days === 1 ? "" : "s"}</p>{request.status === "pending" && !decidedIds.has(request.id) && <button type="button" disabled={Boolean(busy) || isCancelling} onClick={() => openDecision(request, "cancel")} className="mt-2 text-xs font-semibold text-rose-600 hover:text-rose-700 disabled:cursor-wait disabled:opacity-60">{isCancelling ? "Cancelling…" : "Cancel request"}</button>}</div>; })}</div>}{initialData.my_requests.length > 0 && <button type="button" onClick={() => setShowMyRequests(true)} className="mt-3 text-xs font-semibold text-[#1769e8] hover:text-[#115bca]">View full history ({initialData.my_requests.length})</button>}</section>
       <section className="rounded-xl border border-slate-200 bg-white p-4"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><Building2 className="h-4 w-4 text-violet-600" /><h2 className="text-sm font-semibold text-[#172e55]">Upcoming days off</h2></div>{canManage && <button type="button" onClick={() => { setError(null); setShowHoliday(true); }} className="text-sm font-semibold text-[#1769e8] hover:text-[#115bca]">Add</button>}</div><div className="mt-3 space-y-2.5">{calendarData.holidays.slice(0, 5).map((holiday) => <div key={holiday.id} className="min-w-0"><p className="truncate text-sm font-medium text-[#1e355c]">{holiday.name}</p><p className="mt-0.5 text-xs text-slate-500">{formatDate(holiday.date, { weekday: "short", month: "short", day: "numeric" })}{holiday.source === "us_federal" ? " · US federal" : " · Company"}</p></div>)}</div></section>
     </aside>
   );
@@ -786,7 +815,7 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
       <div className="mt-4 flex min-h-0 flex-1 flex-col">
         {tab === "balances" && <div className="flex min-h-0 flex-1 flex-col"><TeamBalanceTable members={initialData.team_members} policies={initialData.policies} onAdjust={openBalanceSetup} /></div>}
         {tab === "accruals" && <AccrualSettings policies={adjustablePolicies} rules={initialData.monthly_accrual_rules} teamSize={initialData.team_members.length} busy={Boolean(busy)} onConfigure={openMonthlyAccrual} onBulkAdjust={openBulkAdjustment} />}
-        {tab === "approvals" && <ApprovalQueue accountId={accountId} requests={visiblePendingApprovals} policiesByCode={policiesByCode} busy={Boolean(busy)} onDecide={openDecision} />}
+        {tab === "approvals" && <ApprovalQueue accountId={accountId} requests={visiblePendingApprovals} policiesByCode={policiesByCode} busy={Boolean(busy)} decidingIds={decidingIds} onDecide={openDecision} />}
         {tab === "history" && <TeamLeaveLog requests={initialData.team_leave_log} policiesByCode={policiesByCode} />}
         {tab === "company-days" && <CompanyDaysTable days={initialData.company_days} busy={Boolean(busy)} onRemove={removeHoliday} />}
       </div>
@@ -923,9 +952,7 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
           title={decisionAction === "approve" ? "Approve time-off request" : decisionAction === "reject" ? "Decline time-off request" : "Cancel time-off request"}
           onClose={() => {
             if (!busy) {
-              setDecisionRequest(null);
-              setDecisionAction(null);
-              setDecisionError(null);
+              closeDecision();
             }
           }}
         >
@@ -933,7 +960,7 @@ export default function TimeOffClient({ accountId, canManage, monthKey, initialT
             <div className="rounded-lg bg-slate-50 px-3.5 py-3"><p className="font-semibold text-[#1e355c]">{decisionRequest.requester_name}</p><p className="mt-1 text-sm text-slate-500">{formatDateRange(decisionRequest.start_date, decisionRequest.end_date)} · {decisionRequest.total_days} day{decisionRequest.total_days === 1 ? "" : "s"}</p>{decisionRequest.reason && <p className="mt-1 text-sm text-slate-600">“{decisionRequest.reason}”</p>}</div>
             {decisionError && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm leading-5 text-rose-700">{decisionError}</p>}
             {decisionAction === "cancel" ? <p className="text-sm leading-6 text-slate-600">This withdraws your pending request. You can submit a new request later if needed.</p> : <label className="block text-sm font-semibold text-[#304767]">Review note <span className="font-normal text-slate-400">(optional)</span><textarea value={decisionNote} onChange={(event) => setDecisionNote(event.target.value)} maxLength={1000} rows={3} placeholder={decisionAction === "approve" ? "Add context for the employee (optional)" : "Explain why this request was declined (optional)"} className="mt-1.5 w-full resize-none rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-[#1e355c] outline-none placeholder:text-slate-400 focus:border-[#1769e8] focus:ring-2 focus:ring-blue-100" /></label>}
-            <div className="flex justify-end gap-3 border-t border-slate-100 pt-4"><button type="button" disabled={Boolean(busy)} onClick={() => { setDecisionRequest(null); setDecisionAction(null); setDecisionError(null); }} className="rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">{decisionAction === "cancel" ? "Keep request" : "Cancel"}</button><button disabled={Boolean(busy)} type="submit" className={`rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60 ${decisionAction === "approve" ? "bg-[#1769e8] hover:bg-[#115bca]" : "bg-rose-600 hover:bg-rose-700"}`}>{busy ? "Saving…" : decisionAction === "approve" ? "Approve request" : decisionAction === "reject" ? "Decline request" : "Cancel request"}</button></div>
+            <div className="flex justify-end gap-3 border-t border-slate-100 pt-4"><button type="button" disabled={Boolean(busy)} onClick={closeDecision} className="rounded-lg px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-100">{decisionAction === "cancel" ? "Keep request" : "Cancel"}</button><button disabled={Boolean(busy)} type="submit" className={`rounded-lg px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60 ${decisionAction === "approve" ? "bg-[#1769e8] hover:bg-[#115bca]" : "bg-rose-600 hover:bg-rose-700"}`}>{busy ? "Saving…" : decisionAction === "approve" ? "Approve request" : decisionAction === "reject" ? "Decline request" : "Cancel request"}</button></div>
           </form>
         </Modal>
       )}
@@ -983,12 +1010,15 @@ function ApprovalQueue({
   requests,
   policiesByCode,
   busy,
+  decidingIds,
   onDecide,
 }: {
   accountId: string;
   requests: TimeOffRequest[];
   policiesByCode: Map<string, TimeOffPolicy>;
   busy: boolean;
+  /** Đơn đang chờ server: chỉ dòng đó đổi chữ, các dòng khác vẫn bấm được. */
+  decidingIds: ReadonlyMap<string, "approve" | "reject" | "cancel">;
   onDecide: (request: TimeOffRequest, action: "approve" | "reject") => void;
 }) {
   const [query, setQuery] = useState("");
@@ -998,7 +1028,7 @@ function ApprovalQueue({
       <div><h2 className="text-base font-semibold text-[#172e55]">Requests to review</h2><p className="mt-0.5 text-[13px] text-slate-500">All pending requests. Your own request is visible but needs another admin to decide.</p></div>
       <div className="flex flex-wrap items-center gap-3"><NameFilter value={query} onChange={setQuery} placeholder="Search agent" /><span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700">{query.trim() ? `${visibleRequests.length} of ${requests.length}` : `${requests.length} pending`}</span></div>
     </div>
-    {visibleRequests.length === 0 ? <EmptyState message={query.trim() ? `No pending requests match "${query.trim()}".` : "No pending time-off requests are waiting for review."} /> : <div className="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto">{visibleRequests.map((request) => { const policy = policiesByCode.get(request.policy_code); const isOwnRequest = request.requester_id === accountId; return <div key={request.id} className="flex flex-col gap-3 px-4 py-4 lg:flex-row lg:items-center lg:justify-between"><div className="flex min-w-0 items-start gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-[#1769e8]">{initials(request.requester_name)}</span><div className="min-w-0"><div className="flex flex-wrap items-center gap-x-2 gap-y-1"><p className="font-semibold text-[#1e355c]">{request.requester_name}</p>{isOwnRequest && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">Your request</span>}<span className="text-xs text-slate-400">requested {formatDate(request.created_at.slice(0, 10), { month: "short", day: "numeric", year: "numeric" })}</span></div><p className="mt-1 text-sm text-slate-600"><span className="font-semibold text-[#304767]">{policy?.label ?? request.policy_code}</span> · {formatDateRange(request.start_date, request.end_date)} · {request.total_days} day{request.total_days === 1 ? "" : "s"}</p>{request.reason && <p className="mt-1 max-w-2xl truncate text-sm text-slate-500" title={request.reason}>{request.reason}</p>}</div></div>{isOwnRequest ? <p className="pl-12 text-sm font-medium text-slate-500 lg:pl-0">Awaiting another admin</p> : <div className="flex shrink-0 gap-2 pl-12 lg:pl-0"><button type="button" disabled={busy} onClick={() => onDecide(request, "reject")} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50">Decline</button><button type="button" disabled={busy} onClick={() => onDecide(request, "approve")} className="rounded-lg bg-[#1769e8] px-3 py-2 text-sm font-semibold text-white hover:bg-[#115bca] disabled:opacity-50">Approve</button></div>}</div>; })}</div>}
+    {visibleRequests.length === 0 ? <EmptyState message={query.trim() ? `No pending requests match "${query.trim()}".` : "No pending time-off requests are waiting for review."} /> : <div className="min-h-0 flex-1 divide-y divide-slate-100 overflow-y-auto">{visibleRequests.map((request) => { const policy = policiesByCode.get(request.policy_code); const isOwnRequest = request.requester_id === accountId; return <div key={request.id} className="flex flex-col gap-3 px-4 py-4 lg:flex-row lg:items-center lg:justify-between"><div className="flex min-w-0 items-start gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-[#1769e8]">{initials(request.requester_name)}</span><div className="min-w-0"><div className="flex flex-wrap items-center gap-x-2 gap-y-1"><p className="font-semibold text-[#1e355c]">{request.requester_name}</p>{isOwnRequest && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">Your request</span>}<span className="text-xs text-slate-400">requested {formatDate(request.created_at.slice(0, 10), { month: "short", day: "numeric", year: "numeric" })}</span></div><p className="mt-1 text-sm text-slate-600"><span className="font-semibold text-[#304767]">{policy?.label ?? request.policy_code}</span> · {formatDateRange(request.start_date, request.end_date)} · {request.total_days} day{request.total_days === 1 ? "" : "s"}</p>{request.reason && <p className="mt-1 max-w-2xl truncate text-sm text-slate-500" title={request.reason}>{request.reason}</p>}</div></div>{isOwnRequest ? <p className="pl-12 text-sm font-medium text-slate-500 lg:pl-0">Awaiting another admin</p> : decidingIds.has(request.id) ? <p className="pl-12 text-sm font-semibold italic text-slate-500 lg:pl-0" aria-busy="true">{decidingIds.get(request.id) === "reject" ? "Declining…" : "Approving…"}</p> : <div className="flex shrink-0 gap-2 pl-12 lg:pl-0"><button type="button" disabled={busy} onClick={() => onDecide(request, "reject")} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50">Decline</button><button type="button" disabled={busy} onClick={() => onDecide(request, "approve")} className="rounded-lg bg-[#1769e8] px-3 py-2 text-sm font-semibold text-white hover:bg-[#115bca] disabled:opacity-50">Approve</button></div>}</div>; })}</div>}
   </section>;
 }
 
