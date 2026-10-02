@@ -36,3 +36,32 @@ export function buildCreateEnrollmentNotificationRows(input: {
     })),
   ]);
 }
+
+/**
+ * Key pipeline stages are visible to the same task-management audience as a
+ * newly created enrollment. Caller/responsible recipients remain included;
+ * task managers receive the stage event even when neither role is assigned.
+ */
+export function buildStageChangedEnrollmentNotificationRows(input: {
+  recordId: string;
+  actorEmail: string;
+  callerEmail?: string | null;
+  responsibleEmail?: string | null;
+  taskManagerEmails: string[];
+  detail: string;
+}): EnrollmentNotificationInsertInput[] {
+  const recipients = uniqueEnrollmentNotificationRecipients(
+    [input.callerEmail, input.responsibleEmail, ...input.taskManagerEmails],
+    [input.actorEmail],
+  );
+
+  return uniqueEnrollmentNotificationRows(
+    recipients.map((recipient) => ({
+      recipient_email: recipient,
+      record_id: input.recordId,
+      type: "stage_changed" as const,
+      actor_email: input.actorEmail,
+      detail: input.detail,
+    })),
+  );
+}

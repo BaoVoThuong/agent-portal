@@ -19,6 +19,7 @@ import {
   uniqueEnrollmentNotificationRecipients,
   type EnrollmentNotificationInsertInput,
 } from "@/lib/enrollment/notifications";
+import { buildStageChangedEnrollmentNotificationRows } from "@/lib/enrollment/create-notifications";
 import {
   broadcastEnrollmentChanged,
   broadcastEnrollmentRoom,
@@ -37,6 +38,7 @@ import {
 } from "@/lib/enrollment/ownership";
 import {
   fetchAdminEmails,
+  fetchTaskManagerEmails,
   isAgentOwnerOrAssistant,
 } from "@/lib/tasks/membership";
 import {
@@ -579,18 +581,24 @@ export async function PATCH(request: Request, { params }: Ctx) {
       toStage &&
       KEY_STAGE_NOTIFICATIONS.has(toStage.label.trim().toLowerCase())
     ) {
-      for (const recipient of uniqueEnrollmentNotificationRecipients(
-        [updated.caller_email, updated.responsible_enroll_email],
-        [actorResult.actor.email]
-      )) {
-        notifications.push({
-          recipient_email: recipient,
-          record_id: id,
-          type: "stage_changed",
-          actor_email: actorResult.actor.email,
-          detail: toStage.label,
-        });
+      let taskManagerEmails: string[] = [];
+      try {
+        taskManagerEmails = await fetchTaskManagerEmails();
+      } catch (error) {
+        mutationWarnings.push(
+          `Enrollment stage-change recipient lookup failed: ${error instanceof Error ? error.message : "unknown error"}`
+        );
       }
+      notifications.push(
+        ...buildStageChangedEnrollmentNotificationRows({
+          recordId: id,
+          actorEmail: actorResult.actor.email,
+          callerEmail: updated.caller_email,
+          responsibleEmail: updated.responsible_enroll_email,
+          taskManagerEmails,
+          detail: toStage.label,
+        })
+      );
     }
   }
 

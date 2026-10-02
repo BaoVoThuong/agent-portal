@@ -6,6 +6,13 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-02 — Enrollment: task manager nhận thông báo stage quan trọng
+
+Khi enrollment chuyển vào các stage `5-Ready to Enroll`, `11-Terminated` hoặc
+`12-Terminated`, hệ thống giữ thông báo cho Caller + Responsible và bổ sung mọi
+account active có quyền RBAC `task.manage`. Actor thực hiện thay đổi vẫn bị loại
+khỏi danh sách; recipient trùng nhau chỉ nhận một thông báo.
+
 ## 2026-10-01 — Enrollment: tạo hồ sơ kèm file rồi sửa ngay thì mất phần vừa sửa
 
 Cheryl báo: tạo deal ở Health Obamacare Enrollment → hiện dòng bảo reload →
