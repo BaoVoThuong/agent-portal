@@ -1,4 +1,5 @@
 import type { LeadHealth } from "./health";
+import { leadTypeOf, type LeadType } from "./lead-type";
 import type { LeadProduct, LeadRow } from "./types";
 
 export type LeadFilters = {
@@ -11,6 +12,8 @@ export type LeadFilters = {
    * types or reads; the dropdown is built from the names the rows carry.
    */
   eventName: string | null;
+  /** Personal = không có event; suy ra từ ô Event, xem lib/leads/lead-type.ts. */
+  leadType: LeadType | null;
   product: LeadProduct | null;
   /**
    * One bucket per lead — see lib/leads/health.ts. Single-valued on purpose so
@@ -29,6 +32,7 @@ export const EMPTY_LEAD_FILTERS: LeadFilters = {
   assignedTo: null,
   statusId: null,
   eventName: null,
+  leadType: null,
   product: null,
   health: null,
 };
@@ -83,6 +87,7 @@ export function filterLeads(
     // (chỉ là phần tử đầu) sẽ giấu nó khỏi bộ lọc còn lại.
     if (filters.product && !leadHasProduct(lead, filters.product)) return false;
     if (filters.statusId && lead.status_id !== filters.statusId) return false;
+    if (filters.leadType && leadTypeOf(lead) !== filters.leadType) return false;
     if (filters.eventName) {
       const name = lead.event_name?.trim().toLowerCase() ?? "";
       if (name !== filters.eventName.trim().toLowerCase()) return false;
@@ -104,6 +109,7 @@ export function activeLeadFilterCount(filters: LeadFilters): number {
     (filters.assignedTo === null ? 0 : 1) +
     (filters.statusId ? 1 : 0) +
     (filters.eventName ? 1 : 0) +
+    (filters.leadType ? 1 : 0) +
     (filters.product ? 1 : 0) +
     (filters.health ? 1 : 0)
   );

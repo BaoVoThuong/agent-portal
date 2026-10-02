@@ -52,6 +52,8 @@ type InteractionLogProps = {
   onInteractionSaved?: (interaction: LeadInteraction) => void;
   onSaveComment: (payload: {
     body: string;
+    /** Trả lời một comment gốc. Chỉ một cấp — RPC từ chối trả lời một reply. */
+    parent_id: string | null;
     client_request_id: string;
   }) => Promise<{ comment: LeadComment }>;
   onCommentSaved?: (comment: LeadComment) => void;
@@ -71,7 +73,15 @@ type PendingInteraction = {
   followUpAt: string;
 };
 
-type PendingComment = { tempId: string; requestId: string; body: string };
+type PendingComment = {
+  tempId: string;
+  requestId: string;
+  body: string;
+  parentId: string | null;
+};
+
+/** Ô trả lời đang mở dưới một comment gốc; mỗi lúc chỉ một ô. */
+type ReplyDraft = { parentId: string; body: string; error: string | null };
 
 function relativeTime(value: string): string {
   const timestamp = Date.parse(value);
@@ -111,6 +121,65 @@ function badgeStyle(
   return { backgroundColor: palette.background, color: palette.foreground };
 }
 
+function LeadCommentItem({
+  comment,
+  onReply,
+}: {
+  comment: LeadComment;
+  onReply?: () => void;
+}) {
+  return (
+    <article className="group flex gap-2.5">
+      <div className="shrink-0 pt-0.5">
+        <Initials
+          email={comment.author_email}
+          label={personLabel(comment.author_email)}
+          size="md"
+        />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-sm font-semibold text-[#172b4d]">
+            {personLabel(comment.author_email)}
+          </span>
+          <time
+            dateTime={comment.created_at}
+            title={new Date(comment.created_at).toLocaleString()}
+            className="text-xs font-medium text-[#6b778c]"
+          >
+            {relativeTime(comment.created_at)}
+          </time>
+        </div>
+        <p className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-5 text-[#172b4d] [overflow-wrap:anywhere]">
+          {comment.body}
+        </p>
+        {onReply ? (
+          <button
+            type="button"
+            onClick={onReply}
+            className="mt-0.5 rounded px-1 py-0.5 text-xs font-semibold text-[#44546f] transition hover:bg-[#f4f5f7] hover:text-[#0c66e4]"
+          >
+            Reply
+          </button>
+        ) : null}
+      </div>
+    </article>
+  );
+}
+
+function PendingCommentItem({ pending }: { pending: PendingComment }) {
+  return (
+    <article className="flex gap-2.5 opacity-60" aria-busy="true">
+      <div className="min-w-0 flex-1 rounded border border-dashed border-[#c1c7d0] px-3 py-2">
+        <p className="text-xs font-semibold italic text-[#6b778c]">Sending…</p>
+        <p className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-5 text-[#172b4d] [overflow-wrap:anywhere]">
+          {pending.body}
+        </p>
+      </div>
+    </article>
+  );
+}
+
 export function InteractionLog({
   toolbar,
   notice,
@@ -141,15 +210,40 @@ export function InteractionLog({
   // server tính nên chỉ đổi khi có kết quả thật.
   const [pendingInteractions, setPendingInteractions] = useState<PendingInteraction[]>([]);
   const [pendingComments, setPendingComments] = useState<PendingComment[]>([]);
+  const [reply, setReply] = useState<ReplyDraft | null>(null);
   const composerOpenRef = useRef(false);
   /** Comment vừa hỏng: gửi lại đúng chữ đó thì dùng lại request id, không tạo trùng. */
-  const failedCommentRef = useRef<{ body: string; requestId: string } | null>(null);
+  const failedCommentRef = useRef<{
+    body: string;
+    parentId: string | null;
+    requestId: string;
+  } | null>(null);
+
+  // Reply nằm dưới comment gốc của nó, không chen vào dòng thời gian chung.
+  // Reply mà comment gốc đã bị xoá thì hiện như một comment thường, để nó không
+  // biến mất khỏi màn hình.
+  const { topLevelComments, repliesByParent } = useMemo(() => {
+    const visible = comments.filter((comment) => !comment.deleted_at);
+    const visibleIds = new Set(visible.map((comment) => comment.id));
+    const replies = new Map<string, LeadComment[]>();
+    const topLevel: LeadComment[] = [];
+    for (const comment of visible) {
+      if (comment.parent_id && visibleIds.has(comment.parent_id)) {
+        replies.set(comment.parent_id, [...(replies.get(comment.parent_id) ?? []), comment]);
+      } else {
+        topLevel.push(comment);
+      }
+    }
+    for (const list of replies.values()) {
+      list.sort((left, right) => Date.parse(left.created_at) - Date.parse(right.created_at));
+    }
+    return { topLevelComments: topLevel, repliesByParent: replies };
+  }, [comments]);
 
   const feedItems = useMemo<FeedItem[]>(
     () =>
       [
-        ...comments
-          .filter((comment) => !comment.deleted_at)
+        ...topLevelComments
           .map((comment) => ({
             kind: "comment" as const,
             timestamp: comment.created_at,
@@ -164,7 +258,7 @@ export function InteractionLog({
         (left, right) =>
           Date.parse(left.timestamp) - Date.parse(right.timestamp),
       ),
-    [comments, interactions],
+    [topLevelComments, interactions],
   );
 
   const status = useMemo(
@@ -250,30 +344,70 @@ export function InteractionLog({
     }
   }
 
+  /** Gửi một comment hoặc reply; dòng tạm "Sending…" hiện ngay tới khi server trả lời. */
+  async function sendComment(body: string, parentId: string | null) {
+    const failed = failedCommentRef.current;
+    const requestId =
+      failed && failed.body === body && failed.parentId === parentId
+        ? failed.requestId
+        : crypto.randomUUID();
+    failedCommentRef.current = null;
+    const pending: PendingComment = { tempId: `temp-${requestId}`, requestId, body, parentId };
+    setPendingComments((current) => [...current, pending]);
+    try {
+      const result = await onSaveComment({
+        body,
+        parent_id: parentId,
+        client_request_id: requestId,
+      });
+      onCommentSaved?.(result.comment);
+    } catch (saveError) {
+      failedCommentRef.current = { body, parentId, requestId };
+      throw saveError;
+    } finally {
+      setPendingComments((current) => current.filter((item) => item.tempId !== pending.tempId));
+    }
+  }
+
   async function submitComment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const body = commentBody.trim();
     if (!body || !canComment) return;
-    const failed = failedCommentRef.current;
-    const requestId = failed && failed.body === body ? failed.requestId : crypto.randomUUID();
-    failedCommentRef.current = null;
-    const pending: PendingComment = { tempId: `temp-${requestId}`, requestId, body };
     // Comment hiện ngay, ô nhập xoá ngay.
-    setPendingComments((current) => [...current, pending]);
     setCommentBody("");
     setCommentError(null);
     try {
-      const result = await onSaveComment({ body, client_request_id: requestId });
-      onCommentSaved?.(result.comment);
+      await sendComment(body, null);
     } catch (saveError) {
-      failedCommentRef.current = { body, requestId };
       // Trả chữ về ô nhập, trừ khi người dùng đã gõ cái mới.
       setCommentBody((current) => (current.trim() ? current : body));
       setCommentError(
         saveError instanceof Error ? saveError.message : "Could not save comment.",
       );
-    } finally {
-      setPendingComments((current) => current.filter((item) => item.tempId !== pending.tempId));
+    }
+  }
+
+  async function submitReply(event: FormEvent<HTMLFormElement>, parentId: string) {
+    event.preventDefault();
+    const body = reply?.parentId === parentId ? reply.body.trim() : "";
+    if (!body || !canComment) return;
+    // Ô trả lời đóng ngay; reply hiện "Sending…" dưới comment gốc.
+    setReply(null);
+    try {
+      await sendComment(body, parentId);
+    } catch (saveError) {
+      const message =
+        saveError instanceof Error ? saveError.message : "Could not save reply.";
+      // Mở lại đúng ô đó với chữ vừa gửi — trừ khi người dùng đã mở ô trả lời
+      // ở comment khác hoặc đã gõ chữ mới.
+      setReply((current) => {
+        if (current && current.parentId !== parentId) return current;
+        return {
+          parentId,
+          body: current?.body.trim() ? current.body : body,
+          error: message,
+        };
+      });
     }
   }
 
@@ -456,33 +590,87 @@ export function InteractionLog({
           feedItems.map((item) => {
             if (item.kind === "comment") {
               const comment = item.comment;
+              const replies = repliesByParent.get(comment.id) ?? [];
+              const pendingReplies = pendingComments.filter(
+                (pending) => pending.parentId === comment.id,
+              );
+              const replyOpen = reply?.parentId === comment.id;
               return (
-                <article key={`comment:${comment.id}`} className="group flex gap-2.5">
-                  <div className="shrink-0 pt-0.5">
-                    <Initials
-                      email={comment.author_email}
-                      label={personLabel(comment.author_email)}
-                      size="md"
-                    />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className="text-sm font-semibold text-[#172b4d]">
-                        {personLabel(comment.author_email)}
-                      </span>
-                      <time
-                        dateTime={comment.created_at}
-                        title={new Date(comment.created_at).toLocaleString()}
-                        className="text-xs font-medium text-[#6b778c]"
-                      >
-                        {relativeTime(comment.created_at)}
-                      </time>
+                <div key={`comment:${comment.id}`} className="space-y-2">
+                  <LeadCommentItem
+                    comment={comment}
+                    onReply={
+                      canComment
+                        ? () =>
+                            setReply((current) =>
+                              current?.parentId === comment.id
+                                ? current
+                                : { parentId: comment.id, body: "", error: null },
+                            )
+                        : undefined
+                    }
+                  />
+                  {replies.length > 0 || pendingReplies.length > 0 || replyOpen ? (
+                    <div className="ml-3 space-y-2 border-l-2 border-[#dfe1e6] pl-3 sm:ml-5 sm:pl-4">
+                      {replies.map((replyComment) => (
+                        <LeadCommentItem key={replyComment.id} comment={replyComment} />
+                      ))}
+                      {pendingReplies.map((pending) => (
+                        <PendingCommentItem key={pending.tempId} pending={pending} />
+                      ))}
+                      {replyOpen && reply ? (
+                        <form
+                          className="space-y-2"
+                          onSubmit={(event) => void submitReply(event, comment.id)}
+                        >
+                          <textarea
+                            autoFocus
+                            value={reply.body}
+                            onChange={(event) => {
+                              const body = event.target.value;
+                              setReply((current) =>
+                                current?.parentId === comment.id
+                                  ? { ...current, body, error: null }
+                                  : current,
+                              );
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Escape") setReply(null);
+                            }}
+                            maxLength={4000}
+                            placeholder="Reply…"
+                            aria-label={`Reply to ${personLabel(comment.author_email)}`}
+                            className="min-h-16 w-full resize-y rounded border border-[#cfd8e5] bg-white px-3 py-2 text-sm text-[#172b4d] outline-none placeholder:text-[#8993a4] focus:border-[#0c66e4]"
+                          />
+                          {reply.error ? (
+                            <p
+                              role="alert"
+                              className="rounded border border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-xs font-semibold text-[#bf2600]"
+                            >
+                              {reply.error}
+                            </p>
+                          ) : null}
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setReply(null)}
+                              className="inline-flex h-8 items-center rounded px-2.5 text-xs font-bold text-[#42526e] transition hover:bg-[#f4f5f7]"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={!reply.body.trim()}
+                              className="inline-flex h-8 items-center rounded bg-[#0c66e4] px-3 text-xs font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Reply
+                            </button>
+                          </div>
+                        </form>
+                      ) : null}
                     </div>
-                    <p className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-5 text-[#172b4d] [overflow-wrap:anywhere]">
-                      {comment.body}
-                    </p>
-                  </div>
-                </article>
+                  ) : null}
+                </div>
               );
             }
 
@@ -597,16 +785,11 @@ export function InteractionLog({
             </article>
           );
         })}
-        {pendingComments.map((pending) => (
-          <article key={pending.tempId} className="flex gap-2.5 opacity-60" aria-busy="true">
-            <div className="min-w-0 flex-1 rounded border border-dashed border-[#c1c7d0] px-3 py-2">
-              <p className="text-xs font-semibold italic text-[#6b778c]">Sending…</p>
-              <p className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-5 text-[#172b4d] [overflow-wrap:anywhere]">
-                {pending.body}
-              </p>
-            </div>
-          </article>
-        ))}
+        {pendingComments
+          .filter((pending) => pending.parentId === null)
+          .map((pending) => (
+            <PendingCommentItem key={pending.tempId} pending={pending} />
+          ))}
       </div>
       {canComment ? (
         <form

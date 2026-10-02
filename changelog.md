@@ -6,6 +6,32 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-03 — Lead: Lead type, Collaborators kiểu ô người, trả lời comment
+
+- **Lead type** (Event lead / Personal lead) suy ra từ ô Event, KHÔNG có cột
+  mới: có event là Event lead, không có event là Personal lead
+  (`src/lib/leads/lead-type.ts`). Ô Event trống hiện "Personal lead" ở bảng,
+  drawer và bảng Event performance; thanh lọc có thêm "All lead types".
+- Form tạo lead có nút chọn loại. Event lead bắt buộc nhập Event (không có thì
+  nó chính là Personal). Personal lead: không có event, mặc định gán cho người
+  tạo; vẫn đổi được người — chọn trong mọi người có quyền Lead, không cần nằm
+  trong Distribute pool. Route `POST /api/leads` nhận `lead_type`; client cũ
+  không gửi thì giữ hành vi cũ.
+- Gõ "Personal Lead" (cách đánh dấu cũ) vào ô Event giờ nghĩa là bỏ event: tạo
+  mới, sửa tại chỗ đều không còn đẻ ra event tên đó; `POST /api/leads/events`
+  từ chối tên này. Rollout `2026-10-03-lead-personal-event-cleanup.sql` bỏ event
+  "Personal Lead" khỏi LEAD-227/228 và archive event đó.
+- Trùng số điện thoại giữa các Personal lead báo "A personal lead with this
+  phone number already exists." (luật chặn trùng không đổi).
+- **Collaborators** dùng đúng control Assignees của Task (avatar + tên, ô tìm,
+  tick nhiều người) ở form tạo, drawer và bảng. Mỗi cú tick lưu ngay qua
+  `patchLead` (lạc quan, xếp hàng theo lead, hỏng thì trả lại + báo lỗi) — bỏ
+  bản nháp + nút Save/Cancel. Ô bảng của Task List chuyển sang dùng chung
+  `TaskAssigneeMenu` trong `TaskAssigneePicker.tsx`, hành vi Task không đổi.
+- **Trả lời comment** trên Lead: nút Reply dưới mỗi comment gốc, reply hiện thụt
+  vào dưới comment đó (một cấp như Task; RPC đã chặn trả lời một reply). Gửi thì
+  hiện "Sending…" ngay; hỏng thì mở lại ô trả lời với chữ cũ và lỗi.
+
 ## 2026-10-02 — Đo thời gian tải chi tiết Lead
 
 - Ba API được gọi khi mở Lead (`comments`, `interactions`, `attachments`) trả

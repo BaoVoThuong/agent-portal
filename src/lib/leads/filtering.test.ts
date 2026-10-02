@@ -155,3 +155,21 @@ describe("multi-product leads", () => {
     expect(filterLeads(rows, EMPTY_LEAD_FILTERS)).toHaveLength(3);
   });
 });
+
+describe("lead type filter", () => {
+  const fromEvent = lead({ id: "e", event_id: "event-1", event_name: "Health Fair" });
+  const personal = lead({ id: "p", event_id: null });
+  const rows = [fromEvent, personal];
+
+  // Không có cột lead_type: lead không mang event chính là Personal lead.
+  it("splits leads by whether they carry an event", () => {
+    expect(filterLeads(rows, { ...EMPTY_LEAD_FILTERS, leadType: "personal" }).map((r) => r.id))
+      .toEqual(["p"]);
+    expect(filterLeads(rows, { ...EMPTY_LEAD_FILTERS, leadType: "event" }).map((r) => r.id))
+      .toEqual(["e"]);
+  });
+
+  it("counts as an active filter", () => {
+    expect(activeLeadFilterCount({ ...EMPTY_LEAD_FILTERS, leadType: "personal" })).toBe(1);
+  });
+});

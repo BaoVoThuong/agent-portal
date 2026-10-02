@@ -6,6 +6,7 @@ import {
 import { normalizePhone } from "./import-parse";
 import { isLeadProduct, normalizeLeadProducts, UNKNOWN_LEAD_PRODUCT } from "./types";
 import { parseCollaboratorEmails } from "./collaborators";
+import { isPersonalLeadEventName } from "./lead-type";
 
 /**
  * The system fields the table lets someone edit in place. Everything else on a
@@ -79,7 +80,10 @@ export function buildLeadPatch(body: unknown): LeadPatchResult {
     if (key === EVENT_NAME_FIELD) {
       const parsedEventName = text(value, "Event", MAX_TEXT_LENGTH);
       if (!parsedEventName.ok) return { ok: false, error: parsedEventName.error };
-      eventName = parsedEventName.value;
+      // Gõ "Personal Lead" vào ô Event = bỏ event, tức thành Personal lead.
+      eventName = isPersonalLeadEventName(parsedEventName.value)
+        ? null
+        : parsedEventName.value;
       continue;
     }
     // `products` is an internal multi-product write used by the Product cell.

@@ -20,6 +20,7 @@ import {
   resolveVisibleInteractions,
 } from "@/lib/leads/interaction-log-state";
 import { leadDisplayKey } from "@/lib/leads/display";
+import { LEAD_TYPE_LABEL } from "@/lib/leads/lead-type";
 import { buildStatusById } from "@/lib/leads/status-lookup";
 import { leadIsInScope } from "@/lib/leads/capabilities";
 import { personLabel } from "@/lib/tasks/people";
@@ -491,6 +492,7 @@ export function LeadDetailDrawer({
 
   async function saveComment(payload: {
     body: string;
+    parent_id: string | null;
     client_request_id: string;
   }) {
     const response = await fetch(`/api/leads/${currentLead.id}/comments`, {
@@ -625,7 +627,8 @@ export function LeadDetailDrawer({
                         onSave={(next) => patchCurrentLead({ event_name: next })}
                         className={COMPACT_DETAIL_INPUT_CLASS}
                         inputClassName={COMPACT_DETAIL_INPUT_CLASS}
-                        emptyLabel="No event"
+                        // Không có event chính là Personal lead (lib/leads/lead-type.ts).
+                        emptyLabel={LEAD_TYPE_LABEL.personal}
                       />
                     </div>
                   ) : null}
@@ -803,11 +806,7 @@ export function LeadDetailDrawer({
                       <RailField label="Collaborators" className="sm:col-span-2 xl:col-span-2">
                         <LeadCollaboratorsEditor
                           emails={currentLead.collaborator_emails ?? []}
-                          options={collaboratorRoster.map((person) => ({
-                            value: person.email,
-                            label: person.name?.trim() || person.email,
-                            keywords: [person.email],
-                          }))}
+                          people={collaboratorRoster}
                           canEdit={canEdit}
                           onSave={(emails) =>
                             patchCurrentLead({ collaborator_emails: emails })

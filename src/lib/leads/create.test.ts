@@ -30,6 +30,7 @@ describe("parseCreateLeadInput", () => {
         description: null,
         eventId: UUID,
         eventName: null,
+        leadType: null,
         statusId: UUID,
         assignedToEmail: "agent@example.com",
         collaboratorEmails: [],
@@ -125,6 +126,50 @@ describe("event name", () => {
   it("rejects a non-string name rather than coercing it", () => {
     const result = parseCreateLeadInput({ ...base, event_name: 42 });
     expect(result).toEqual({ ok: false, error: "Event name must be text." });
+  });
+});
+
+describe("lead type", () => {
+  const base = { product: "pc", phone: "7145550123" };
+
+  it("drops the event of a personal lead", () => {
+    const result = parseCreateLeadInput({
+      ...base,
+      lead_type: "personal",
+      event_id: UUID,
+      event_name: "Health Fair",
+    });
+    expect(result.ok && result.value).toMatchObject({
+      leadType: "personal",
+      eventId: null,
+      eventName: null,
+    });
+  });
+
+  // Không có event thì lead sẽ hiện là Personal — "Event lead" trống event là
+  // tự mâu thuẫn, nên chặn ngay ở đây.
+  it("requires an event for an event lead", () => {
+    const result = parseCreateLeadInput({ ...base, lead_type: "event" });
+    expect(result.ok).toBe(false);
+  });
+
+  it("does not create an event called Personal Lead", () => {
+    const legacy = parseCreateLeadInput({ ...base, event_name: "Personal Lead" });
+    expect(legacy.ok ? legacy.value.eventName : "parse failed").toBe(null);
+    const asEvent = parseCreateLeadInput({ ...base, lead_type: "event", event_name: "personal lead" });
+    expect(asEvent.ok).toBe(false);
+  });
+
+  it("keeps the old contract when the client sends no type", () => {
+    const result = parseCreateLeadInput(base);
+    expect(result.ok ? result.value.leadType : "parse failed").toBe(null);
+  });
+
+  it("rejects an unknown type", () => {
+    expect(parseCreateLeadInput({ ...base, lead_type: "referral" })).toEqual({
+      ok: false,
+      error: "Invalid lead type.",
+    });
   });
 });
 

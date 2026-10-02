@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { EditableCustomCell } from "../../../_shared/EditableCustomCell";
 import { leadDisplayKey } from "@/lib/leads/display";
+import { LEAD_TYPE_LABEL } from "@/lib/leads/lead-type";
 import { ALERT_SEVERITY, type LeadAlert } from "@/lib/leads/alerts";
 import { leadIsInScope } from "@/lib/leads/capabilities";
 import {
@@ -185,14 +186,6 @@ export function LeadTable({
     ],
     [assignees, nameByEmail],
   );
-  const collaboratorChoices = useMemo(
-    () => collaboratorRoster.map((person) => ({
-      value: person.email,
-      label: personLabel(person.email, nameByEmail),
-      keywords: [person.email],
-    })),
-    [collaboratorRoster, nameByEmail],
-  );
 
   const staticColumnWidth = isManager ? SELECTION_COLUMN_WIDTH : 0;
   const pinnedOffsetByKey = useMemo(
@@ -305,7 +298,7 @@ export function LeadTable({
                   nameByEmail={nameByEmail}
                   statusChoices={statusChoices}
                   assigneeChoices={assigneeChoices}
-                  collaboratorChoices={collaboratorChoices}
+                  collaboratorPeople={collaboratorRoster}
                   isManager={isManager}
                   canEdit={leadIsInScope(lead, editableOwnerEmails, currentUserEmail)}
                   alerts={alertsByLeadId.get(lead.id) ?? EMPTY_ALERTS}
@@ -413,7 +406,7 @@ const LeadRow = memo(function LeadRow({
   nameByEmail,
   statusChoices,
   assigneeChoices,
-  collaboratorChoices,
+  collaboratorPeople,
   isManager,
   canEdit,
   alerts,
@@ -434,7 +427,7 @@ const LeadRow = memo(function LeadRow({
   nameByEmail: Map<string, string>;
   statusChoices: readonly { value: string; label: string }[];
   assigneeChoices: readonly { value: string; label: string; keywords?: string[] }[];
-  collaboratorChoices: readonly { value: string; label: string; keywords?: string[] }[];
+  collaboratorPeople: { email: string; name: string | null }[];
   isManager: boolean;
   canEdit: boolean;
   alerts: readonly LeadAlert[];
@@ -505,7 +498,7 @@ const LeadRow = memo(function LeadRow({
           nameByEmail={nameByEmail}
           statusChoices={statusChoices}
           assigneeChoices={assigneeChoices}
-          collaboratorChoices={collaboratorChoices}
+          collaboratorPeople={collaboratorPeople}
           canEdit={canEdit}
           canAssign={isManager}
           alerts={alerts}
@@ -529,7 +522,7 @@ const LeadDataCell = memo(function LeadDataCell({
   nameByEmail,
   statusChoices,
   assigneeChoices,
-  collaboratorChoices,
+  collaboratorPeople,
   canEdit,
   canAssign,
   alerts,
@@ -547,7 +540,7 @@ const LeadDataCell = memo(function LeadDataCell({
   nameByEmail: Map<string, string>;
   statusChoices: readonly { value: string; label: string }[];
   assigneeChoices: readonly { value: string; label: string; keywords?: string[] }[];
-  collaboratorChoices: readonly { value: string; label: string; keywords?: string[] }[];
+  collaboratorPeople: { email: string; name: string | null }[];
   canEdit: boolean;
   canAssign: boolean;
   alerts: readonly LeadAlert[];
@@ -665,6 +658,8 @@ const LeadDataCell = memo(function LeadDataCell({
           canEdit={canEdit}
           onSave={(next) => onPatch({ event_name: next })}
           className="w-full"
+          // Không có event chính là Personal lead (lib/leads/lead-type.ts).
+          emptyLabel={LEAD_TYPE_LABEL.personal}
         />
       </div>
     );
@@ -722,7 +717,7 @@ const LeadDataCell = memo(function LeadDataCell({
       >
         <LeadCollaboratorsEditor
           emails={lead.collaborator_emails ?? []}
-          options={collaboratorChoices}
+          people={collaboratorPeople}
           canEdit={canEdit}
           compact
           onSave={(emails) => onPatch({ collaborator_emails: emails })}

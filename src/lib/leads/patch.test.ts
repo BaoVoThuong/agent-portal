@@ -92,6 +92,13 @@ describe("buildLeadPatch", () => {
     });
   });
 
+  // Gõ lại dấu cũ "Personal Lead" là bỏ event — lead thành Personal lead.
+  it("clears the event when someone types the old Personal Lead marker", () => {
+    expect(buildLeadPatch({ event_name: "Personal Lead" })).toMatchObject({
+      ok: true, eventName: null,
+    });
+  });
+
   it("treats an empty body as nothing to do", () => {
     expect(buildLeadPatch({})).toEqual({ ok: false, error: "Nothing to update." });
   });

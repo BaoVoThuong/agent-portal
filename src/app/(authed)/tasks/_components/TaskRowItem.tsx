@@ -52,7 +52,7 @@ import type { TableColumnOption } from "@/lib/table-config/types";
 import { EditableCustomCell } from "../../_shared/EditableCustomCell";
 import { SearchableListboxPanel } from "../../_shared/SearchableListboxPanel";
 import { Initials, NewAssignedBadge, PriorityIcon, PRIORITY_META } from "./board-ui";
-import { TaskAssigneePicker } from "./TaskAssigneePicker";
+import { TaskAssigneeMenu } from "./TaskAssigneePicker";
 import { useAnchoredMenu } from "./use-anchored-menu";
 import type { TaskListColumn, TaskListColumnKey } from "./task-list-columns";
 import { isTaskRowDueDateOverdue, TASK_DUE_DATE_KEY } from "@/lib/tasks/due-date";
@@ -429,7 +429,7 @@ export function TaskRowItem({
             `${LIST_COL.assignee} shrink-0 whitespace-normal`
           )}
         >
-          <AssigneeMenu
+          <TaskAssigneeMenu
             emails={task.assignees}
             assignees={assignees}
             agentEmail={task.agent_email}
@@ -1757,116 +1757,6 @@ function AgentMenu({
                 </>
               )}
             />,
-            document.body
-          )
-        : null}
-    </span>
-  );
-}
-
-function AssigneeMenu({
-  emails,
-  assignees,
-  agentEmail,
-  agentMembersByAgent,
-  labelByEmail,
-  canAssign,
-  onToggle,
-}: {
-  emails: string[];
-  assignees: TaskAssignee[];
-  agentEmail: string | null;
-  agentMembersByAgent: Record<string, string[]>;
-  labelByEmail: ReadonlyMap<string, string>;
-  canAssign: boolean;
-  onToggle: (email: string, assigned: boolean) => void;
-}) {
-  const { isOpen, toggle, triggerRef, menuRef, menuStyle, closeMenuForTab } =
-    useAnchoredMenu();
-  const selectedLabel =
-    emails.length > 0
-      ? emails.map((email) => labelByEmail.get(email) ?? formatEmailAsName(email)).join(", ")
-      : "Unassigned";
-  const assignedPeople = emails.map((email) => ({
-    email,
-    label: labelByEmail.get(email) ?? formatEmailAsName(email),
-  }));
-  const isUnassigned = emails.length === 0;
-  const labelClassName = emails.length > 0 ? "text-[#42526e]" : "text-[#97a0af]";
-
-  if (!canAssign) {
-    return (
-      <span
-        className={`flex w-full min-w-0 flex-col items-start gap-0.5 whitespace-normal text-left text-xs font-semibold leading-tight ${labelClassName}`}
-        title={selectedLabel}
-      >
-        {assignedPeople.length > 0 ? (
-          assignedPeople.map((person) => (
-            <span
-              key={person.email}
-              className="flex min-w-0 items-center gap-1.5 whitespace-nowrap"
-            >
-              <Initials email={person.email} label={person.label} />
-              <span>{person.label}</span>
-            </span>
-          ))
-        ) : (
-          <span className="text-[#97a0af]">Unassigned</span>
-        )}
-      </span>
-    );
-  }
-
-  return (
-    <span className="block min-w-0 whitespace-normal">
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={toggle}
-        aria-expanded={isOpen}
-        aria-haspopup="listbox"
-        title={selectedLabel}
-        className={
-          isUnassigned
-            ? "inline-flex items-center gap-1 rounded border border-dashed border-[#0c66e4] bg-white px-2 py-1 text-[11px] font-bold text-[#0c66e4] transition hover:bg-[#e9f2ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#deebff]"
-            : `flex w-full min-w-0 flex-col items-start gap-0.5 whitespace-normal rounded text-left text-xs font-semibold leading-tight transition hover:text-[#0c66e4] ${labelClassName}`
-        }
-      >
-        {isUnassigned ? (
-          <>
-            <UserPlus className="h-3 w-3 shrink-0" />
-            <span>Assign</span>
-          </>
-        ) : (
-          assignedPeople.map((person) => (
-            <span
-              key={person.email}
-              className="flex min-w-0 items-center gap-1.5 whitespace-nowrap"
-            >
-              <Initials email={person.email} label={person.label} />
-              <span>{person.label}</span>
-            </span>
-          ))
-        )}
-      </button>
-      {isOpen
-        ? createPortal(
-            <div
-              ref={menuRef}
-              style={menuStyle}
-              className="z-[100] min-w-[18rem] rounded border border-[#dfe1e6] bg-white p-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
-            >
-              <TaskAssigneePicker
-                assignees={assignees}
-                selectedEmails={emails}
-                agentEmail={agentEmail}
-                agentMembersByAgent={agentMembersByAgent}
-                onToggle={onToggle}
-                listClassName="max-h-48"
-                autoFocus
-                onTabExit={closeMenuForTab}
-              />
-            </div>,
             document.body
           )
         : null}

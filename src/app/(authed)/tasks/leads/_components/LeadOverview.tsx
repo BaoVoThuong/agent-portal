@@ -5,6 +5,7 @@ import { personLabel } from "@/lib/tasks/people";
 import { Initials } from "../../_components/board-ui";
 import type { LeadAlert } from "@/lib/leads/alerts";
 import type { LeadSummary } from "@/lib/leads/overview";
+import { LEAD_TYPE_LABEL } from "@/lib/leads/lead-type";
 import type { LeadProduct } from "@/lib/leads/types";
 
 type OverviewEvent = { id: string; name: string; event_date: string | null };
@@ -232,7 +233,7 @@ export function LeadOverview({ productFilter, onAlertClick }: LeadOverviewProps)
                       <td className="px-4 py-2.5 font-medium">
                         {event.eventId
                           ? (eventNames.get(event.eventId) ?? event.eventId)
-                          : "No event"}
+                          : LEAD_TYPE_LABEL.personal}
                       </td>
                       <td className="px-4 py-2.5">{event.total}</td>
                       <td className="px-4 py-2.5">{event.closed}</td>

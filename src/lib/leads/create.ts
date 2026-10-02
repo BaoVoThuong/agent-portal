@@ -1,6 +1,7 @@
 import { normalizePhone } from "./import-parse";
 import { isLeadProduct, UNKNOWN_LEAD_PRODUCT, type LeadProduct } from "./types";
 import { parseCollaboratorEmails } from "./collaborators";
+import { isLeadType, isPersonalLeadEventName, type LeadType } from "./lead-type";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -23,6 +24,12 @@ export type CreateLeadInput = {
    * report keeps working because leads still point at a real row.
    */
   eventName: string | null;
+  /**
+   * Chỉ dialog Add lead gửi. null = client cũ: event tuỳ chọn, gán như trước.
+   * "personal" thì không có event và route gán cho người tạo nếu chưa chọn ai;
+   * "event" thì bắt buộc có event — xem lib/leads/lead-type.ts.
+   */
+  leadType: LeadType | null;
   statusId: string | null;
   assignedToEmail: string | null;
   collaboratorEmails: string[];
@@ -112,8 +119,22 @@ export function parseCreateLeadInput(body: unknown): CreateLeadParseResult {
   if (description !== null && typeof description === "object") return { ok: false, error: description.error };
   const eventId = optionalUuid(input.event_id, "Event");
   if (eventId !== null && typeof eventId === "object") return { ok: false, error: eventId.error };
-  const eventName = optionalText(input.event_name, "Event name", 200);
-  if (eventName !== null && typeof eventName === "object") return { ok: false, error: eventName.error };
+  const typedEventName = optionalText(input.event_name, "Event name", 200);
+  if (typedEventName !== null && typeof typedEventName === "object") return { ok: false, error: typedEventName.error };
+  if (input.lead_type !== undefined && input.lead_type !== null && !isLeadType(input.lead_type)) {
+    return { ok: false, error: "Invalid lead type." };
+  }
+  const leadType = input.lead_type ?? null;
+  // "Personal Lead" gõ vào ô Event là cách đánh dấu cũ, không phải tên event.
+  const eventName =
+    leadType === "personal" || isPersonalLeadEventName(typedEventName) ? null : typedEventName;
+  const resolvedEventId = leadType === "personal" ? null : eventId;
+  if (leadType === "event" && !resolvedEventId && !eventName) {
+    return {
+      ok: false,
+      error: "An event lead needs an event name. For a lead without an event, choose Personal lead.",
+    };
+  }
   const statusId = optionalUuid(input.status_id, "Status");
   if (statusId !== null && typeof statusId === "object") return { ok: false, error: statusId.error };
   const assignedToEmail = optionalEmail(input.assigned_to_email, "Assignee");
@@ -134,8 +155,9 @@ export function parseCreateLeadInput(body: unknown): CreateLeadParseResult {
       email,
       fubLink,
       description,
-      eventId,
+      eventId: resolvedEventId,
       eventName,
+      leadType,
       statusId,
       assignedToEmail,
       collaboratorEmails: collaboratorEmails.emails,

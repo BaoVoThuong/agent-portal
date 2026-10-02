@@ -7,6 +7,7 @@ import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { requestJson } from "@/lib/collaboration/optimistic";
 import type { PendingFile } from "@/lib/tasks/pending-attachments";
 import { leadDisplayKey } from "@/lib/leads/display";
+import { isLeadType, LEAD_TYPE_LABEL, LEAD_TYPES } from "@/lib/leads/lead-type";
 import { useBackgroundUploads } from "../../../_shared/useBackgroundUploads";
 import { type LeadAlert } from "@/lib/leads/alerts";
 import {
@@ -242,6 +243,7 @@ export function LeadsClient({
           new Set(statuses.map((status) => status.id))
         ),
         eventName: typeof raw.eventName === "string" ? raw.eventName : null,
+        leadType: isLeadType(raw.leadType) ? raw.leadType : null,
         product: keepKnownString(
           raw.product,
           new Set<string>(LEAD_PRODUCTS)
@@ -1070,6 +1072,13 @@ export function LeadsClient({
     ],
     [statuses],
   );
+  const leadTypeFilterOptions = useMemo(
+    () => [
+      { value: ALL_FILTER, label: "All lead types" },
+      ...LEAD_TYPES.map((type) => ({ value: type, label: LEAD_TYPE_LABEL[type] })),
+    ],
+    [],
+  );
   const eventFilterOptions = useMemo(
     () => [
       { value: ALL_FILTER, label: "All events" },
@@ -1419,6 +1428,20 @@ export function LeadsClient({
                 ) : null}
 
                 <TaskSelect
+                  value={filters.leadType ?? ALL_FILTER}
+                  options={leadTypeFilterOptions}
+                  placeholder="All lead types"
+                  className="w-max min-w-[10rem]"
+                  buttonClassName={FILTER_SELECT_BUTTON_CLASS}
+                  onChange={(value) =>
+                    setFilters({
+                      ...filters,
+                      leadType: isLeadType(value) ? value : null,
+                    })
+                  }
+                />
+
+                <TaskSelect
                   value={filters.eventName ?? ALL_FILTER}
                   options={eventFilterOptions}
                   placeholder="All events"
@@ -1714,6 +1737,7 @@ export function LeadsClient({
         open={addOpen}
         productFilter={productFilter}
         assignees={assignees}
+        currentUserEmail={currentUserEmail}
         sourceId={sourceId}
         columns={columns}
         columnOptions={columnOptions}

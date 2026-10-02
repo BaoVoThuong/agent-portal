@@ -68,6 +68,12 @@ export async function POST(request: Request) {
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
   const input = parsed.value;
   const supabase = getSupabaseAdmin();
+  const normalizedActorEmail = actor.email.trim().toLowerCase();
+  const isPersonalLead = input.leadType === "personal";
+  // Personal lead là lead người tạo tự mang về: chưa chọn ai thì người tạo giữ.
+  // Vẫn cho chọn người khác — manager nhập hộ lead cá nhân của một agent.
+  const assignedToEmail =
+    input.assignedToEmail ?? (isPersonalLead ? normalizedActorEmail : null);
 
   if (input.clientRequestId) {
     const { data: existing, error: existingError } = await supabase
@@ -129,7 +135,7 @@ export async function POST(request: Request) {
         name: input.fullName,
         phone: input.phone,
         email: input.email,
-        assignee: input.assignedToEmail,
+        assignee: assignedToEmail,
         status: statusId,
       },
       customValues: input.customValues,
@@ -143,12 +149,12 @@ export async function POST(request: Request) {
     );
   }
 
-  if (input.assignedToEmail) {
+  if (assignedToEmail && !isPersonalLead) {
     const { data: receivingAgent, error: receivingAgentError } = await supabase
       .from("lead_assignment_weights")
       .select("agent_email")
       .eq("product", input.product)
-      .eq("agent_email", input.assignedToEmail)
+      .eq("agent_email", assignedToEmail)
       .eq("is_active", true)
       .gt("weight", 0)
       .maybeSingle();
@@ -163,11 +169,23 @@ export async function POST(request: Request) {
     }
   }
 
-  if (input.collaboratorEmails.length > 0) {
-    const eligibleCollaborators = await fetchLeadAssignees();
+  // Personal lead không đi qua Distribute pool, nên người nhận chỉ cần có quyền
+  // Lead — cùng điều kiện với collaborator. Người tạo thì đã có quyền sẵn.
+  const personalAssigneeToCheck =
+    isPersonalLead && assignedToEmail && assignedToEmail !== normalizedActorEmail
+      ? assignedToEmail
+      : null;
+  if (input.collaboratorEmails.length > 0 || personalAssigneeToCheck) {
+    const eligiblePeople = await fetchLeadAssignees();
     const eligibleEmails = new Set(
-      eligibleCollaborators.map((person) => person.email.trim().toLowerCase()),
+      eligiblePeople.map((person) => person.email.trim().toLowerCase()),
     );
+    if (personalAssigneeToCheck && !eligibleEmails.has(personalAssigneeToCheck)) {
+      return NextResponse.json(
+        { error: "Choose an agent who has access to Lead Management." },
+        { status: 400 },
+      );
+    }
     if (input.collaboratorEmails.some((collaborator) => !eligibleEmails.has(collaborator))) {
       return NextResponse.json(
         { error: "Choose collaborators who have access to Lead Management." },
@@ -189,12 +207,15 @@ export async function POST(request: Request) {
   if (duplicateError) return NextResponse.json({ error: duplicateError.message }, { status: 500 });
   if (duplicate?.[0]) {
     return NextResponse.json(
-      { error: "A lead with this phone number already exists for that event." },
+      {
+        error: eventId
+          ? "A lead with this phone number already exists for that event."
+          : "A personal lead with this phone number already exists.",
+      },
       { status: 409 }
     );
   }
 
-  const normalizedActorEmail = actor.email.trim().toLowerCase();
   const { data: lead, error: insertError } = await supabase
     .from("leads")
     .insert(
@@ -240,15 +261,17 @@ export async function POST(request: Request) {
   const createdLead = lead as unknown as { id: string };
 
   let finalLead = lead;
-  if (input.assignedToEmail) {
+  if (assignedToEmail) {
     // Cùng RPC với đường gán tay: gán và ghi lịch sử trong một giao dịch. Trước
     // đó lỗi ghi lịch sử chỉ được console.error, nên lead tạo ra đã có chủ mà
     // bảng lịch sử trống.
     const { error: assignError } = await supabase.rpc("assign_leads_manual", {
       p_lead_ids: [createdLead.id],
-      p_to_email: input.assignedToEmail,
+      p_to_email: assignedToEmail,
       p_actor_email: normalizedActorEmail,
-      p_reason: "Assigned when lead was created",
+      p_reason: isPersonalLead
+        ? "Personal lead assigned when created"
+        : "Assigned when lead was created",
     });
     if (assignError) {
       // Lead đã tồn tại và CHƯA gán — trạng thái hợp lệ, nhìn thấy được trên

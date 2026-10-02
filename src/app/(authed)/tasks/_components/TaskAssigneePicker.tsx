@@ -2,7 +2,7 @@
 
 import { useId, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, Search } from "lucide-react";
+import { Check, Search, UserPlus } from "lucide-react";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { formatEmailAsName } from "@/lib/tasks/people";
 import { normalizeOptionSearchText } from "@/lib/ui/option-search";
@@ -22,6 +22,10 @@ export function TaskAssigneeDropdown({
   agentMembersByAgent = {},
   onToggle,
   buttonClassName = "",
+  emptyLabel = "Unassigned",
+  pluralLabel = "assignees",
+  searchPlaceholder,
+  listLabel,
 }: {
   assignees: TaskAssignee[];
   selectedEmails: string[];
@@ -29,6 +33,12 @@ export function TaskAssigneeDropdown({
   agentMembersByAgent?: Record<string, string[]>;
   onToggle: (email: string, assigned: boolean) => void;
   buttonClassName?: string;
+  /** Nhãn khi chưa chọn ai — Lead Collaborators dùng chung control này. */
+  emptyLabel?: string;
+  /** "3 assignees" / "3 collaborators". */
+  pluralLabel?: string;
+  searchPlaceholder?: string;
+  listLabel?: string;
 }) {
   const {
     isOpen,
@@ -54,10 +64,10 @@ export function TaskAssigneeDropdown({
   const isUnassigned = selectedLabels.length === 0;
   const summary =
     isUnassigned
-      ? "Unassigned"
+      ? emptyLabel
       : selectedLabels.length === 1
         ? selectedLabels[0]
-        : `${selectedLabels.length} assignees`;
+        : `${selectedLabels.length} ${pluralLabel}`;
 
   return (
     <div className="relative min-w-0">
@@ -95,6 +105,9 @@ export function TaskAssigneeDropdown({
                 listClassName="max-h-56"
                 autoFocus
                 onTabExit={closeMenuForTab}
+                emptyLabel={emptyLabel}
+                searchPlaceholder={searchPlaceholder}
+                listLabel={listLabel}
               />
             </div>,
             document.body
@@ -112,6 +125,9 @@ export function TaskAssigneePicker({
   listClassName = "max-h-52",
   autoFocus = false,
   onTabExit,
+  emptyLabel = "Unassigned",
+  searchPlaceholder = "Search CS",
+  listLabel = "Assignees",
 }: {
   assignees: TaskAssignee[];
   selectedEmails: string[];
@@ -122,6 +138,9 @@ export function TaskAssigneePicker({
   listClassName?: string;
   autoFocus?: boolean;
   onTabExit?: () => void;
+  emptyLabel?: string;
+  searchPlaceholder?: string;
+  listLabel?: string;
 }) {
   const listboxId = useId();
   const [query, setQuery] = useState("");
@@ -177,7 +196,7 @@ export function TaskAssigneePicker({
           </div>
         ) : (
           <div className="px-2 py-2 text-sm font-semibold text-[#6b778c]">
-            Unassigned
+            {emptyLabel}
           </div>
         )}
       </div>
@@ -195,7 +214,7 @@ export function TaskAssigneePicker({
           aria-expanded="true"
           aria-controls={listboxId}
           aria-autocomplete="list"
-          placeholder="Search CS"
+          placeholder={searchPlaceholder}
           className="min-w-0 flex-1 bg-transparent text-sm font-medium text-[#172b4d] outline-none placeholder:text-[#97a0af]"
         />
       </label>
@@ -203,7 +222,7 @@ export function TaskAssigneePicker({
       <div
         id={listboxId}
         role="listbox"
-        aria-label="Assignees"
+        aria-label={listLabel}
         className={`overflow-auto p-1 ${listClassName}`}
       >
         {people.map((assignee) => {
@@ -244,5 +263,131 @@ export function TaskAssigneePicker({
         ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * Ô người trong bảng (Task List cột Assignees, Lead cột Collaborators): mỗi
+ * người một dòng avatar + tên, trống thì là nút "Assign" viền đứt; bấm mở
+ * TaskAssigneePicker.
+ */
+export function TaskAssigneeMenu({
+  emails,
+  assignees,
+  agentEmail = null,
+  agentMembersByAgent = {},
+  labelByEmail,
+  canAssign,
+  onToggle,
+  emptyLabel = "Unassigned",
+  emptyActionLabel = "Assign",
+  searchPlaceholder,
+  listLabel,
+}: {
+  emails: string[];
+  assignees: TaskAssignee[];
+  agentEmail?: string | null;
+  agentMembersByAgent?: Record<string, string[]>;
+  labelByEmail: ReadonlyMap<string, string>;
+  canAssign: boolean;
+  onToggle: (email: string, assigned: boolean) => void;
+  emptyLabel?: string;
+  emptyActionLabel?: string;
+  searchPlaceholder?: string;
+  listLabel?: string;
+}) {
+  const { isOpen, toggle, triggerRef, menuRef, menuStyle, closeMenuForTab } =
+    useAnchoredMenu();
+  const selectedLabel =
+    emails.length > 0
+      ? emails.map((email) => labelByEmail.get(email) ?? formatEmailAsName(email)).join(", ")
+      : emptyLabel;
+  const assignedPeople = emails.map((email) => ({
+    email,
+    label: labelByEmail.get(email) ?? formatEmailAsName(email),
+  }));
+  const isUnassigned = emails.length === 0;
+  const labelClassName = emails.length > 0 ? "text-[#42526e]" : "text-[#97a0af]";
+
+  if (!canAssign) {
+    return (
+      <span
+        className={`flex w-full min-w-0 flex-col items-start gap-0.5 whitespace-normal text-left text-xs font-semibold leading-tight ${labelClassName}`}
+        title={selectedLabel}
+      >
+        {assignedPeople.length > 0 ? (
+          assignedPeople.map((person) => (
+            <span
+              key={person.email}
+              className="flex min-w-0 items-center gap-1.5 whitespace-nowrap"
+            >
+              <Initials email={person.email} label={person.label} />
+              <span>{person.label}</span>
+            </span>
+          ))
+        ) : (
+          <span className="text-[#97a0af]">{emptyLabel}</span>
+        )}
+      </span>
+    );
+  }
+
+  return (
+    <span className="block min-w-0 whitespace-normal">
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={toggle}
+        aria-expanded={isOpen}
+        aria-haspopup="listbox"
+        title={selectedLabel}
+        className={
+          isUnassigned
+            ? "inline-flex items-center gap-1 rounded border border-dashed border-[#0c66e4] bg-white px-2 py-1 text-[11px] font-bold text-[#0c66e4] transition hover:bg-[#e9f2ff] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#deebff]"
+            : `flex w-full min-w-0 flex-col items-start gap-0.5 whitespace-normal rounded text-left text-xs font-semibold leading-tight transition hover:text-[#0c66e4] ${labelClassName}`
+        }
+      >
+        {isUnassigned ? (
+          <>
+            <UserPlus className="h-3 w-3 shrink-0" />
+            <span>{emptyActionLabel}</span>
+          </>
+        ) : (
+          assignedPeople.map((person) => (
+            <span
+              key={person.email}
+              className="flex min-w-0 items-center gap-1.5 whitespace-nowrap"
+            >
+              <Initials email={person.email} label={person.label} />
+              <span>{person.label}</span>
+            </span>
+          ))
+        )}
+      </button>
+      {isOpen
+        ? createPortal(
+            <div
+              ref={menuRef}
+              style={menuStyle}
+              className="z-[100] min-w-[18rem] rounded border border-[#dfe1e6] bg-white p-1 shadow-[0_8px_24px_rgba(9,30,66,0.18)]"
+            >
+              <TaskAssigneePicker
+                assignees={assignees}
+                selectedEmails={emails}
+                agentEmail={agentEmail}
+                agentMembersByAgent={agentMembersByAgent}
+                onToggle={onToggle}
+                listClassName="max-h-48"
+                autoFocus
+                onTabExit={closeMenuForTab}
+                emptyLabel={emptyLabel}
+                searchPlaceholder={searchPlaceholder}
+                listLabel={listLabel}
+              />
+            </div>,
+            document.body
+          )
+        : null}
+    </span>
   );
 }

@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { buildLeadActor, canManageLeads, canWorkLeads, isLeadViewAdmin } from "@/lib/leads/access";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import { resolveEventByName } from "@/lib/leads/events";
+import { isPersonalLeadEventName } from "@/lib/leads/lead-type";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 const EVENT_PAGE_SIZE = 200;
@@ -66,6 +67,13 @@ export async function POST(request: Request) {
   // insert thẳng, nên trùng tên trả về lỗi 23505 thô dưới dạng 500 — trong khi
   // ở màn tạo lead thì đúng cái tên đó lại resolve về sự kiện đã có. Một khái
   // niệm, hai hành vi.
+  // Personal lead là lead KHÔNG có event — không có event nào tên như vậy.
+  if (isPersonalLeadEventName(name)) {
+    return NextResponse.json(
+      { error: "Personal leads have no event. Leave the event empty instead." },
+      { status: 400 },
+    );
+  }
   const resolved = await resolveEventByName(supabase, name, actor.email.trim().toLowerCase());
   if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
 
