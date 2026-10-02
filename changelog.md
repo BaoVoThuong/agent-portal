@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-02 — Đo thời gian tải chi tiết Lead
+
+- Ba API được gọi khi mở Lead (`comments`, `interactions`, `attachments`) trả
+  thêm `Server-Timing` cho auth, kiểm tra quyền/phạm vi, truy vấn nội dung và ký
+  URL tệp. Log chỉ chứa thời lượng và mã trạng thái, không ghi dữ liệu hồ sơ.
+- Dùng các số này cùng thời gian hiển thị trên trình duyệt để xác định bước nào
+  làm drawer chờ.
+
 ## 2026-10-02 — Enrollment: ô cột tự thêm hết lệch khung
 
 - Form tạo hồ sơ: ô cột tự thêm kiểu chữ, số, link, ngày (vd. "End Date") không

@@ -15,6 +15,7 @@ import {
   uploadTaskFile,
 } from "@/lib/tasks/storage";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { RouteTiming } from "@/lib/server-timing";
 
 export const dynamic = "force-dynamic";
 
@@ -30,8 +31,16 @@ type AttachmentRow = {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
 const COLUMNS = "id,file_name,mime_type,size_bytes,storage_path,created_at";
 
-async function loadContext(id: string) {
-  const session = await auth();
+function measure<T>(
+  timing: RouteTiming | undefined,
+  name: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return timing ? timing.measure(name, operation) : operation();
+}
+
+async function loadContext(id: string, timing?: RouteTiming) {
+  const session = await measure(timing, "auth", async () => auth());
   const email = session?.user?.email;
   if (!email) return { error: "Unauthorized", status: 401 } as const;
   if (!UUID_RE.test(id)) return { error: "Invalid lead id.", status: 400 } as const;
@@ -40,20 +49,24 @@ async function loadContext(id: string) {
     isAdmin: isLeadViewAdmin(session.user),
   });
   const supabase = getSupabaseAdmin();
-  const { data: lead, error } = await supabase
-    .from("leads")
-    .select("id,assigned_to_email,collaborator_emails")
-    .eq("id", id)
-    .is("archived_at", null)
-    .maybeSingle();
+  const { data: lead, error } = await measure(timing, "lead_scope", async () =>
+    supabase
+      .from("leads")
+      .select("id,assigned_to_email,collaborator_emails")
+      .eq("id", id)
+      .is("archived_at", null)
+      .maybeSingle(),
+  );
   if (error) return { error: error.message, status: 500 } as const;
   if (!lead) return { error: "Not found", status: 404 } as const;
   const isOwnerOrAssistant = actor.isManager
     ? false
-    : await isAssistantToLeadMember(
-        lead.assigned_to_email,
-        lead.collaborator_emails,
-        email,
+    : await measure(timing, "membership", async () =>
+        isAssistantToLeadMember(
+          lead.assigned_to_email,
+          lead.collaborator_emails,
+          email,
+        ),
       );
   const capabilities = resolveLeadCapabilities(actor, lead, { isOwnerOrAssistant });
   if (!capabilities.canView) return { error: "Forbidden", status: 403 } as const;
@@ -72,22 +85,41 @@ async function withSignedUrl(row: AttachmentRow) {
 }
 
 export async function GET(_request: Request, { params }: Ctx) {
+  const timing = new RouteTiming("lead-attachments");
+  const respond = (
+    body: unknown,
+    status = 200,
+    headers?: HeadersInit,
+  ) => {
+    const response = NextResponse.json(body, { status, headers });
+    response.headers.set("Server-Timing", timing.headerValue());
+    timing.log(status);
+    return response;
+  };
   const { id } = await params;
-  const context = await loadContext(id);
+  const context = await loadContext(id, timing);
   if ("error" in context) {
-    return NextResponse.json({ error: context.error }, { status: context.status });
+    return respond({ error: context.error }, context.status);
   }
-  const { data, error } = await context.supabase
-    .from("lead_attachments")
-    .select(COLUMNS)
-    .eq("lead_id", id)
-    .order("created_at", { ascending: true });
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  const { data, error } = await timing.measure("file_rows", async () =>
+    context.supabase
+      .from("lead_attachments")
+      .select(COLUMNS)
+      .eq("lead_id", id)
+      .order("created_at", { ascending: true }),
+  );
+  if (error) return respond({ error: error.message }, 500);
   try {
-    const attachments = await Promise.all(((data ?? []) as AttachmentRow[]).map(withSignedUrl));
-    return NextResponse.json({ attachments }, { headers: { "Cache-Control": "no-store" } });
+    const attachments = await timing.measure("file_sign", async () =>
+      Promise.all(((data ?? []) as AttachmentRow[]).map(withSignedUrl)),
+    );
+    return respond(
+      { attachments },
+      200,
+      { "Cache-Control": "no-store" },
+    );
   } catch {
-    return NextResponse.json({ error: "Could not load attachments." }, { status: 500 });
+    return respond({ error: "Could not load attachments." }, 500);
   }
 }
 

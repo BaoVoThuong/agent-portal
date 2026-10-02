@@ -6,6 +6,7 @@ import { isAssistantToLeadMember } from "@/lib/leads/membership";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import type { LeadRow } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { RouteTiming } from "@/lib/server-timing";
 
 export const dynamic = "force-dynamic";
 
@@ -15,8 +16,16 @@ const UUID_RE =
 const COMMENT_COLUMNS =
   "id,lead_id,parent_id,author_email,body,client_request_id,created_at,updated_at,deleted_at";
 
-async function loadAccess(id: string) {
-  const session = await auth();
+function measure<T>(
+  timing: RouteTiming | undefined,
+  name: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return timing ? timing.measure(name, operation) : operation();
+}
+
+async function loadAccess(id: string, timing?: RouteTiming) {
+  const session = await measure(timing, "auth", async () => auth());
   const email = session?.user?.email;
   if (!email) return { error: "Unauthorized" as const, status: 401 };
 
@@ -24,22 +33,26 @@ async function loadAccess(id: string) {
     isAdmin: isLeadViewAdmin(session.user),
   });
   const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
-    .from("leads")
-    .select("id,assigned_to_email,collaborator_emails")
-    .eq("id", id)
-    .is("archived_at", null)
-    .maybeSingle();
+  const { data, error } = await measure(timing, "lead_scope", async () =>
+    supabase
+      .from("leads")
+      .select("id,assigned_to_email,collaborator_emails")
+      .eq("id", id)
+      .is("archived_at", null)
+      .maybeSingle(),
+  );
   if (error) return { error: error.message, status: 500 };
   if (!data) return { error: "Not found", status: 404 };
 
   const lead = data as Pick<LeadRow, "assigned_to_email" | "collaborator_emails">;
   const isOwnerOrAssistant = actor.isManager
     ? false
-    : await isAssistantToLeadMember(
-        lead.assigned_to_email,
-        lead.collaborator_emails,
-        email,
+    : await measure(timing, "membership", async () =>
+        isAssistantToLeadMember(
+          lead.assigned_to_email,
+          lead.collaborator_emails,
+          email,
+        ),
       );
   const capabilities = resolveLeadCapabilities(actor, lead, {
     isOwnerOrAssistant,
@@ -48,27 +61,36 @@ async function loadAccess(id: string) {
 }
 
 export async function GET(_request: Request, { params }: Ctx) {
+  const timing = new RouteTiming("lead-comments");
+  const respond = (body: unknown, status = 200) => {
+    const response = NextResponse.json(body, { status });
+    response.headers.set("Server-Timing", timing.headerValue());
+    timing.log(status);
+    return response;
+  };
   const { id } = await params;
   if (!UUID_RE.test(id)) {
-    return NextResponse.json({ error: "Invalid lead id." }, { status: 400 });
+    return respond({ error: "Invalid lead id." }, 400);
   }
-  const access = await loadAccess(id);
+  const access = await loadAccess(id, timing);
   if ("error" in access) {
-    return NextResponse.json({ error: access.error }, { status: access.status });
+    return respond({ error: access.error }, access.status);
   }
   if (!access.capabilities.canView) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    return respond({ error: "Forbidden" }, 403);
   }
 
-  const { data, error } = await access.supabase
-    .from("lead_comments")
-    .select(COMMENT_COLUMNS)
-    .eq("lead_id", id)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: true })
-    .limit(100);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ comments: data ?? [] });
+  const { data, error } = await timing.measure("comments", async () =>
+    access.supabase
+      .from("lead_comments")
+      .select(COMMENT_COLUMNS)
+      .eq("lead_id", id)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true })
+      .limit(100),
+  );
+  if (error) return respond({ error: error.message }, 500);
+  return respond({ comments: data ?? [] });
 }
 
 export async function POST(request: Request, { params }: Ctx) {

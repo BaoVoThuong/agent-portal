@@ -6,6 +6,7 @@ import { isAssistantToLeadMember } from "@/lib/leads/membership";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import type { LeadRow } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { RouteTiming } from "@/lib/server-timing";
 
 export const dynamic = "force-dynamic";
 
@@ -15,44 +16,57 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export async function GET(_req: Request, { params }: Ctx) {
+  const timing = new RouteTiming("lead-interactions");
+  const respond = (body: unknown, status = 200) => {
+    const response = NextResponse.json(body, { status });
+    response.headers.set("Server-Timing", timing.headerValue());
+    timing.log(status);
+    return response;
+  };
   const { id } = await params;
-  const session = await auth();
+  const session = await timing.measure("auth", async () => auth());
   const email = session?.user?.email;
-  if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!UUID_RE.test(id)) return NextResponse.json({ error: "Invalid lead id." }, { status: 400 });
+  if (!email) return respond({ error: "Unauthorized" }, 401);
+  if (!UUID_RE.test(id)) return respond({ error: "Invalid lead id." }, 400);
 
   const actor = buildLeadActor(session.user.permissions, email, {
     isAdmin: isLeadViewAdmin(session.user),
   });
   const supabase = getSupabaseAdmin();
-  const { data: lead, error: leadError } = await supabase
-    .from("leads")
-    .select("id,assigned_to_email,collaborator_emails")
-    .eq("id", id)
-    .is("archived_at", null)
-    .maybeSingle();
-  if (leadError) return NextResponse.json({ error: leadError.message }, { status: 500 });
-  if (!lead) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const { data: lead, error: leadError } = await timing.measure("lead_scope", async () =>
+    supabase
+      .from("leads")
+      .select("id,assigned_to_email,collaborator_emails")
+      .eq("id", id)
+      .is("archived_at", null)
+      .maybeSingle(),
+  );
+  if (leadError) return respond({ error: leadError.message }, 500);
+  if (!lead) return respond({ error: "Not found" }, 404);
   const viewed = lead as Pick<LeadRow, "assigned_to_email" | "collaborator_emails">;
   const canSeeAsAssistant = actor.isManager
     ? false
-    : await isAssistantToLeadMember(
-        viewed.assigned_to_email,
-        viewed.collaborator_emails,
-        email,
+    : await timing.measure("membership", async () =>
+        isAssistantToLeadMember(
+          viewed.assigned_to_email,
+          viewed.collaborator_emails,
+          email,
+        ),
       );
   if (!resolveLeadCapabilities(actor, viewed, { isOwnerOrAssistant: canSeeAsAssistant }).canView) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    return respond({ error: "Forbidden" }, 403);
   }
 
-  const { data, error } = await supabase
-    .from("lead_interactions")
-    .select("id,lead_id,type_id,status_id,note,actor_email,occurred_at,follow_up_at,created_at")
-    .eq("lead_id", id)
-    .order("occurred_at", { ascending: false })
-    .limit(100);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ interactions: data ?? [] });
+  const { data, error } = await timing.measure("interactions", async () =>
+    supabase
+      .from("lead_interactions")
+      .select("id,lead_id,type_id,status_id,note,actor_email,occurred_at,follow_up_at,created_at")
+      .eq("lead_id", id)
+      .order("occurred_at", { ascending: false })
+      .limit(100),
+  );
+  if (error) return respond({ error: error.message }, 500);
+  return respond({ interactions: data ?? [] });
 }
 
 export async function POST(req: Request, { params }: Ctx) {
