@@ -115,12 +115,23 @@ async function syncConfig(config, options = {}) {
     );
   }
 
-  const insertedCount = await callSupabaseRpc("finalize_sheet_sync", {
-    p_run_id: runId,
-    p_target_table: config.table,
-    p_source_sheet_id: config.sheetId,
-    p_source_gid: config.gid,
-  });
+  let insertedCount;
+  try {
+    insertedCount = await callSupabaseRpc("finalize_sheet_sync", {
+      p_run_id: runId,
+      p_target_table: config.table,
+      p_source_sheet_id: config.sheetId,
+      p_source_gid: config.gid,
+    });
+  } catch (error) {
+    // Staged rows survive a failed promotion (it rolls back as one unit), so
+    // the upload does not have to be repeated once the cause is fixed.
+    console.error(
+      `[${config.name}] Promotion failed; the live table is unchanged. After fixing the cause, resume with:\n` +
+        `  node datasync/sync.js --config ${config.name} --resume-run ${runId}`
+    );
+    throw error;
+  }
   console.log(`[${config.name}] Finalized ${insertedCount ?? result.records.length} rows`);
 
   if (config.afterSyncRpc) {
