@@ -55,6 +55,23 @@ async function buildRecords(config, options = {}) {
 async function syncConfig(config, options = {}) {
   const batchSize = options.batchSize ?? config.batchSize ?? 500;
   validateSyncConfig(config, batchSize);
+
+  if (options.resumeRun) {
+    const insertedCount = await callSupabaseRpc("finalize_sheet_sync", {
+      p_run_id: options.resumeRun,
+      p_target_table: config.table,
+      p_source_sheet_id: config.sheetId,
+      p_source_gid: config.gid,
+    });
+    console.log(`[${config.name}] Resumed and finalized ${insertedCount ?? "staged"} rows`);
+
+    if (config.afterSyncRpc) {
+      await callSupabaseRpc(config.afterSyncRpc);
+      console.log(`[${config.name}] Ran ${config.afterSyncRpc}`);
+    }
+    return;
+  }
+
   const result = await buildRecords(config, options);
 
   if (options.dryRun) {
@@ -69,6 +86,7 @@ async function syncConfig(config, options = {}) {
   }
 
   const runId = crypto.randomUUID();
+  console.log(`[${config.name}] Sync run ${runId}`);
   await callSupabaseRpc("begin_sheet_sync", {
     p_run_id: runId,
     p_target_table: config.table,

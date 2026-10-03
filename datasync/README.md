@@ -41,6 +41,19 @@ node datasync/sync.js --config pc-raw-data
 node datasync/sync.js --config all
 ```
 
+## Resume a timed-out promotion
+
+If every batch reports `Synced` but `finalize_sheet_sync` times out, the staged
+rows remain intact and the live table is unchanged. After increasing the
+database timeout, resume the exact run instead of uploading the Sheet again:
+
+```bash
+node datasync/sync.js --config health-mart --resume-run <run-id>
+```
+
+The script prints the run id before it starts uploading. Use only a run id for
+the same `--config`; the database verifies that the Sheet metadata matches.
+
 The `health-mart` job upserts raw Google Sheet rows into `health_raw_data`, then
 runs `refresh_health_mart()` to rebuild the cleaned `health_mart` table.
 
