@@ -12,8 +12,9 @@ import {
   findMissingChoiceLabels,
   toImportCustomValues,
 } from "@/lib/leads/import-custom-values";
-import { findExistingLeadMatches } from "@/lib/leads/import-existing";
-import { readFirstSheet } from "@/lib/leads/import-read";
+import { findEventIdByName, normalizeEventName, resolveEventByName } from "@/lib/leads/events";
+import { EVENT_NOT_CREATED_YET, findExistingLeadMatches } from "@/lib/leads/import-existing";
+import { readSpreadsheet } from "@/lib/leads/import-read";
 import {
   createMissingChoiceOptions,
   fetchActiveAccounts,
@@ -38,13 +39,8 @@ import type {
 } from "@/lib/leads/import-types";
 import { partitionImportRows } from "@/lib/leads/import-validate";
 import { fetchDefaultLeadStatusId } from "@/lib/leads/queries";
+import { isPersonalLeadEventName } from "@/lib/leads/lead-type";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
-import {
-  isLeadProduct,
-  normalizeLeadProducts,
-  UNKNOWN_LEAD_PRODUCT,
-  type LeadProduct,
-} from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchTaskAgents } from "@/lib/tasks/assignees";
 import { broadcastTableConfigInvalidation } from "@/lib/table-config/realtime";
@@ -137,39 +133,36 @@ export async function POST(request: Request) {
   if (file.size > MAX_BYTES) return NextResponse.json({ error: "That file is larger than 4 MB." }, { status: 400 });
   const dryRun = String(form.get("dry_run") ?? "") === "true";
 
-  // Product cho cả file, chọn nhiều (`products` = JSON mảng). Không chọn =
-  // chưa biết khách quan tâm gì = Unknown. Insurance Needs là một cột riêng giữ
-  // đúng dữ liệu, KHÔNG suy ra product (user chốt 2026-10-03).
-  let products: LeadProduct[];
-  const rawProducts = form.get("products");
-  if (rawProducts !== null) {
-    let parsedProducts: unknown;
-    try {
-      parsedProducts = JSON.parse(String(rawProducts));
-    } catch {
-      parsedProducts = null;
-    }
-    if (!Array.isArray(parsedProducts) || !parsedProducts.every(isLeadProduct)) {
-      return NextResponse.json({ error: "Invalid product." }, { status: 400 });
-    }
-    products = normalizeLeadProducts(parsedProducts);
-  } else {
-    const rawProduct = String(form.get("product") ?? "").trim();
-    if (rawProduct !== "" && !isLeadProduct(rawProduct)) {
-      return NextResponse.json({ error: "Invalid product." }, { status: 400 });
-    }
-    products = [isLeadProduct(rawProduct) ? rawProduct : UNKNOWN_LEAD_PRODUCT];
+  // Lead type (2026-10-03): người import KHAI BÁO Personal hay Event; Event thì
+  // gõ tên — tên đã có thì dùng event đó, chưa có thì Import thật tạo mới.
+  // Preview chỉ tìm, không tạo. event_id vẫn nhận cho client cũ.
+  const leadType = String(form.get("lead_type") ?? "").trim();
+  if (leadType && leadType !== "event" && leadType !== "personal") {
+    return NextResponse.json({ error: "Choose Personal lead or Event lead." }, { status: 400 });
   }
-  /** Product chính — dùng cho vòng chia tự động (mỗi product một pool). */
-  const product: LeadProduct = products[0];
-  const rawEventId = String(form.get("event_id") ?? "").trim();
-  const eventId = rawEventId || null;
-  if (eventId && !UUID_RE.test(eventId)) return NextResponse.json({ error: "The event is not valid." }, { status: 400 });
+  const rawEventId = leadType ? "" : String(form.get("event_id") ?? "").trim();
+  if (rawEventId && !UUID_RE.test(rawEventId)) return NextResponse.json({ error: "The event is not valid." }, { status: 400 });
+  const typedEventName = leadType === "event" ? normalizeEventName(String(form.get("event_name") ?? "")) : "";
+  if (leadType === "event") {
+    if (!typedEventName) return NextResponse.json({ error: "Type the event name." }, { status: 400 });
+    if (typedEventName.length > 200) return NextResponse.json({ error: "The event name is too long." }, { status: 400 });
+    if (isPersonalLeadEventName(typedEventName)) {
+      return NextResponse.json(
+        { error: "Personal leads have no event. Choose Personal lead instead." },
+        { status: 400 },
+      );
+    }
+  }
+  const isPersonal = leadType === "personal" || (!leadType && !rawEventId);
   const excludedByUser = parseExcludedRows(form.get("exclude_rows"));
 
   let sheet;
   try {
-    sheet = readFirstSheet(await file.arrayBuffer());
+    // Nhiều sheet thì lấy sheet khớp mẫu cột nhiều nhất.
+    sheet = readSpreadsheet(
+      await file.arrayBuffer(),
+      (headers) => Object.keys(matchTemplateHeaders(headers).headerByField).length,
+    );
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "That file could not be read." },
@@ -191,15 +184,30 @@ export async function POST(request: Request) {
   const parsed = parseTemplateRows(sheet.records, sheet.rowNumbers, headerMatch.headerByField);
 
   const supabase = getSupabaseAdmin();
-  if (eventId) {
+  // eventId null + !isPersonal = event gõ tên chưa có; chỉ tạo ngay trước khi
+  // ghi lead, để lượt import không ghi được dòng nào không để lại event rỗng.
+  let eventId: string | null = rawEventId || null;
+  let eventName: string | null = typedEventName || null;
+  if (typedEventName) {
+    const found = await findEventIdByName(supabase, typedEventName);
+    if (!found.ok) return NextResponse.json({ error: found.error }, { status: 500 });
+    eventId = found.id;
+  } else if (eventId) {
     const { data: event, error: eventError } = await supabase
       .from("lead_events")
-      .select("id")
+      .select("id,name")
       .eq("id", eventId)
       .is("archived_at", null)
       .maybeSingle();
     if (eventError) return NextResponse.json({ error: eventError.message }, { status: 500 });
     if (!event) return NextResponse.json({ error: "That event is no longer available." }, { status: 400 });
+    eventName = event.name as string;
+    if (isPersonalLeadEventName(event.name)) {
+      return NextResponse.json(
+        { error: "Personal leads do not have an Event pool. Import them without an Event and include an Agent." },
+        { status: 400 },
+      );
+    }
   }
 
   const loadContext = () =>
@@ -207,7 +215,7 @@ export async function POST(request: Request) {
       {
         scope: "lead",
         mode: "create",
-        touchedSystemKeys: ["full_name", "phone", "email", "fub", "product", "event"],
+        touchedSystemKeys: ["full_name", "phone", "email", "fub", "event"],
         touchedCustomKeys: LEAD_IMPORT_CUSTOM_FIELDS,
         submittedCustomValues: {},
       },
@@ -243,13 +251,19 @@ export async function POST(request: Request) {
   ).map((field) => headerMatch.headerByField[field] as string);
 
   // Khách cũ: dò TRƯỚC khi bỏ dòng nào, để preview hiện đủ.
-  const existingClients = findExistingLeadMatches(parsed.rows, candidates.leads, eventId);
+  const existingClients = findExistingLeadMatches(
+    parsed.rows,
+    candidates.leads,
+    isPersonal ? null : eventId ?? EVENT_NOT_CREATED_YET,
+  );
   const blockedRows = new Set(
     existingClients.filter((match) => match.sameEventBlocked).map((match) => match.row),
   );
   // Server chỉ nhận tick bỏ trên dòng THẬT SỰ là khách cũ — một request méo
-  // không được xoá dòng bất kỳ.
-  const existingRows = new Set(existingClients.map((match) => match.row));
+  // không được xoá dòng bất kỳ. Dòng CHỈ trùng tên thì luôn import.
+  const existingRows = new Set(
+    existingClients.filter((match) => match.removable).map((match) => match.row),
+  );
   const excludedRows = new Set(
     [...excludedByUser].filter((row) => existingRows.has(row) && !blockedRows.has(row)),
   );
@@ -321,14 +335,31 @@ export async function POST(request: Request) {
   const partitioned = partitionImportRows(candidatesForImport, context, {
     optionalSystemKeys: ["phone"],
   });
-  const skipped = [...parsed.skipped, ...partitioned.skipped].sort((a, b) => a.row - b.row);
+  // Không có Event = Personal lead. Mỗi dòng phải nêu một Agent đang hoạt động;
+  // không âm thầm đưa Personal lead vào pool như Event lead.
+  const personalAgentSkipped: ImportRowNote[] = isPersonal
+    ? partitioned.valid
+        .filter((row) => resolutionOf(row)?.status !== "matched")
+        .map((row) => ({
+          row: row.row,
+          reason: "Personal leads require an Agent from Account Management.",
+        }))
+    : [];
+  const validRows = isPersonal
+    ? partitioned.valid.filter((row) => resolutionOf(row)?.status === "matched")
+    : partitioned.valid;
+  const skipped = [...parsed.skipped, ...partitioned.skipped, ...personalAgentSkipped]
+    .sort((a, b) => a.row - b.row);
   warnings.sort((a, b) => a.row - b.row);
 
   if (dryRun) {
     const preview: LeadImportPreview = {
       dryRun: true,
+      sheetName: sheet.sheetName,
+      eventName: isPersonal ? null : eventName,
+      eventIsNew: !isPersonal && eventId === null,
       totalRows: parsed.rows.length + parsed.skipped.length,
-      importable: partitioned.valid.length,
+      importable: validRows.length,
       skipped,
       warnings,
       presentHeaders: LEAD_IMPORT_TEMPLATE.filter(
@@ -370,17 +401,23 @@ export async function POST(request: Request) {
   if (createdOptions.length > 0) {
     after(async () => { await broadcastTableConfigInvalidation(["lead"]); });
   }
-  if (partitioned.valid.length === 0) return NextResponse.json(result);
+  if (validRows.length === 0) return NextResponse.json(result);
+
+  if (!isPersonal && eventId === null) {
+    // Tìm-hoặc-tạo: ai đó vừa tạo cùng tên thì dùng luôn event đó.
+    const resolved = await resolveEventByName(supabase, typedEventName, actorEmail);
+    if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 500 });
+    eventId = resolved.id;
+  }
 
   // Lead import phải có status như lead tạo tay.
   const defaultStatusId = await fetchDefaultLeadStatusId(supabase);
   // Mỗi dòng mang một token riêng để nối id vừa chèn về đúng dòng — cần cho
   // bước gán theo cột Agent. Không dựa vào thứ tự RETURNING.
-  const rowsWithToken = partitioned.valid.map((row) => ({ row, token: crypto.randomUUID() }));
-  const newLeadRow = ({ row, token }: (typeof rowsWithToken)[number]) =>
-    buildNewLeadRow({
-      product,
-      products,
+  const rowsWithToken = validRows.map((row) => ({ row, token: crypto.randomUUID() }));
+  const newLeadRow = ({ row, token }: (typeof rowsWithToken)[number]) => {
+    const agent = resolutionOf(row);
+    return buildNewLeadRow({
       eventId,
       statusId: defaultStatusId,
       fullName: row.full_name,
@@ -388,10 +425,15 @@ export async function POST(request: Request) {
       email: row.email,
       fubLink: row.fub_link,
       description: row.description,
+      assignedToEmail:
+        isPersonal && agent?.status === "matched"
+          ? agent.email
+          : null,
       customValues: row.custom_values,
       actorEmail,
       clientRequestId: token,
     });
+  };
 
   const insertedIdByToken = new Map<string, string>();
   const insert = async (batch: typeof rowsWithToken) => {
@@ -432,6 +474,11 @@ export async function POST(request: Request) {
   }
   result.inserted = insertedIdByToken.size;
 
+  // Personal lead đã có Agent ngay từ INSERT (DB ghi lịch sử cùng lúc). Event
+  // lead mới dùng RPC ở đây vì chúng có thể nằm trong pool.
+  if (isPersonal) {
+    result.assignedFromFile = insertedIdByToken.size;
+  } else {
   // Gán theo cột Agent — chỉ người nằm trong danh sách Agent ở Config. Hỏng
   // một người thì các lead đó nằm ở pool; lượt import đã thành công rồi.
   const idsByAgent = new Map<string, string[]>();
@@ -461,14 +508,14 @@ export async function POST(request: Request) {
     result.assignedFromFile += ids.length;
   }
 
-  // Chia tự động chỉ cho lead CHƯA có Agent, và chỉ khi admin bật toàn cục VÀ
-  // người import tick ô — gán nhầm 2.000 lead phải gỡ bằng tay.
+  // Chia tự động chỉ cho lead CHƯA có Agent, khi admin bật pool của Event này
+  // và người import xác nhận — gán nhầm 2.000 lead phải gỡ bằng tay.
   const wantsAutoAssign = String(form.get("auto_assign") ?? "") === "true";
-  if (wantsAutoAssign && unassignedIds.length > 0) {
+  if (wantsAutoAssign && eventId && unassignedIds.length > 0) {
     let outcome: AutoAssignOutcome;
-    if (await isAutoAssignEnabled(product, supabase)) {
+    if (await isAutoAssignEnabled(eventId, supabase)) {
       try {
-        outcome = await autoAssignLeads(unassignedIds, product, actorEmail, supabase);
+        outcome = await autoAssignLeads(unassignedIds, eventId, actorEmail, supabase);
       } catch (error) {
         outcome = {
           assigned: 0,
@@ -480,10 +527,11 @@ export async function POST(request: Request) {
       outcome = {
         assigned: 0,
         unassigned: unassignedIds.length,
-        reason: "Auto-assign is switched off in Lead Table Configuration.",
+        reason: "Auto-assign is switched off for this Event.",
       };
     }
     result.autoAssign = outcome;
+  }
   }
 
   after(async () => { await broadcastLeadsChanged(sourceId); });

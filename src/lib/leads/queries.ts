@@ -8,17 +8,12 @@ import {
   LEAD_PAGE_FETCH_CONCURRENCY,
   planLeadPageOffsets,
 } from "./page-plan";
-import { settingsForLead, type LeadAlertSettingsByProduct } from "./overview";
 import type { LeadActor } from "./access";
 import {
-  byLeadProduct,
   LEAD_INTERACTION_HISTORY_LIMIT,
-  LEAD_PRODUCTS,
-  isLeadProduct,
   type LeadAlertSettings,
   type LeadInteractionPreview,
   type LeadInteractionType,
-  type LeadProduct,
   type LeadRow,
   type LeadStatus,
 } from "./types";
@@ -33,7 +28,6 @@ const MAX_PAGE_SIZE = 1000;
 export type LeadListParams = {
   /** Danh sách id cụ thể; realtime dùng để vá vài dòng thay vì kéo cả danh sách. */
   ids?: unknown;
-  product?: unknown;
   assigned_to?: unknown;
   event_id?: unknown;
   status_id?: unknown;
@@ -43,8 +37,6 @@ export type LeadListParams = {
 };
 
 export type LeadListFilter = {
-  /** null = every product. Lead Management is one list; product is a filter. */
-  product: LeadProduct | null;
   /**
    * Emails the actor may reach through Agent ownership. null = no owner
    * restriction for a Lead manager or task.manage viewer. An empty array would
@@ -95,11 +87,6 @@ export function buildLeadListFilter(
       ? ownerEmails
       : [actor.email.trim().toLowerCase()];
   return {
-    // Deliberately NOT toLeadProduct(): that helper falls back to "pc" for
-    // anything unrecognised, which is right for a URL that names a product but
-    // wrong here, where "no product given" means "show me all of them". Using
-    // it made the merged list silently filter to P&C and show nothing.
-    product: isLeadProduct(params.product) ? params.product : null,
     ownerEmails: actor.isManager || actor.canViewAll
       ? requested
         ? [requested.toLowerCase()]
@@ -126,7 +113,7 @@ export function buildLeadListFilter(
 }
 
 const LEAD_COLUMNS =
-  "id,display_number,product,products,event_id,full_name,phone,email,fub_link,description," +
+  "id,display_number,event_id,full_name,phone,email,fub_link,description," +
   "assigned_to_email,collaborator_emails,assigned_at,assigned_by_email,status_id," +
   "first_contacted_at,last_contacted_at,contact_attempt_count," +
   "next_follow_up_at,closed_at,created_by_email,created_at," +
@@ -138,7 +125,7 @@ const LEAD_LIST_COLUMNS =
   `${LEAD_COLUMNS},lead_events(name),lead_interactions(id,type_id,occurred_at)`;
 
 export type LeadAlertContext = {
-  settingsByProduct: LeadAlertSettingsByProduct;
+  settings: LeadAlertSettings;
   /** Won/lost status ids: a finished lead raises no alert. */
   terminalStatusIds: string[];
 };
@@ -153,7 +140,7 @@ export async function fetchLeadAlertContext(
   ]);
   if (statuses.error) throw new Error(statuses.error.message);
   return {
-    settingsByProduct: settings,
+    settings,
     terminalStatusIds: (statuses.data ?? []).map((row) => (row as { id: string }).id),
   };
 }
@@ -173,29 +160,15 @@ export async function fetchLeadsPage(
   rows: LeadRow[];
   total: number;
   filter: LeadListFilter;
-  alertSettingsByProduct: LeadAlertSettingsByProduct | null;
+  alertSettings: LeadAlertSettings | null;
 }> {
   const filter = buildLeadListFilter(actor, params, ownerEmails);
   let alertSettings: LeadAlertSettings | null = null;
-  let alertSettingsByProduct: LeadAlertSettingsByProduct | null = null;
   let terminalStatusIds: string[] = [];
   if (filter.alert) {
     const context = alertContext ?? (await fetchLeadAlertContext(supabase));
-    const byProduct = context.settingsByProduct;
-    alertSettingsByProduct = byProduct;
+    alertSettings = context.settings;
     terminalStatusIds = context.terminalStatusIds;
-    const inScope = filter.product
-      ? [byProduct[filter.product]]
-      : LEAD_PRODUCTS.map((product) => byProduct[product]);
-    // SQL chỉ là bộ lọc thô và phải là TẬP CHA của câu trả lời thật: lấy ngưỡng
-    // lỏng nhất trong các product đang xem, rồi resolveLeadAlerts chốt lại ở
-    // Node. Lấy ngưỡng chặt hơn là âm thầm giấu mất lead đáng lẽ phải hiện.
-    alertSettings = {
-      product: filter.product ?? "health",
-      no_contact_hours: Math.min(...inScope.map((row) => row.no_contact_hours)),
-      stale_days: Math.min(...inScope.map((row) => row.stale_days)),
-      max_attempts: Math.min(...inScope.map((row) => row.max_attempts)),
-    };
   }
   // `count: "exact"` chạy một COUNT(*) trên toàn bộ tập đã lọc. Trước đây mỗi
   // trang đều xin nó, nên một danh sách 5 trang trả lời cùng một câu hỏi năm
@@ -208,9 +181,6 @@ export async function fetchLeadsPage(
     .order("id", { ascending: true })
     .range(filter.offset, filter.offset + filter.limit - 1);
 
-  // `contains` = `products @> array[...]`, dùng index GIN. Lead mang cả hai
-  // product phải hiện ở CẢ HAI bộ lọc, nên không thể so bằng cột `product`.
-  if (filter.product) query = query.contains("products", [filter.product]);
   const accessPredicates = filter.ownerEmails && filter.collaboratorEmails.length > 0
     ? [
         `assigned_to_email.in.(${filter.ownerEmails.map(postgrestFilterValue).join(",")})`,
@@ -282,7 +252,7 @@ export async function fetchLeadsPage(
     rows: (data ?? []).map(toLeadRowWithInteractionHistory),
     total: total ?? 0,
     filter,
-    alertSettingsByProduct,
+    alertSettings,
   };
 }
 
@@ -298,15 +268,8 @@ function toLeadRowWithInteractionHistory(row: unknown): LeadRow {
     lead_events?: { name?: string | null } | null;
   };
   const { lead_interactions, lead_events, ...lead } = source;
-  const products = Array.isArray(source.products)
-    ? source.products.filter(isLeadProduct)
-    : isLeadProduct(source.product)
-      ? [source.product]
-      : [];
   return {
     ...lead,
-    product: isLeadProduct(source.product) ? source.product : products[0] ?? null,
-    products,
     collaborator_emails: Array.isArray(source.collaborator_emails)
       ? source.collaborator_emails.filter((email): email is string => typeof email === "string")
       : [],
@@ -338,7 +301,7 @@ export async function fetchAllLeads(
    */
   truncated: boolean;
 }> {
-  let settingsByProduct: LeadAlertSettingsByProduct | null = null;
+  let alertSettings: LeadAlertSettings | null = null;
   const alert = toLeadAlert(params.alert);
   // Đọc một lần cho cả lượt phân trang, không phải một lần mỗi trang.
   const alertContext = alert ? await fetchLeadAlertContext(supabase) : undefined;
@@ -367,7 +330,7 @@ export async function fetchAllLeads(
   // không biết `total` thì không lập được kế hoạch cho các trang sau.
   const firstPage = await readPage(0);
   const total = firstPage.total;
-  settingsByProduct = firstPage.alertSettingsByProduct;
+  alertSettings = firstPage.alertSettings;
 
   // Các trang còn lại đi SONG SONG, theo chùm. Trước đây chúng nối đuôi nhau:
   // ở 2.000 lead với trang 200 dòng là 10 lượt đi-về tuần tự, tức khoảng một
@@ -407,13 +370,13 @@ export async function fetchAllLeads(
   // total is recomputed from the filtered rows: the count PostgREST returned
   // belongs to the looser query, and "X of Y" must not quote a number nothing
   // on screen adds up to.
-  if (alert && settingsByProduct) {
+  if (alert && alertSettings) {
     const statuses = await fetchLeadStatusMap(supabase);
     const matched = rows.filter((lead) =>
       resolveLeadAlerts(
         lead,
         lead.status_id ? statuses.get(lead.status_id) ?? null : null,
-        settingsForLead(settingsByProduct, lead),
+        alertSettings,
       ).includes(alert),
     );
     // `truncated` vẫn đi kèm: nếu tập cha bị cắt thì danh sách cảnh báo cũng
@@ -444,22 +407,19 @@ const ALERT_SETTINGS_DEFAULTS = {
 } as const;
 
 /**
- * One threshold row per product, with defaults filled in for a product whose row is
- * missing. Three callers needed this — the list, the Overview, and now the
- * table badges — and each was growing its own copy of the defaults.
+ * One shared threshold row. The defaults keep local and not-yet-migrated
+ * databases readable without hiding leads from the list.
  */
 export async function fetchLeadAlertSettings(
   supabase: SupabaseClient = getSupabaseAdmin()
-): Promise<LeadAlertSettingsByProduct> {
+): Promise<LeadAlertSettings> {
   const { data, error } = await supabase
     .from("lead_alert_settings")
-    .select("product,no_contact_hours,stale_days,max_attempts");
+    .select("no_contact_hours,stale_days,max_attempts")
+    .limit(1)
+    .maybeSingle();
   if (error) throw new Error(error.message);
-  const rows = (data ?? []) as LeadAlertSettings[];
-  return byLeadProduct(
-    (product) =>
-      rows.find((row) => row.product === product) ?? { product, ...ALERT_SETTINGS_DEFAULTS }
-  );
+  return (data as LeadAlertSettings | null) ?? ALERT_SETTINGS_DEFAULTS;
 }
 
 const LEAD_STATUS_COLUMNS = "id,label,color,position,kind,archived_at";

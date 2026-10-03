@@ -1,6 +1,8 @@
 import * as XLSX from "xlsx";
 
 export type SpreadsheetContents = {
+  /** Sheet đã đọc — file nhiều sheet thì là sheet khớp mẫu nhất. */
+  sheetName: string;
   /** Dòng đầu tiên, đã trim, bỏ ô rỗng. */
   headers: string[];
   /** Mỗi dòng dữ liệu là một object theo tiêu đề; ô trống là null. */
@@ -13,22 +15,44 @@ export type SpreadsheetContents = {
 };
 
 /**
- * Đọc sheet đầu tiên của một file Excel/CSV — dùng chung cho dialog (client)
- * và route Import (server), để hai bên không đọc cùng một file ra hai thứ.
+ * Đọc MỘT sheet của file Excel/CSV — dùng chung cho dialog (client) và route
+ * Import (server), để hai bên không đọc cùng một file ra hai thứ.
+ *
+ * File nhiều sheet: chọn sheet có `scoreHeaders` cao nhất (Import chấm theo số
+ * cột khớp mẫu). File "Mid-Autumn Festival 0926.xlsx" có sheet đầu là danh sách
+ * hãng, dữ liệu nằm ở sheet thứ hai — chỉ đọc sheet đầu là báo "không đúng mẫu".
+ * Không sheet nào có điểm thì lấy sheet đầu, như trước.
  *
  * `codepage: 65001` là bắt buộc: CSV xuất từ Google Sheets là UTF-8, nhưng
  * SheetJS mặc định đọc CSV theo latin1 — "Bé gái" thành "BÃ© gÃ¡i". File xlsx
  * tự mang mã hoá nên không bị ảnh hưởng.
  */
-export function readFirstSheet(data: ArrayBuffer): SpreadsheetContents {
+export function readSpreadsheet(
+  data: ArrayBuffer,
+  scoreHeaders?: (headers: string[]) => number,
+): SpreadsheetContents {
   const workbook = XLSX.read(data, { type: "array", codepage: 65001 });
-  const sheetName = workbook.SheetNames[0];
-  if (!sheetName) throw new Error("That file has no sheets.");
+  if (workbook.SheetNames.length === 0) throw new Error("That file has no sheets.");
+
+  const headersOf = (sheet: XLSX.WorkSheet) =>
+    (XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: null })[0] ?? [])
+      .map((value) => String(value ?? "").trim())
+      .filter(Boolean);
+
+  let sheetName = workbook.SheetNames[0];
+  if (scoreHeaders && workbook.SheetNames.length > 1) {
+    let bestScore = 0;
+    for (const name of workbook.SheetNames) {
+      const score = scoreHeaders(headersOf(workbook.Sheets[name]));
+      if (score > bestScore) {
+        bestScore = score;
+        sheetName = name;
+      }
+    }
+  }
+
   const sheet = workbook.Sheets[sheetName];
-  const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: null });
-  const headers = (matrix[0] ?? [])
-    .map((value) => String(value ?? "").trim())
-    .filter(Boolean);
+  const headers = headersOf(sheet);
   if (headers.length === 0) {
     throw new Error("The first row must contain column headers.");
   }
@@ -43,5 +67,5 @@ export function readFirstSheet(data: ArrayBuffer): SpreadsheetContents {
     const rowNum = (record as { __rowNum__?: unknown }).__rowNum__;
     return typeof rowNum === "number" ? rowNum + 1 : index + 2;
   });
-  return { headers, records, rowNumbers };
+  return { sheetName, headers, records, rowNumbers };
 }

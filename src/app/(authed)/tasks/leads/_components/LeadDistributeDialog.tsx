@@ -1,109 +1,35 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { RotateCcw, Shuffle, X } from "lucide-react";
-import {
-  byLeadProduct,
-  LEAD_PRODUCT_LABEL,
-  LEAD_PRODUCTS,
-  type LeadProduct,
-} from "@/lib/leads/types";
+import { fetchLeadEvents, peekLeadEvents, type LeadEventOption } from "@/lib/leads/events-cache";
 import { pickWeighted } from "@/lib/leads/round-robin";
 import {
   applyAgentToggle,
-  draftRowAfterSave,
   parseAssignmentWeightRow,
-  setAgentRow,
   type AssignmentWeightRowView,
 } from "@/lib/leads/assignment-weight-rows";
 import { personLabel } from "@/lib/tasks/people";
 import { Initials } from "../../_components/board-ui";
+import { TaskSelect } from "../../_components/TaskSelect";
 import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
+import { isPersonalLeadEventName } from "@/lib/leads/lead-type";
 
 type WeightRow = AssignmentWeightRowView;
+type WeightsPayload = { enabled: boolean; weights: WeightRow[] };
+type PoolPayload = { pending: number; remaining: number };
+type RosterAgent = { email: string; name: string | null; eventIds: string[] };
+type DistributeResult = { assigned: number; unassigned: number; remaining: number; reason?: string };
 
-type WeightsPayload = {
-  /** API trả kèm; dùng để biết payload đang giữ là của product nào. */
-  product: LeadProduct;
-  enabled: boolean;
-  weights: WeightRow[];
-  preview: { email: string; count: number }[];
-  /** Thứ tự thật của N lượt kế tiếp. */
-  sequence: string[];
-};
-
-type PoolPayload = {
-  pending: number;
-  remaining: number;
-  byProduct: Record<LeadProduct, number>;
-};
-
-type RosterAgent = {
-  email: string;
-  name: string | null;
-  /** Product nào agent này đang phụ trách. */
-  products: LeadProduct[];
-};
-
-type DistributeResult = {
-  assigned: number;
-  unassigned: number;
-  results: Record<string, { assigned: number; unassigned: number; reason?: string }>;
-};
-
-const PRODUCT_LABEL = LEAD_PRODUCT_LABEL;
-const TABS: (LeadProduct | "agents")[] = [...LEAD_PRODUCTS, "agents"];
-/** Cột Agent + một cột tick cho mỗi product ở tab Agent config. */
-const AGENT_GRID_STYLE = {
-  gridTemplateColumns: `minmax(0,1fr) repeat(${LEAD_PRODUCTS.length}, 4.5rem)`,
-};
-/** Bao nhiêu lượt kế tiếp thì vẽ ra. Mười là số người ta giữ được trong đầu. */
 const PREVIEW_SIZE = 10;
+const INPUT_CLASS = "h-9 w-full rounded border border-[#dfe1e6] bg-white px-2 text-sm outline-none focus:border-[#0c66e4]";
+const SELECT_CLASS = "!h-10 !rounded !border !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
 
-/**
- * Cache ở tầng module, sống suốt phiên làm việc.
- *
- * Dialog luôn được mount (nó trả null khi đóng) nên state đã sống qua đóng/mở.
- * Cache này lo phần state không lo được: điều hướng sang trang khác rồi quay
- * lại, hay bất kỳ lần remount nào — mở ra là thấy ngay số cũ thay vì bảng
- * trắng, rồi dữ liệu mới đè lên khi request về.
- *
- * Cố tình KHÔNG có thời hạn: mọi đường ghi trong màn này đều cập nhật cache
- * ngay sau khi ghi, và mỗi lần mở đều làm mới nền. Một cache tự hết hạn sẽ chỉ
- * thêm một trạng thái nữa để sai.
- */
-const weightsCache: Partial<Record<LeadProduct, WeightsPayload>> = {};
-const poolCache: Partial<Record<LeadProduct, PoolPayload>> = {};
-let rosterCache: RosterAgent[] = [];
-
-function cacheWeights(product: LeadProduct, payload: WeightsPayload) {
-  weightsCache[product] = payload;
+function eventLabel(event: LeadEventOption): string {
+  return event.event_date ? `${event.name} · ${event.event_date}` : event.name;
 }
 
-/**
- * Ngoài component có chủ đích: nó không đụng state nào, nên effect gọi được mà
- * không vướng luật "đừng setState thẳng trong effect" của React Compiler — và
- * nhờ vậy phần fetch chỉ có MỘT bản, thay vì một bản trong effect và một bản
- * trong loadWeights như trước.
- */
-async function fetchWeights(product: LeadProduct): Promise<WeightsPayload> {
-  const response = await fetch(
-    `/api/leads/assignment-weights?product=${product}`,
-    { cache: "no-store" }
-  );
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(payload?.error ?? "Could not load the ratios.");
-  return payload as WeightsPayload;
-}
-const INPUT_CLASS =
-  "h-9 w-full rounded border border-[#dfe1e6] bg-white px-2 text-sm outline-none focus:border-[#0c66e4]";
-
-/**
- * Ratio setup lives here rather than on a config screen on purpose: the numbers
- * only mean something next to the leads they are about to move. Someone opening
- * this sees how many leads are waiting, sets the split, watches the preview
- * change, and only then distributes.
- */
+/** Event-specific pool editor and distribution preview. */
 export function LeadDistributeDialog({
   open,
   nameByEmail,
@@ -117,241 +43,167 @@ export function LeadDistributeDialog({
   onClose: () => void;
   onDistributed: () => void;
 }) {
-  // Một tab cho mỗi product để đặt tỉ lệ, một tab để quyết AI thuộc product nào.
-  // Tách ra vì đó là hai câu hỏi khác nhau — "ai" và "bao nhiêu" — và trộn
-  // chúng vào một bảng là lý do trước đây phải có nút Add agent trong từng tab.
-  const [tab, setTab] = useState<LeadProduct | "agents">("health");
-  const product: LeadProduct = tab === "agents" ? "health" : tab;
+  const [events, setEvents] = useState<LeadEventOption[]>(() => peekLeadEvents()?.events ?? []);
+  const [eventsLoading, setEventsLoading] = useState(false);
+  const [eventId, setEventId] = useState("");
+  const [roster, setRoster] = useState<RosterAgent[]>([]);
+  const [rosterError, setRosterError] = useState(false);
+  const [weights, setWeights] = useState<WeightsPayload | null>(null);
+  const [draft, setDraft] = useState<WeightRow[]>([]);
+  const [enabled, setEnabled] = useState(false);
   const [pool, setPool] = useState<PoolPayload | null>(null);
-  /** Riêng cho tab product đang xem — nút Distribute chỉ chia đúng product đó. */
-  const [poolByProduct, setPoolByProduct] = useState<
-    Record<LeadProduct, PoolPayload | null>
-  >(() => byLeadProduct((key) => poolCache[key] ?? null));
-  const tabPool = poolByProduct[product];
-  // Giữ MỌI product. Chỉ có vài cái, nạp một lượt lúc mở là đổi tab tức thì —
-  // trước đây mỗi lần bấm tab là một vòng mạng nữa và bảng trắng trong lúc chờ.
-  // Giữ draft riêng từng product cũng có nghĩa là sửa dở bên này, xem bên kia,
-  // quay lại vẫn còn nguyên.
-  const [weightsByProduct, setWeightsByProduct] = useState<
-    Record<LeadProduct, WeightsPayload | null>
-  >(() => byLeadProduct((key) => weightsCache[key] ?? null));
-  const [draftByProduct, setDraftByProduct] = useState<Record<LeadProduct, WeightRow[]>>(
-    () => byLeadProduct((key) => (weightsCache[key]?.weights ?? []).map((row) => ({ ...row })))
-  );
-  const weights = weightsByProduct[product];
-  const draft = draftByProduct[product];
-  // Cờ này lưu THEO PRODUCT trong DB, nên state cũng phải theo product. Một
-  // biến dùng chung thì tab P&C hiện giá trị của Health, `dirty` tự bật, và bấm
-  // Save ghi đè giá trị tab kia sang tab này — không ai chạm vào ô tick mà nó
-  // vẫn đổi.
-  const [enabledByProduct, setEnabledByProduct] = useState<Record<LeadProduct, boolean>>(
-    () => byLeadProduct((key) => weightsCache[key]?.enabled ?? false)
-  );
-  const enabled = enabledByProduct[product];
-  function setEnabled(next: boolean) {
-    setEnabledByProduct((current) => ({ ...current, [product]: next }));
-  }
+  const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [result, setResult] = useState<DistributeResult | null>(null);
-  // Ai nhận lead do DANH SÁCH NÀY quyết, không do quyền RBAC. Nên ô "Thêm
-  // agent" phải mở ra mọi tài khoản đang hoạt động, chứ không chỉ những người
-  // đã có quyền lead — nếu không thì cái quyết định lại nằm ở Role Manager.
-  const [roster, setRoster] = useState<RosterAgent[]>(() => rosterCache);
-  /** Khoá theo TỪNG dòng, không khoá cả bảng. */
-  const [pendingAgents, setPendingAgents] = useState<ReadonlySet<string>>(new Set());
-
-  const [rosterError, setRosterError] = useState(false);
-  // Số thứ tự request RIÊNG cho từng product: response về trễ chỉ bị bỏ khi có
-  // request MỚI HƠN của CÙNG product. Trước đây dùng chung một bộ đếm cho cả
-  // hai, nên nạp lại Health làm rơi mất response P&C đang bay, và tab P&C kẹt số
-  // cũ tới khi đóng mở lại hộp thoại.
-  const weightsRequest = useRef<Record<LeadProduct, number>>(byLeadProduct(() => 0));
-  /** Số lượt GET tỉ lệ đang bay cho từng product. */
-  const weightsInFlight = useRef<Record<LeadProduct, number>>(byLeadProduct(() => 0));
-
-  const loadWeights = useCallback(async (forProduct: LeadProduct) => {
-    const seq = weightsRequest.current[forProduct] + 1;
-    weightsRequest.current[forProduct] = seq;
-    weightsInFlight.current[forProduct] += 1;
-    try {
-      const next = await fetchWeights(forProduct);
-      if (seq !== weightsRequest.current[forProduct]) return;
-      cacheWeights(forProduct, next);
-      setWeightsByProduct((current) => ({ ...current, [forProduct]: next }));
-      setDraftByProduct((current) => ({
-        ...current,
-        [forProduct]: next.weights.map((row) => ({ ...row })),
-      }));
-      // `forProduct`, KHÔNG phải `product` trong closure: lượt nạp có thể trả về
-      // sau khi người dùng đã chuyển tab.
-      setEnabledByProduct((current) => ({ ...current, [forProduct]: next.enabled }));
-      setError(null);
-    } catch (loadError) {
-      if (seq !== weightsRequest.current[forProduct]) return;
-      setError(loadError instanceof Error ? loadError.message : "Could not load the ratios.");
-    } finally {
-      weightsInFlight.current[forProduct] -= 1;
-    }
-  }, []);
-
-  // Pool và roster không phụ thuộc product, nên chúng nạp MỘT LẦN khi mở và
-  // không chạy lại mỗi lần bấm đổi product. Trước đây cả ba chạy tuần tự trong
-  // một effect: bảng agent phải đợi cả pool lẫn roster xong mới hiện, dù nó
-  // không cần cái nào trong hai.
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        const response = await fetch("/api/leads/distribute", { cache: "no-store" });
-        const payload = await response.json().catch(() => null);
-        if (cancelled) return;
-        if (!response.ok) throw new Error(payload?.error ?? "Could not read the pool.");
-        setPool(payload as PoolPayload);
-      } catch (poolError) {
-        if (!cancelled) {
-          setError(poolError instanceof Error ? poolError.message : "Could not read the pool.");
-        }
-      }
-    })();
-
-    void (async () => {
-      try {
-        const response = await fetch("/api/leads/assignment-roster", { cache: "no-store" });
-        const payload = await response.json().catch(() => null);
-        if (cancelled) return;
-        if (!response.ok || !Array.isArray(payload?.agents)) {
-          throw new Error("roster");
-        }
-        rosterCache = payload.agents as RosterAgent[];
-        setRoster(rosterCache);
-        setRosterError(false);
-      } catch {
-        // Hỏng im lặng thì ô "Thêm agent" biến mất không dấu vết và trông y hệt
-        // "đã thêm hết mọi người rồi". Nói ra để còn biết mà thử lại.
-        if (!cancelled) setRosterError(true);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
-
-  // Fetch inline với .then(), giống LeadAddDialog/LeadImportDialog: React
-  // Compiler chặn việc gọi một hàm có setState thẳng trong thân effect, kể cả
-  // khi setState đó nằm sau await. loadWeights vẫn dùng cho lần nạp lại sau khi
-  // lưu — chỗ đó là event handler nên không vướng.
-  // Một lượt duy nhất lúc mở: trọng số và pool của CẢ HAI product, song song.
-  // Sau đó đổi tab không tốn request nào.
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-
-    for (const key of LEAD_PRODUCTS) {
-      const seq = weightsRequest.current[key] + 1;
-      weightsRequest.current[key] = seq;
-      weightsInFlight.current[key] += 1;
-      void fetchWeights(key)
-        .then((next) => {
-          if (cancelled || seq !== weightsRequest.current[key]) return;
-          cacheWeights(key, next);
-          setWeightsByProduct((current) => ({ ...current, [key]: next }));
-          setDraftByProduct((current) => ({
-            ...current,
-            [key]: next.weights.map((row) => ({ ...row })),
-          }));
-          setEnabledByProduct((current) => ({ ...current, [key]: next.enabled }));
-        })
-        .catch((loadError: unknown) => {
-          if (cancelled || seq !== weightsRequest.current[key]) return;
-          setError(
-            loadError instanceof Error ? loadError.message : "Could not load the ratios."
-          );
-        })
-        .finally(() => {
-          weightsInFlight.current[key] -= 1;
-        });
-
-      void fetch(`/api/leads/distribute?product=${key}`, { cache: "no-store" })
-        .then(async (response) => {
-          const payload = await response.json().catch(() => null);
-          if (cancelled || !response.ok) return;
-          poolCache[key] = payload as PoolPayload;
-          setPoolByProduct((current) => ({ ...current, [key]: payload as PoolPayload }));
-        })
-        .catch(() => undefined);
-    }
-
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
+  const requestSequence = useRef(0);
 
   useBodyScrollLock(open);
-  if (!open) return null;
 
-  // Suy ra thay vì lưu: payload mang theo product của chính nó, nên "chưa có
-  // payload của product đang xem" CHÍNH LÀ đang tải. Một cờ loading riêng phải
-  // set đồng bộ trong effect, và nó cũng là thứ nữa có thể lệch khỏi sự thật.
-  const loadingWeights = error === null && weights?.product !== product;
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void Promise.resolve()
+      .then(() => {
+        if (cancelled) return null;
+        setEventsLoading(true);
+        return fetchLeadEvents();
+      })
+      .then((payload) => {
+        if (cancelled || !payload) return;
+        const activeEvents = payload.events.filter(
+          (event) => event.id && event.name.trim() && !isPersonalLeadEventName(event.name),
+        );
+        setEvents(activeEvents);
+        setEventId((current) => current && activeEvents.some((event) => event.id === current)
+          ? current
+          : activeEvents[0]?.id ?? "");
+      })
+      .catch((loadError: unknown) => {
+        if (!cancelled) setError(loadError instanceof Error ? loadError.message : "Could not load Events.");
+      })
+      .finally(() => {
+        if (!cancelled) setEventsLoading(false);
+      });
 
-  // Đang nhận = đã bật ở Agent config. Trọng số 0 nghĩa là "tạm không chia
-  // phần nào", vẫn thuộc product.
-  const receiving = draft.filter((row) => row.is_active);
-  const active = receiving.filter((row) => row.weight > 0);
-  const totalWeight = active.reduce((sum, row) => sum + row.weight, 0);
-  // Recomputed from the draft so the percentages move as someone types, instead
-  // of showing the numbers that were true when the dialog opened.
-  const shareOf = (row: WeightRow) =>
-    row.is_active && row.weight > 0 && totalWeight > 0
-      ? Math.round((row.weight / totalWeight) * 1000) / 10
-      : 0;
-  const dirty =
-    weights !== null &&
-    (enabled !== weights.enabled ||
-      JSON.stringify(draft.map((r) => [r.agent_email, r.weight, r.is_active, r.position])) !==
-        JSON.stringify(weights.weights.map((r) => [r.agent_email, r.weight, r.is_active, r.position])));
+    void fetch("/api/leads/assignment-roster", { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !Array.isArray(payload?.agents)) throw new Error(payload?.error ?? "Could not load Agents.");
+        if (!cancelled) {
+          setRoster(payload.agents as RosterAgent[]);
+          setRosterError(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setRosterError(true);
+      });
+    return () => { cancelled = true; };
+  }, [open]);
 
+  useEffect(() => {
+    if (!open || !eventId) return;
+    let cancelled = false;
+    const sequence = ++requestSequence.current;
+    void Promise.resolve()
+      .then(() => {
+        if (cancelled) return null;
+        setLoading(true);
+        setError(null);
+        return Promise.all([
+          fetch(`/api/leads/assignment-weights?event_id=${encodeURIComponent(eventId)}`, { cache: "no-store" }),
+          fetch(`/api/leads/distribute?event_id=${encodeURIComponent(eventId)}`, { cache: "no-store" }),
+        ]);
+      })
+      .then(async (responses) => {
+        if (!responses) return;
+        const [weightsResponse, poolResponse] = responses;
+        const [weightsPayload, poolPayload] = await Promise.all([
+          weightsResponse.json().catch(() => null),
+          poolResponse.json().catch(() => null),
+        ]);
+        if (!weightsResponse.ok) throw new Error(weightsPayload?.error ?? "Could not load Event ratios.");
+        if (!poolResponse.ok) throw new Error(poolPayload?.error ?? "Could not read the Event pool.");
+        if (cancelled || sequence !== requestSequence.current) return;
+        const rawWeights: unknown[] = Array.isArray(weightsPayload?.weights) ? weightsPayload.weights : [];
+        const rows = rawWeights.map(parseAssignmentWeightRow).filter((row): row is WeightRow => row !== null);
+        const next = { enabled: weightsPayload?.enabled === true, weights: rows };
+        setWeights(next);
+        setDraft(rows.map((row) => ({ ...row })));
+        setEnabled(next.enabled);
+        setPool({ pending: Number(poolPayload?.pending) || 0, remaining: Number(poolPayload?.remaining) || 0 });
+      })
+      .catch((loadError: unknown) => {
+        if (!cancelled && sequence === requestSequence.current) {
+          setWeights(null);
+          setDraft([]);
+          setPool(null);
+          setError(loadError instanceof Error ? loadError.message : "Could not load the Event pool.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled && sequence === requestSequence.current) setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [open, eventId]);
 
-  // Dãy dựng NGAY TẠI ĐÂY từ trọng số đang gõ, nhưng con trỏ (current_weight)
-  // lấy nguyên từ bản đã lưu: lượt chia trước chưa bao giờ dừng đúng ranh giới
-  // một chu kỳ, nên bắt đầu lại từ 0 sẽ vẽ một dãy không phải dãy mà việc chia
-  // thật sẽ chạy. Dùng chính pickWeighted mà RPC bên DB làm theo.
-  const upcoming = pickWeighted(
-    active.map((row) => ({
-      email: row.agent_email,
-      weight: row.weight,
-      currentWeight: row.current_weight,
-      position: row.position,
-    })),
-    PREVIEW_SIZE
-  ).picks;
+  const agentsByEmail = useMemo(() => {
+    const agents = new Map(roster.map((agent) => [agent.email.trim().toLowerCase(), agent]));
+    for (const row of draft) {
+      if (!agents.has(row.agent_email.trim().toLowerCase())) {
+        agents.set(row.agent_email.trim().toLowerCase(), { email: row.agent_email, name: null, eventIds: [] });
+      }
+    }
+    return [...agents.values()].sort((a, b) => personLabel(a.email, nameByEmail).localeCompare(personLabel(b.email, nameByEmail)));
+  }, [draft, nameByEmail, roster]);
 
-  const blockedReason = busy
-    ? "Working…"
-    : loadingWeights
-      ? "Still loading."
-      : active.length === 0
-          ? `Nobody is receiving ${PRODUCT_LABEL[product]} leads.`
-          : !tabPool || tabPool.pending === 0
-            ? `No ${PRODUCT_LABEL[product]} leads are waiting.`
-            : null;
+  const activeRows = draft.filter((row) => row.is_active && row.weight > 0);
+  const totalWeight = activeRows.reduce((sum, row) => sum + row.weight, 0);
+  const shareOf = (row: WeightRow) => totalWeight > 0 && row.is_active && row.weight > 0
+    ? Math.round((row.weight / totalWeight) * 1000) / 10
+    : 0;
+  const signature = (rows: WeightRow[]) => JSON.stringify(rows.map((row) => [row.agent_email, row.weight, row.position, row.is_active]));
+  const dirty = weights !== null && (enabled !== weights.enabled || signature(draft) !== signature(weights.weights));
+  const upcoming = pickWeighted(activeRows.map((row) => ({
+    email: row.agent_email,
+    weight: row.weight,
+    currentWeight: row.current_weight,
+    position: row.position,
+  })), PREVIEW_SIZE).picks;
+  const selectedEvent = events.find((event) => event.id === eventId);
 
-  function update(email: string, patch: Partial<WeightRow>) {
-    setDraftByProduct((current) => ({
-      ...current,
-      [product]: current[product].map((row) =>
-        row.agent_email === email ? { ...row, ...patch } : row
-      ),
-    }));
+  function toggleAgent(email: string, checked: boolean) {
+    setDraft((current) => applyAgentToggle(current, email, checked) as WeightRow[]);
+  }
+
+  function updateWeight(email: string, value: string) {
+    const weight = Math.max(0, Math.trunc(Number(value) || 0));
+    setDraft((current) => current.map((row) => row.agent_email === email ? { ...row, weight } : row));
+  }
+
+  async function reloadEventData() {
+    if (!eventId) return;
+    const [weightsResponse, poolResponse] = await Promise.all([
+      fetch(`/api/leads/assignment-weights?event_id=${encodeURIComponent(eventId)}`, { cache: "no-store" }),
+      fetch(`/api/leads/distribute?event_id=${encodeURIComponent(eventId)}`, { cache: "no-store" }),
+    ]);
+    const [weightsPayload, poolPayload] = await Promise.all([
+      weightsResponse.json().catch(() => null), poolResponse.json().catch(() => null),
+    ]);
+    if (!weightsResponse.ok) throw new Error(weightsPayload?.error ?? "Could not reload Event ratios.");
+    if (!poolResponse.ok) throw new Error(poolPayload?.error ?? "Could not reload the Event pool.");
+    const rawWeights: unknown[] = Array.isArray(weightsPayload?.weights) ? weightsPayload.weights : [];
+    const rows = rawWeights.map(parseAssignmentWeightRow).filter((row): row is WeightRow => row !== null);
+    const next = { enabled: weightsPayload?.enabled === true, weights: rows };
+    setWeights(next);
+    setDraft(rows.map((row) => ({ ...row })));
+    setEnabled(next.enabled);
+    setPool({ pending: Number(poolPayload?.pending) || 0, remaining: Number(poolPayload?.remaining) || 0 });
   }
 
   async function save(): Promise<boolean> {
-    if (busy) return false;
+    if (busy || !eventId) return false;
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -360,590 +212,187 @@ export function LeadDistributeDialog({
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          product,
+          event_id: eventId,
           enabled,
-          weights: draft.map((row) => ({
-            agent_email: row.agent_email,
-            weight: row.weight,
-            position: row.position,
-            is_active: row.is_active,
-          })),
+          weights: draft.map(({ agent_email, weight, position, is_active }) => ({ agent_email, weight, position, is_active })),
         }),
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error ?? "Could not save.");
-      await loadWeights(product);
-      setNotice("Ratios saved.");
+      if (!response.ok) throw new Error(payload?.error ?? "Could not save Event ratios.");
+      await reloadEventData();
+      setNotice("Event ratios saved.");
       return true;
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Could not save.");
+      setError(saveError instanceof Error ? saveError.message : "Could not save Event ratios.");
       return false;
     } finally {
       setBusy(false);
     }
   }
 
-  /**
-   * Lưu (nếu đang có sửa) rồi chia.
-   *
-   * Trước đây tỉ lệ chưa lưu làm nút Distribute mờ đi, và lý do chỉ nằm trong
-   * `title` — phải rê chuột và chờ mới thấy. Người dùng gõ weight = 2 rồi bấm
-   * Distribute, không có gì xảy ra và không có gì giải thích. Đó là ngõ cụt.
-   *
-   * Vẫn KHÔNG chia bằng tỉ lệ chưa lưu: lưu trước, chia sau. Chia bằng con số
-   * trên màn hình trong khi DB giữ con số khác là hai sự thật cho một lượt chia.
-   */
-  async function saveThenDistribute() {
-    if (dirty && !(await save())) return;
-    await distribute();
-  }
-
-  /**
-   * Bật/tắt một agent cho một product.
-   *
-   * Optimistic: ô tick đổi ngay, request chạy nền, hỏng thì trả lại. Bản trước
-   * làm ba vòng mạng cho một cú tick (GET cả danh sách → PUT cả danh sách → GET
-   * lại) và khoá TOÀN BỘ bảng suốt thời gian đó — bật năm agent là ngồi chờ năm
-   * lần. Giờ là một request; dòng đang lưu chỉ bị khoá về mặt logic (bấm thêm
-   * trong lúc chờ thì bỏ qua), không bị làm xám.
-   *
-   * `is_active` là cờ duy nhất; dòng không bị xoá khi tắt nên trọng số và vị
-   * trí trong vòng xoay được giữ nguyên.
-   */
-  async function toggleAgentProduct(
-    agentEmail: string,
-    forProduct: LeadProduct,
-    next: boolean
-  ) {
-    const key = `${forProduct}:${agentEmail}`;
-    if (pendingAgents.has(key)) return;
-
-    const apply = (on: boolean) =>
-      setRoster((agents) =>
-        agents.map((agent) =>
-          agent.email === agentEmail
-            ? {
-                ...agent,
-                products: on
-                  ? [...new Set([...agent.products, forProduct])]
-                  : agent.products.filter((value) => value !== forProduct),
-              }
-            : agent
-        )
-      );
-
-    // Dòng của agent này TRƯỚC khi đổi, để lưu hỏng thì trả lại đúng dòng đó.
-    // Chỉ đụng một dòng: tỉ lệ đang sửa dở của những agent khác giữ nguyên.
-    const previousBaselineRow = weightsByProduct[forProduct]?.weights.find(
-      (row) => row.agent_email === agentEmail
-    );
-    const previousDraftRow = draftByProduct[forProduct].find(
-      (row) => row.agent_email === agentEmail
-    );
-    const patchBaseline = (change: (rows: WeightRow[]) => WeightRow[]) => {
-      // Cache module và state đi qua CÙNG một phép đổi thuần, nên không lệch nhau.
-      const cached = weightsCache[forProduct];
-      if (cached) cacheWeights(forProduct, { ...cached, weights: change(cached.weights) });
-      setWeightsByProduct((current) => {
-        const payload = current[forProduct];
-        return payload
-          ? { ...current, [forProduct]: { ...payload, weights: change(payload.weights) } }
-          : current;
-      });
-    };
-    const patchDraft = (change: (rows: WeightRow[]) => WeightRow[]) =>
-      setDraftByProduct((current) => ({
-        ...current,
-        [forProduct]: change(current[forProduct]),
-      }));
-
-    // Một lượt GET đang bay lúc này được gửi TRƯỚC khi ghi, nên mang dữ liệu cũ:
-    // để nó về sau thì nó đè mất cú tick. Bỏ nó đi, rồi nạp lại sau khi ghi.
-    const refreshWasInFlight = weightsInFlight.current[forProduct] > 0;
-    if (refreshWasInFlight) weightsRequest.current[forProduct] += 1;
-
-    // Optimistic ở CẢ tab Agent config lẫn tab tỉ lệ của ĐÚNG product vừa tick.
-    // Trước đây tab tỉ lệ chỉ được nạp lại khi `forProduct === product` — mà
-    // đang đứng ở tab Agent config thì `product` luôn là "health", nên tick agent
-    // cho P&C thì tab P&C không bao giờ thấy, cho tới khi đóng mở lại hộp thoại.
-    apply(next);
-    patchBaseline((rows) => applyAgentToggle(rows, agentEmail, next));
-    patchDraft((rows) => applyAgentToggle(rows, agentEmail, next));
-    setPendingAgents((current) => new Set(current).add(key));
-    setError(null);
-    try {
-      const response = await fetch("/api/leads/assignment-weights", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          product: forProduct,
-          agent_email: agentEmail,
-          is_active: next,
-        }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error ?? "Could not save.");
-
-      // Đối chiếu với đúng dòng server vừa ghi — không GET lại cả danh sách.
-      const rawRow = payload?.row;
-      const serverRow = parseAssignmentWeightRow(rawRow);
-      if (serverRow || rawRow === null) {
-        patchBaseline((rows) => setAgentRow(rows, agentEmail, serverRow ?? undefined));
-        patchDraft((rows) =>
-          setAgentRow(
-            rows,
-            agentEmail,
-            serverRow ? draftRowAfterSave(serverRow, previousDraftRow) : undefined
-          )
-        );
-        if (refreshWasInFlight || !weightsCache[forProduct]) void loadWeights(forProduct);
-      } else {
-        // Không đọc được dòng trả về: nạp lại cả danh sách, còn hơn xoá nhầm.
-        void loadWeights(forProduct);
-      }
-    } catch (toggleError) {
-      apply(!next);
-      patchBaseline((rows) => setAgentRow(rows, agentEmail, previousBaselineRow));
-      patchDraft((rows) => setAgentRow(rows, agentEmail, previousDraftRow));
-      if (refreshWasInFlight) void loadWeights(forProduct);
-      setError(toggleError instanceof Error ? toggleError.message : "Could not save.");
-    } finally {
-      setPendingAgents((current) => {
-        const nextSet = new Set(current);
-        nextSet.delete(key);
-        return nextSet;
-      });
-    }
-  }
-
   async function resetCursor() {
-    if (busy) return;
-    // The cursor holds the unfinished part of the current cycle. Zeroing it is
-    // not undoable and shifts who is next, so it asks first.
-    if (
-      !window.confirm(
-        `Reset the ${PRODUCT_LABEL[product]} rotation?\n\nThe part-finished cycle is discarded and the next run starts from the top.`
-      )
-    ) {
-      return;
-    }
+    if (!eventId || busy) return;
+    if (!window.confirm(`Reset the rotation for ${selectedEvent?.name ?? "this Event"}? The next run starts a new cycle.`)) return;
     setBusy(true);
     setError(null);
     try {
       const response = await fetch("/api/leads/assignment-weights", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "reset_cursor", product }),
+        body: JSON.stringify({ action: "reset_cursor", event_id: eventId }),
       });
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        throw new Error(payload?.error ?? "Could not reset.");
-      }
-      await loadWeights(product);
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error ?? "Could not reset rotation.");
+      await reloadEventData();
       setNotice("Rotation reset.");
     } catch (resetError) {
-      setError(resetError instanceof Error ? resetError.message : "Could not reset.");
+      setError(resetError instanceof Error ? resetError.message : "Could not reset rotation.");
     } finally {
       setBusy(false);
     }
   }
 
   async function distribute() {
-    if (busy || !tabPool || tabPool.pending === 0) return;
+    if (!eventId || busy || !pool?.pending || activeRows.length === 0) return;
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
       const response = await fetch("/api/leads/distribute", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-lead-client-source": sourceId,
-        },
-        body: JSON.stringify({ product }),
+        headers: { "Content-Type": "application/json", "x-lead-client-source": sourceId },
+        body: JSON.stringify({ event_id: eventId }),
       });
       const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error ?? "Could not distribute.");
+      if (!response.ok) throw new Error(payload?.error ?? "Could not distribute this Event pool.");
       setResult(payload as DistributeResult);
-      const poolResponse = await fetch("/api/leads/distribute", { cache: "no-store" });
-      if (poolResponse.ok) setPool((await poolResponse.json()) as PoolPayload);
-      await loadWeights(product);
+      await reloadEventData();
       onDistributed();
     } catch (runError) {
-      setError(runError instanceof Error ? runError.message : "Could not distribute.");
+      setError(runError instanceof Error ? runError.message : "Could not distribute this Event pool.");
     } finally {
       setBusy(false);
     }
   }
 
+  async function saveThenDistribute() {
+    if (dirty && !(await save())) return;
+    await distribute();
+  }
+
+  if (!open) return null;
+  const blockedReason = loading || eventsLoading
+    ? "Loading Event pool…"
+    : !eventId
+      ? "Choose an Event."
+      : activeRows.length === 0
+        ? "Enable at least one Agent with a weight above 0."
+        : !pool?.pending
+          ? "No unassigned leads are waiting for this Event."
+          : null;
+
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#091e42]/40 p-4 sm:p-6"
-      onClick={onClose}
-    >
-      {/* Kích thước cố định theo viewport: thêm/xoá agent, hiện lỗi hay đổi
-          product đều không được làm modal co giãn dưới tay người đang bấm —
-          nút Distribute ở footer mà nhảy chỗ là cách làm người ta bấm nhầm. */}
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Distribute pool"
-        className="flex h-[calc(100vh-4rem)] max-h-[860px] w-full max-w-3xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#091e42]/40 p-4 sm:p-6" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-label="Distribute Event pool" className="flex h-[calc(100vh-4rem)] max-h-[860px] w-full max-w-4xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
         <header className="flex items-center justify-between border-b border-[#dfe1e6] px-5 py-3">
-          <h2 className="text-base font-bold text-[#172b4d]">Distribute pool by ratio</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded p-1.5 text-[#42526e] transition hover:bg-[#f4f5f7]"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div>
+            <h2 className="text-base font-bold text-[#172b4d]">Distribute Event pool</h2>
+            <p className="mt-0.5 text-xs text-[#6b778c]">Each Event keeps its own Agent list, ratios, and rotation.</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="rounded p-1.5 text-[#42526e] transition hover:bg-[#f4f5f7]"><X className="h-4 w-4" /></button>
         </header>
 
-        {/* flex column, KHÔNG tự cuộn: vùng cuộn duy nhất là danh sách agent
-            bên trong. Trước đây đây là một khối block có overflow-y-auto, nên
-            `flex-1` trên danh sách vô tác dụng — nó cao bằng nội dung nên
-            không bao giờ cuộn, mà overscroll-contain lại chặn cuộn lan ra
-            thân modal. Kết quả: không gì cuộn được. */}
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-5">
-          <div className="shrink-0 rounded border border-[#dfe1e6] bg-[#f7f8fa] px-4 py-3 text-sm">
-            {pool ? (
-              pool.pending === 0 ? (
-                <span className="font-semibold text-[#42526e]">
-                  No leads are waiting in the pool.
-                </span>
-              ) : (
-                <>
-                  <span className="font-semibold text-[#172b4d]">
-                    {pool.pending} unassigned lead{pool.pending === 1 ? "" : "s"}
-                  </span>
-                  <span className="text-[#6b778c]">
-                    {" — "}
-                    {LEAD_PRODUCTS.filter((key) => pool.byProduct[key] > 0)
-                      .map((key) => `${PRODUCT_LABEL[key]} ${pool.byProduct[key]}`)
-                      .join(" · ")}
-                  </span>
-                  {pool.remaining > 0 ? (
-                    <span className="mt-1 block text-xs text-[#974f0c]">
-                      {pool.remaining} more will need another run.
-                    </span>
-                  ) : null}
-                </>
-              )
-            ) : (
-              <span className="text-[#6b778c]">Reading the pool…</span>
-            )}
-          </div>
-
-          <div className="inline-flex shrink-0 rounded bg-[#f4f5f7] p-0.5">
-            {TABS.map((key) => (
-              <button
-                key={key}
-                type="button"
-                aria-current={tab === key ? "page" : undefined}
-                onClick={() => {
-                  setTab(key);
+          <div className="grid shrink-0 gap-3 sm:grid-cols-[minmax(15rem,0.8fr)_1fr]">
+            <label className="block space-y-1">
+              <span className="text-xs font-bold uppercase tracking-wide text-[#6b778c]">Event</span>
+              <TaskSelect
+                label="Event"
+                value={eventId}
+                options={events.map((event) => ({ value: event.id, label: eventLabel(event) }))}
+                placeholder={eventsLoading ? "Loading Events…" : "Choose Event"}
+                disabled={eventsLoading || events.length === 0}
+                searchable
+                className="w-full"
+                menuClassName="max-h-64 min-w-full"
+                buttonClassName={SELECT_CLASS}
+                onChange={(value) => {
+                  setEventId(value);
                   setResult(null);
+                  setError(null);
                   setNotice(null);
                 }}
-                className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
-                  tab === key
-                    ? "bg-white text-[#0c66e4] shadow-sm"
-                    : "text-[#5e6c84] hover:text-[#172b4d]"
-                }`}
-              >
-                {key === "agents" ? "Agent config" : PRODUCT_LABEL[key]}
-              </button>
-            ))}
-          </div>
-
-          {tab === "agents" ? (
-            <>
-          {/* Ai thuộc product nào. Danh sách là roster agent đã đăng ký —
-              chính bảng task_agents mà Account Management → Agent membership → Agents
-              hiển thị, đọc qua cùng một hàm fetchTaskAgents(). */}
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[#dfe1e6]">
-            <div
-              className="grid shrink-0 gap-2 border-b border-[#dfe1e6] bg-[#f7f8fa] px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]"
-              style={AGENT_GRID_STYLE}
-            >
-              <span>Agent</span>
-              {LEAD_PRODUCTS.map((key) => (
-                <span key={key} className="text-center">{PRODUCT_LABEL[key]}</span>
-              ))}
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-              {roster.length === 0 ? (
-                <p className="px-3 py-8 text-center text-sm text-[#6b778c]">
-                  {rosterError
-                    ? "Could not load the agent list."
-                    : "No agents found. Add them under Account Management → Agent membership → Agents."}
-                </p>
-              ) : (
-                roster.map((agent) => {
-                  const label = personLabel(agent.email, nameByEmail);
-                  return (
-                    <div
-                      key={agent.email}
-                      className="grid items-center gap-2 border-b border-[#ebecf0] px-3 py-2 transition hover:bg-[#f7f8f9]"
-                      style={AGENT_GRID_STYLE}
-                    >
-                      <span className="flex min-w-0 items-center gap-2">
-                        <Initials email={agent.email} label={label} />
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-semibold text-[#172b4d]">
-                            {label}
-                          </span>
-                          <span className="block truncate text-xs text-[#8993a4]">
-                            {agent.email}
-                          </span>
-                        </span>
-                      </span>
-                      {LEAD_PRODUCTS.map((key) => (
-                        <span key={key} className="flex justify-center">
-                          <input
-                            type="checkbox"
-                            aria-label={`${label} covers ${PRODUCT_LABEL[key]}`}
-                            /* KHÔNG disabled trong lúc lưu: disabled kéo theo
-                               opacity-50, nên ô vừa tick hiện XÁM gần một giây
-                               rồi mới xanh. Ô đã đổi ngay (optimistic); bấm
-                               thêm trong lúc chờ thì toggleAgentProduct tự bỏ
-                               qua, và ô là controlled nên không đổi theo. */
-                            aria-busy={pendingAgents.has(`${key}:${agent.email}`)}
-                            className="h-4 w-4 rounded border-[#c1c7d0] text-[#0c66e4] focus:ring-[#0c66e4]"
-                            checked={agent.products.includes(key)}
-                            onChange={(event) =>
-                              void toggleAgentProduct(agent.email, key, event.target.checked)
-                            }
-                          />
-                        </span>
-                      ))}
-                    </div>
-                  );
-                })
-              )}
+              />
+              {events.length === 0 && !eventsLoading ? <span className="text-xs text-[#974f0c]">Create an Event before configuring a pool.</span> : null}
+            </label>
+            <div className="flex items-end">
+              <div className="w-full rounded border border-[#dfe1e6] bg-[#f7f8fa] px-4 py-3 text-sm">
+                {loading ? <span className="text-[#6b778c]">Loading this Event…</span> : pool ? (
+                  pool.pending === 0 ? <span className="font-semibold text-[#42526e]">No unassigned leads for {selectedEvent?.name ?? "this Event"}.</span> : (
+                    <>
+                      <span className="font-semibold text-[#172b4d]">{pool.pending} unassigned lead{pool.pending === 1 ? "" : "s"}</span>
+                      <span className="text-[#6b778c]"> for {selectedEvent?.name}</span>
+                      {pool.remaining > 0 ? <span className="mt-1 block text-xs text-[#974f0c]">{pool.remaining} more will need another run.</span> : null}
+                    </>
+                  )
+                ) : <span className="text-[#6b778c]">Choose an Event to read its pool.</span>}
+              </div>
             </div>
           </div>
 
-          <p className="shrink-0 text-xs text-[#6b778c]">
-            Agents come from Account Management → Agent membership → Agents. Tick a
-            product to put someone into that rotation; set how much they get on
-            each product&apos;s tab.
-          </p>
-            </>
-          ) : (
-            <>
-          <label className="flex shrink-0 items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={enabled}
-              onChange={(event) => setEnabled(event.target.checked)}
-            />
-            <span className="font-semibold text-[#172b4d]">
-              Auto-assign on import ({PRODUCT_LABEL[product]})
+          <label className="flex shrink-0 items-start gap-2 rounded border border-[#dfe1e1] bg-white px-3 py-2 text-sm">
+            <input type="checkbox" checked={enabled} disabled={!eventId || loading} onChange={(event) => setEnabled(event.target.checked)} />
+            <span>
+              <span className="font-semibold text-[#172b4d]">Auto-assign on import for this Event</span>
+              <span className="mt-0.5 block text-xs text-[#6b778c]">Imports still require the importer to confirm distribution.</span>
             </span>
           </label>
 
-          {/* flex-1 nên nó ăn hết chỗ trống còn lại của modal — modal đã cố
-              định chiều cao, nên bảng cũng ổn định theo. */}
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[#dfe1e6]">
-            <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_6rem_1fr] gap-2 border-b border-[#dfe1e6] bg-[#f7f8fa] px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
-              <span>Agent</span>
-              <span>Weight</span>
-              <span>Share</span>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[#dfe1e1]">
+            <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_5rem_6rem_1fr] gap-3 border-b border-[#dfe1e1] bg-[#f7f8fa] px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
+              <span>Agent</span><span>Pool</span><span>Weight</span><span>Share</span>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-              {loadingWeights && receiving.length === 0 ? (
-                <p className="px-3 py-8 text-center text-sm text-[#6b778c]">
-                  Loading agents…
-                </p>
-              ) : receiving.length === 0 ? (
-                <p className="px-3 py-8 text-center text-sm text-[#6b778c]">
-                  No agents cover {PRODUCT_LABEL[product]} yet — set that up in
-                  Agent config.
-                </p>
-              ) : (
-                receiving.map((row) => {
-                  const label = personLabel(row.agent_email, nameByEmail);
-                  const share = shareOf(row);
-                  const paused = !row.is_active || row.weight === 0;
-                  return (
-                    <div
-                      key={row.agent_email}
-                      className={`grid grid-cols-[minmax(0,1fr)_6rem_1fr] items-center gap-2 border-b border-[#ebecf0] px-3 py-2 transition hover:bg-[#f7f8f9] ${
-                        paused ? "opacity-55" : ""
-                      }`}
-                    >
-                      <span className="flex min-w-0 items-center gap-2">
-                        <Initials email={row.agent_email} label={label} />
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-semibold text-[#172b4d]">
-                            {label}
-                          </span>
-                          <span className="block truncate text-xs text-[#8993a4]">
-                            {row.agent_email}
-                          </span>
-                        </span>
-                      </span>
-
-                      <input
-                        type="number"
-                        min={0}
-                        aria-label={`Weight for ${label}`}
-                        className={INPUT_CLASS}
-                        value={row.weight}
-                        onChange={(event) =>
-                          update(row.agent_email, {
-                            weight: Math.max(0, Math.trunc(Number(event.target.value) || 0)),
-                          })
-                        }
-                      />
-
-                      {/* Thanh + số: cùng một thông tin, nhưng thanh cho thấy
-                          chênh lệch giữa các dòng nhanh hơn con số. */}
-                      <span className="flex items-center gap-2">
-                        <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[#ebecf0]">
-                          <span
-                            className="block h-full rounded-full bg-[#0c66e4]"
-                            style={{ width: `${share}%` }}
-                          />
-                        </span>
-                        <span className="w-10 shrink-0 text-right text-xs font-bold tabular-nums text-[#42526e]">
-                          {share}%
-                        </span>
-                      </span>
-                    </div>
-                  );
-                })
-              )}
+              {!eventId ? <p className="px-3 py-8 text-center text-sm text-[#6b778c]">Choose an Event to configure its Agents.</p> : loading ? <p className="px-3 py-8 text-center text-sm text-[#6b778c]">Loading Agents…</p> : rosterError ? <p className="px-3 py-8 text-center text-sm text-rose-700">Could not load the Agent roster.</p> : agentsByEmail.length === 0 ? <p className="px-3 py-8 text-center text-sm text-[#6b778c]">No Agents found. Add them under Account Management → Agent membership → Agents.</p> : agentsByEmail.map((agent) => {
+                const current = draft.find((row) => row.agent_email.trim().toLowerCase() === agent.email.trim().toLowerCase());
+                const active = Boolean(current?.is_active);
+                const weightRow = current ?? { agent_email: agent.email, weight: 0, position: draft.length + 1, is_active: false, share: 0, current_weight: 0 };
+                const label = personLabel(agent.email, nameByEmail);
+                const share = shareOf(weightRow);
+                return (
+                  <div key={agent.email} className={`grid grid-cols-[minmax(0,1fr)_5rem_6rem_1fr] items-center gap-3 border-b border-[#ebecf0] px-3 py-2 transition hover:bg-[#f7f8f9] ${active && weightRow.weight === 0 ? "opacity-70" : ""}`}>
+                    <span className="flex min-w-0 items-center gap-2">
+                      <Initials email={agent.email} label={label} />
+                      <span className="min-w-0"><span className="block truncate text-sm font-semibold text-[#172b4d]">{label}</span><span className="block truncate text-xs text-[#8993a4]">{agent.email}</span></span>
+                    </span>
+                    <span className="flex justify-center"><input type="checkbox" aria-label={`${label} receives ${selectedEvent?.name ?? "this Event"} leads`} checked={active} onChange={(event) => toggleAgent(agent.email, event.target.checked)} /></span>
+                    <input type="number" min={0} aria-label={`Weight for ${label}`} className={INPUT_CLASS} value={weightRow.weight} disabled={!active} onChange={(event) => updateWeight(agent.email, event.target.value)} />
+                    <span className="flex items-center gap-2"><span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[#ebecf0]"><span className="block h-full rounded-full bg-[#0c66e4]" style={{ width: `${share}%` }} /></span><span className="w-10 shrink-0 text-right text-xs font-bold tabular-nums text-[#42526e]">{share}%</span></span>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          {active.length > 0 ? (
+          {activeRows.length > 0 ? (
             <div className="shrink-0 rounded-lg border border-[#b8d4ff] bg-[#e9f2ff] px-3 py-2.5">
-              <span className="text-[11px] font-bold uppercase tracking-wide text-[#0c3d91]">
-                Lead waiting queue
-              </span>
-              <ol className="mt-2 flex items-center gap-1 overflow-x-auto pb-1">
-                {upcoming.map((email, index) => {
-                  const label = personLabel(email, nameByEmail);
-                  return (
-                    <li
-                      key={`${email}-${index}`}
-                      title={`#${index + 1} — ${label}`}
-                      className={`flex shrink-0 items-center gap-1.5 rounded-full border py-1 pl-1 pr-2.5 ${
-                        index === 0
-                          ? "border-[#0c66e4] bg-white shadow-sm"
-                          : "border-transparent bg-white/70"
-                      }`}
-                    >
-                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#dfe1e6] text-[10px] font-bold text-[#42526e]">
-                        {index + 1}
-                      </span>
-                      <span className="max-w-[7rem] truncate text-xs font-semibold text-[#172b4d]">
-                        {label}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ol>
-              {dirty ? (
-                <p className="mt-1 text-[11px] font-semibold text-[#974f0c]">
-                  Preview only — save to make this the real order.
-                </p>
-              ) : null}
+              <span className="text-[11px] font-bold uppercase tracking-wide text-[#0c3d91]">Next leads for this Event</span>
+              <ol className="mt-2 flex items-center gap-1 overflow-x-auto pb-1">{upcoming.map((email, index) => <li key={`${email}-${index}`} title={`#${index + 1} — ${personLabel(email, nameByEmail)}`} className={`flex shrink-0 items-center gap-1.5 rounded-full border py-1 pl-1 pr-2.5 ${index === 0 ? "border-[#0c66e4] bg-white shadow-sm" : "border-transparent bg-white/70"}`}><span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#dfe1e6] text-[10px] font-bold text-[#42526e]">{index + 1}</span><span className="max-w-[7rem] truncate text-xs font-semibold text-[#172b4d]">{personLabel(email, nameByEmail)}</span></li>)}</ol>
+              {dirty ? <p className="mt-1 text-[11px] font-semibold text-[#974f0c]">Preview only — save to make this the actual rotation.</p> : null}
             </div>
-          ) : (
-            <p className="shrink-0 rounded-lg border border-[#ffe380] bg-[#fffae6] px-3 py-2 text-sm text-[#974f0c]">
-              Nobody is receiving {PRODUCT_LABEL[product]} — turn someone on in
-              Agent config, or give them a weight above 0.
-            </p>
-          )}
+          ) : null}
 
-          {rosterError ? (
-            <p className="shrink-0 rounded border border-[#ffe380] bg-[#fffae6] px-3 py-2 text-sm text-[#974f0c]">
-              Could not load the account list. Close and reopen this dialog to
-              try again.
-            </p>
-          ) : null}
-            </>
-          )}
-
-          {result ? (
-            <p className="shrink-0 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
-              Assigned <strong>{result.assigned}</strong>
-              {result.unassigned > 0 ? (
-                <>
-                  {" · left in the pool "}
-                  <strong>{result.unassigned}</strong>
-                  {Object.values(result.results)
-                    .map((entry) => entry.reason)
-                    .filter(Boolean)
-                    .map((reason) => ` — ${reason}`)
-                    .join("")}
-                </>
-              ) : null}
-            </p>
-          ) : null}
-          {notice ? (
-            <p className="shrink-0 text-sm font-semibold text-emerald-700">{notice}</p>
-          ) : null}
-          {error ? (
-            <p className="shrink-0 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">
-              {error}
-            </p>
-          ) : null}
+          {result ? <p className="shrink-0 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">Assigned <strong>{result.assigned}</strong>{result.unassigned > 0 ? <> · left in this Event&apos;s pool <strong>{result.unassigned}</strong>{result.reason ? ` — ${result.reason}` : ""}</> : null}</p> : null}
+          {notice ? <p className="shrink-0 text-sm font-semibold text-emerald-700">{notice}</p> : null}
+          {error ? <p role="alert" className="shrink-0 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{error}</p> : null}
         </div>
 
-        <footer className="flex items-center justify-between gap-2 border-t border-[#dfe1e6] px-5 py-3">
-          <button
-            type="button"
-            onClick={() => void resetCursor()}
-            disabled={busy}
-            title="Discard the part-finished cycle"
-            className="inline-flex h-9 items-center gap-1.5 rounded px-2 text-sm font-semibold text-[#6b778c] transition hover:text-[#172b4d] disabled:opacity-40"
-          >
-            <RotateCcw className="h-3.5 w-3.5" /> Reset rotation
-          </button>
+        <footer className="flex items-center justify-between gap-2 border-t border-[#dfe1e1] px-5 py-3">
+          <button type="button" onClick={() => void resetCursor()} disabled={busy || !eventId} title="Discard the part-finished rotation" className="inline-flex h-9 items-center gap-1.5 rounded px-2 text-sm font-semibold text-[#6b778c] transition hover:text-[#172b4d] disabled:opacity-40"><RotateCcw className="h-3.5 w-3.5" /> Reset rotation</button>
           <div className="flex items-center gap-2">
-            {/* Lý do chặn phải ĐỌC ĐƯỢC, không nấp trong tooltip: nút mờ mà
-                không giải thích là bắt người dùng đoán. */}
-            {blockedReason && !busy ? (
-              <span className="text-xs font-semibold text-[#974f0c]">
-                {blockedReason}
-              </span>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => void save()}
-              disabled={busy || loadingWeights || !dirty}
-              className="inline-flex h-9 items-center rounded border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:opacity-40"
-            >
-              Save ratios
-            </button>
-            <button
-              type="button"
-              onClick={() => void saveThenDistribute()}
-              // Nói trước vì sao không bấm được, thay vì để bấm rồi trả về
-              // "assigned 0". Một nút bấm được mà chắc chắn không làm gì là
-              // một cái bẫy.
-              disabled={Boolean(blockedReason)}
-              title={blockedReason ?? undefined}
-              className="inline-flex h-9 items-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <Shuffle className="h-4 w-4" />
-              {busy
-                ? "Distributing…"
-                : dirty
-                  // Tỉ lệ đang sửa: nút nói rõ nó sẽ lưu trước. Chia bằng con số
-                  // trên màn hình trong khi DB giữ con số khác là hai sự thật
-                  // cho một lượt chia.
-                  ? `Save and distribute ${tabPool?.pending ?? 0} ${PRODUCT_LABEL[product]}`
-                  : `Distribute ${tabPool?.pending ?? 0} ${PRODUCT_LABEL[product]}`}
-            </button>
+            {blockedReason && !busy ? <span className="text-xs font-semibold text-[#974f0c]">{blockedReason}</span> : null}
+            <button type="button" onClick={() => void save()} disabled={busy || loading || !dirty} className="inline-flex h-9 items-center rounded border border-[#dfe1e1] bg-white px-3 text-sm font-bold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:opacity-40">Save Event pool</button>
+            <button type="button" onClick={() => void saveThenDistribute()} disabled={Boolean(blockedReason) || busy} className="inline-flex h-9 items-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"><Shuffle className="h-4 w-4" />{busy ? "Working…" : dirty ? `Save and distribute ${pool?.pending ?? 0}` : `Distribute ${pool?.pending ?? 0}`}</button>
           </div>
         </footer>
       </div>

@@ -60,17 +60,19 @@ export async function POST(req: Request) {
       );
     }
 
-    const { data: existingAgentId } = await supabase
-      .from(PORTAL_ACCOUNT_TABLE)
-      .select("id")
-      .eq("agent_id", normalizedAgentId)
-      .maybeSingle();
+    if (normalizedAgentId) {
+      const { data: existingAgentId } = await supabase
+        .from(PORTAL_ACCOUNT_TABLE)
+        .select("id")
+        .eq("agent_id", normalizedAgentId)
+        .maybeSingle();
 
-    if (existingAgentId) {
-      return NextResponse.json(
-        { error: "This Agent ID is already in use." },
-        { status: 409 }
-      );
+      if (existingAgentId) {
+        return NextResponse.json(
+          { error: "This Agent ID is already in use." },
+          { status: 409 }
+        );
+      }
     }
 
     const selectedRoles = selectedRoleIds.length

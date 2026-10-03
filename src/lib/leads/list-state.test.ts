@@ -11,7 +11,7 @@ import type { LeadRow } from "./types";
 
 function lead(patch: Partial<LeadRow> = {}): LeadRow {
   return {
-    id: "l1", display_number: 1, product: "health", products: ["health"], event_id: null, event_name: null,
+    id: "l1", display_number: 1, event_id: null, event_name: null,
     full_name: "Anh", phone: "7145550123", email: null,
     assigned_to_email: "cs@x.com", assigned_at: null, assigned_by_email: null,
     status_id: null, first_contacted_at: null, last_contacted_at: null,
@@ -88,8 +88,8 @@ function deferred<T>() {
 }
 
 describe("createKeyedSerializer", () => {
-  // Lỗi gốc: tick hai product liền tay là hai PATCH song song trên cùng lead,
-  // lượt sau thua điều kiện `updated_at` và báo "Someone else changed this lead".
+  // Consecutive inline edits on the same lead must serialize to avoid a stale
+  // updated_at causing the later edit to be rejected.
   it("runs tasks for the same key one after another, in order", async () => {
     const run = createKeyedSerializer();
     const first = deferred<string>();
@@ -134,12 +134,10 @@ describe("createKeyedSerializer", () => {
 });
 
 describe("overlayPendingPatches", () => {
-  // Bản server của lượt đầu chưa có lượt thứ hai. Không phủ thì ô Product nhảy
-  // lùi, và cú tick kế tiếp được tính từ bản lùi đó.
   it("keeps edits that are still waiting on top of the saved row", () => {
-    const saved = lead({ products: ["pc", "health"] });
-    expect(overlayPendingPatches(saved, [{ products: ["pc", "health", "life"] }]).products)
-      .toEqual(["pc", "health", "life"]);
+    const saved = lead({ full_name: "First save" });
+    expect(overlayPendingPatches(saved, [{ full_name: "Next edit" }]).full_name)
+      .toBe("Next edit");
   });
 
   it("returns the saved row untouched when nothing is waiting", () => {

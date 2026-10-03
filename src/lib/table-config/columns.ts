@@ -81,7 +81,7 @@ export const REQUIRED_CAPABLE_SYSTEM_KEYS: Record<TableScope, ReadonlySet<string
   medicare: new Set([
     "client", "description", "fub", "due", "stage", "carrier", "pcp2025", "agent", "responsible",
   ]),
-  lead: new Set(["name", "product", "phone", "email", "assignee", "status"]),
+  lead: new Set(["name", "phone", "email", "assignee", "status"]),
   // Mọi cột văn bản của provider đều có ô nhập thật trong hộp thoại Add
   // address, nên đều đánh Required được. Riêng "source" thì không: nó là cột
   // dẫn xuất chỉ để đọc, nói dòng này đến từ Sheet hay do người dùng tự thêm.

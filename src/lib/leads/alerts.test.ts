@@ -3,7 +3,6 @@ import { ALERT_SEVERITY, resolveLeadAlerts } from "./alerts";
 import type { LeadAlertSettings, LeadRow, LeadStatus } from "./types";
 
 const settings: LeadAlertSettings = {
-  product: "pc",
   no_contact_hours: 24,
   stale_days: 3,
   max_attempts: 4,
@@ -15,7 +14,7 @@ const hoursAgo = (n: number) =>
 
 function lead(patch: Partial<LeadRow> = {}): LeadRow {
   return {
-    id: "l1", display_number: 1, product: "pc", products: ["pc"], event_id: null,
+    id: "l1", display_number: 1, event_id: null,
     full_name: "A", phone: "1", email: null, fub_link: null,
     assigned_to_email: "cs@x.com", assigned_at: hoursAgo(1),
     assigned_by_email: "mgr@x.com", status_id: "s-open",

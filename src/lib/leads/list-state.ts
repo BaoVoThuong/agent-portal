@@ -36,8 +36,8 @@ export { createKeyedSerializer } from "@/lib/collaboration/keyed-serializer";
  * đang xếp hàng.
  *
  * Không phủ thì dòng nhảy lùi về bản chưa có các lượt sau cho tới khi chúng ghi
- * xong — và ô Product đang mở sẽ tính cú tick kế tiếp từ bản lùi đó, gửi đi một
- * mảng làm rơi mất product vừa tick.
+ * xong — một lượt sửa kế tiếp không được tính từ bản cũ và ghi đè mất thay đổi
+ * vừa lưu.
  */
 export function overlayPendingPatches(
   row: LeadRow,

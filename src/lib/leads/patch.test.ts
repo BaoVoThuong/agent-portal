@@ -43,37 +43,10 @@ describe("buildLeadPatch", () => {
     });
   });
 
-  it("refuses an invalid product and a malformed status id", () => {
-    expect(buildLeadPatch({ product: "aca" })).toEqual({ ok: false, error: "Invalid product." });
+  it("refuses retired Product fields and a malformed status id", () => {
+    expect(buildLeadPatch({ product: "aca" })).toEqual({ ok: false, error: "product cannot be edited here." });
+    expect(buildLeadPatch({ products: ["health"] })).toEqual({ ok: false, error: "products cannot be edited here." });
     expect(buildLeadPatch({ status_id: "abc" })).toEqual({ ok: false, error: "Invalid status." });
-  });
-
-  it("stores a cleared product as Unknown, the one 'not classified yet' state", () => {
-    expect(buildLeadPatch({ product: null })).toMatchObject({
-      ok: true,
-      patch: { product: "unknown" },
-    });
-    expect(buildLeadPatch({ products: ["pc", "health", "pc"] })).toMatchObject({
-      ok: true,
-      patch: { products: ["pc", "health"] },
-    });
-    expect(buildLeadPatch({ products: ["life", "pc"] })).toMatchObject({
-      ok: true,
-      patch: { products: ["pc", "life"] },
-    });
-    expect(buildLeadPatch({ products: [] })).toMatchObject({
-      ok: true,
-      patch: { products: ["unknown"] },
-    });
-    // Một product thật thắng Unknown — y như trigger trong DB.
-    expect(buildLeadPatch({ products: ["unknown", "health"] })).toMatchObject({
-      ok: true,
-      patch: { products: ["health"] },
-    });
-    expect(buildLeadPatch({ products: ["aca"] })).toEqual({
-      ok: false,
-      error: "Invalid product.",
-    });
   });
 
   it("normalises a follow-up date to ISO and rejects nonsense", () => {

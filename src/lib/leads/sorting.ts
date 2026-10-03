@@ -4,7 +4,6 @@ import type { LeadRow } from "./types";
 export const LEAD_SORT_KEYS = [
   "key",
   "name",
-  "product",
   "phone",
   "email",
   "assignee",
@@ -46,7 +45,6 @@ function sortValue(
     case "key": return lead.display_number;
     // Case-insensitive so "anh" and "Anh" do not split into two runs.
     case "name": return lead.full_name?.trim().toLowerCase() || null;
-    case "product": return lead.product;
     case "phone": return lead.phone || null;
     case "email": return lead.email?.trim().toLowerCase() || null;
     case "assignee":

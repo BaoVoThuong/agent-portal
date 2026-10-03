@@ -4,7 +4,6 @@ import {
   type NormalizeResult,
 } from "./lead-fields";
 import { normalizePhone } from "./import-parse";
-import { isLeadProduct, normalizeLeadProducts, UNKNOWN_LEAD_PRODUCT } from "./types";
 import { parseCollaboratorEmails } from "./collaborators";
 import { isPersonalLeadEventName } from "./lead-type";
 
@@ -21,7 +20,6 @@ export const EDITABLE_LEAD_FIELDS = [
   "email",
   "fub_link",
   "description",
-  "product",
   "status_id",
   "next_follow_up_at",
 ] as const;
@@ -84,21 +82,6 @@ export function buildLeadPatch(body: unknown): LeadPatchResult {
       eventName = isPersonalLeadEventName(parsedEventName.value)
         ? null
         : parsedEventName.value;
-      continue;
-    }
-    // `products` is an internal multi-product write used by the Product cell.
-    // It is intentionally not a table-config column, so it must not be sent
-    // to the metadata validator as if an admin had created a column with that
-    // key. An empty array means "not classified yet" and is stored as
-    // ["unknown"] — the same rule the DB trigger applies.
-    if (key === "products") {
-      if (
-        !Array.isArray(value) ||
-        value.some((product) => !isLeadProduct(product))
-      ) {
-        return { ok: false, error: "Invalid product." };
-      }
-      patch.products = normalizeLeadProducts(value);
       continue;
     }
     if (key === "collaborator_emails") {
@@ -164,14 +147,6 @@ export function buildLeadPatch(body: unknown): LeadPatchResult {
         patch.description = parsedDescription.value;
         break;
       }
-      case "product":
-        if (value === null || value === undefined || value === "") {
-          patch.product = UNKNOWN_LEAD_PRODUCT;
-          break;
-        }
-        if (!isLeadProduct(value)) return { ok: false, error: "Invalid product." };
-        patch.product = value;
-        break;
       case "status_id": {
         const parsedStatus = text(value, "Status", MAX_TEXT_LENGTH);
         if (!parsedStatus.ok) return { ok: false, error: parsedStatus.error };

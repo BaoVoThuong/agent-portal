@@ -1,139 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { eligibleAssignmentEmails, groupLeadIdsByProduct } from "./auto-assign";
+import { eligibleAssignmentEmails } from "./auto-assign";
+import type { AssignmentWeightRow } from "./auto-assign";
 
-/** Mọi product đều có nhóm, kể cả nhóm rỗng. */
-const groups = (over: Partial<Record<"pc" | "health" | "life" | "unknown", string[]>>) => ({
-  pc: [],
-  health: [],
-  life: [],
-  unknown: [],
+const eventA = "11111111-1111-4111-8111-111111111111";
+const row = (email: string, over: Partial<AssignmentWeightRow> = {}): AssignmentWeightRow => ({
+  event_id: eventA,
+  agent_email: email,
+  weight: 1,
+  current_weight: 0,
+  position: 1,
+  is_active: true,
   ...over,
 });
 
-describe("groupLeadIdsByProduct", () => {
-  // Import handles one product at a time, but "distribute the pool" does not:
-  // the ratio table AND the rotation cursor are per product, so a mixed batch
-  // has to be split before either is touched.
-  it("splits a mixed batch by product", () => {
-    expect(
-      groupLeadIdsByProduct([
-        { id: "1", product: "health" },
-        { id: "2", product: "pc" },
-        { id: "3", product: "health" },
-        { id: "4", product: "life" },
-        { id: "5", product: "unknown" },
-      ])
-    ).toEqual(groups({ health: ["1", "3"], pc: ["2"], life: ["4"], unknown: ["5"] }));
-  });
-
-  it("returns every key even when a product has nothing", () => {
-    expect(groupLeadIdsByProduct([{ id: "1", product: "pc" }])).toEqual(groups({ pc: ["1"] }));
-  });
-
-  it("handles an empty batch", () => {
-    expect(groupLeadIdsByProduct([])).toEqual(groups({}));
-  });
-
-  // ---- Lead mang nhiều product ----
-
-  it("bấm Distribute ở một tab thì mọi lead vào đúng nhóm tab đó", () => {
-    // Mia mang cả hai, `product` = "pc" vì trigger lấy phần tử đầu. Bấm ở tab
-    // Health thì cô ấy phải tiêu cursor của Health, không phải của P&C.
-    expect(
-      groupLeadIdsByProduct(
-        [
-          { id: "mia", product: "pc", products: ["pc", "health"] },
-          { id: "solo", product: "health", products: ["health"] },
-        ],
-        "health"
-      )
-    ).toEqual(groups({ health: ["mia", "solo"] }));
-  });
-
-  it("chia tất cả thì lead multi-product chỉ được tính MỘT lần", () => {
-    // Đếm ở cả hai nhóm là lượt thứ hai vẫn dời cursor rồi mới phát hiện lead
-    // đã có chủ — một lead bị bỏ qua vẫn đốt mất lượt của người khác.
-    const grouped = groupLeadIdsByProduct([
-      { id: "mia", product: "pc", products: ["pc", "health"] },
-    ]);
-    expect(grouped).toEqual(groups({ pc: ["mia"] }));
-    expect(grouped.pc.length + grouped.health.length).toBe(1);
-  });
-
-  it("chia tất cả: gom theo thứ tự LEAD_PRODUCTS, không theo thứ tự mảng trong DB", () => {
-    // Cùng một lead phải luôn rơi vào cùng một nhóm giữa hai lần chạy, kể cả
-    // khi mảng được ghi ngược thứ tự.
-    expect(
-      groupLeadIdsByProduct([{ id: "mia", product: "pc", products: ["health", "pc"] }])
-    ).toEqual(groups({ pc: ["mia"] }));
-  });
-
-  it("lead Unknown vào nhóm Unknown khi chia tất cả", () => {
-    expect(
-      groupLeadIdsByProduct([{ id: "u", product: "unknown", products: ["unknown"] }])
-    ).toEqual(groups({ unknown: ["u"] }));
-  });
-
-  it("bỏ qua dòng rỗng đọc về từ trước rollout Unknown khi chia tất cả", () => {
-    expect(
-      groupLeadIdsByProduct([{ id: "empty", product: null, products: [] }])
-    ).toEqual(groups({}));
-  });
-
-  it("lead chưa phân loại vẫn theo tab khi lượt chia có product cụ thể", () => {
-    // Nó lọt vào đây thì đã qua bộ lọc pool `products @> {pc}` của chính tab đó,
-    // nên nó KHÔNG thể là lead chưa phân loại — nhưng nếu có, tab là nguồn đúng.
-    expect(
-      groupLeadIdsByProduct([{ id: "x", product: null, products: [] }], "pc")
-    ).toEqual(groups({ pc: ["x"] }));
-  });
-});
 describe("eligibleAssignmentEmails", () => {
-  const row = (email: string, over: Partial<{ weight: number; is_active: boolean }> = {}) => ({
-    product: "health" as const,
-    agent_email: email,
-    weight: 1,
-    current_weight: 0,
-    position: 1,
-    is_active: true,
-    ...over,
+  it("keeps only active weighted Agents with active accounts", () => {
+    expect(eligibleAssignmentEmails([
+      row("active@x.com"),
+      row("disabled-account@x.com"),
+      row("off@x.com", { is_active: false }),
+      row("zero@x.com", { weight: 0 }),
+    ], new Set(["active@x.com", "off@x.com", "zero@x.com"])))
+      .toEqual(["active@x.com"]);
   });
 
-  it("loại người đã bị tắt tài khoản", () => {
-    // Nghỉ việc rồi mà vẫn trong pool thì lead rơi vào một người không đăng
-    // nhập được nữa, và không ai nhìn thấy điều đó.
-    expect(
-      eligibleAssignmentEmails(
-        [row("con.lam@x.com"), row("da.nghi@x.com")],
-        new Set(["con.lam@x.com"])
-      )
-    ).toEqual(["con.lam@x.com"]);
+  it("matches account emails case-insensitively", () => {
+    expect(eligibleAssignmentEmails([row("Ann.S@X.com")], new Set(["ann.s@x.com"])))
+      .toEqual(["Ann.S@X.com"]);
   });
 
-  it("loại người admin đã bỏ tick Đang nhận", () => {
-    expect(
-      eligibleAssignmentEmails(
-        [row("tam.dung@x.com", { is_active: false })],
-        new Set(["tam.dung@x.com"])
-      )
-    ).toEqual([]);
-  });
-
-  it("loại người trọng số 0", () => {
-    expect(
-      eligibleAssignmentEmails([row("khong@x.com", { weight: 0 })], new Set(["khong@x.com"]))
-    ).toEqual([]);
-  });
-
-  it("so email không phân biệt hoa thường", () => {
-    // Hai bảng ghi email ở hai đường khác nhau; chỉ cần một bên viết hoa là
-    // người đó lặng lẽ rơi khỏi pool.
-    expect(eligibleAssignmentEmails([row("Ann.S@X.com")], new Set(["ann.s@x.com"]))).toEqual([
-      "Ann.S@X.com",
-    ]);
-  });
-
-  it("không ai hoạt động thì trả mảng rỗng", () => {
+  it("returns an empty pool when no Agent account is active", () => {
     expect(eligibleAssignmentEmails([row("a@x.com")], new Set())).toEqual([]);
   });
 });

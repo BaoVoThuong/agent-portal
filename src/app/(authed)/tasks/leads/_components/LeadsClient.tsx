@@ -11,12 +11,6 @@ import { isLeadType, LEAD_TYPE_LABEL, LEAD_TYPES } from "@/lib/leads/lead-type";
 import { useBackgroundUploads } from "../../../_shared/useBackgroundUploads";
 import { type LeadAlert } from "@/lib/leads/alerts";
 import {
-  isLeadHealth,
-  LEAD_HEALTH_BUCKETS,
-  type LeadHealth,
-} from "@/lib/leads/health";
-import type { LeadAlertSettingsByProduct } from "@/lib/leads/overview";
-import {
   buildLeadBadges,
   buildLeadLookups,
   collectEventNames,
@@ -63,11 +57,8 @@ import {
 } from "@/lib/table-config/layout";
 import { TaskSelect } from "../../_components/TaskSelect";
 import {
-  isLeadProduct,
+  type LeadAlertSettings,
   LEAD_INTERACTION_HISTORY_LIMIT,
-  LEAD_PRODUCT_LABEL,
-  LEAD_PRODUCTS,
-  type LeadProduct,
   type LeadInteraction,
   type LeadInteractionType,
   type LeadRow,
@@ -84,8 +75,6 @@ import { LeadTable } from "./LeadTable";
 import { LeadTableSettingsButton } from "./LeadTableSettingsButton";
 
 type LeadsClientProps = {
-  /** null = every product. A filter now, not a separate screen. */
-  productFilter: LeadProduct | null;
   currentUserEmail: string;
   canViewAll: boolean;
   isManager: boolean;
@@ -96,8 +85,8 @@ type LeadsClientProps = {
    * API will accept.
    */
   editableOwnerEmails: string[] | null;
-  /** Both threshold rows; alerts are computed per lead from its own product. */
-  alertSettings: LeadAlertSettingsByProduct;
+  /** Shared threshold settings used to compute lead alerts in the browser. */
+  alertSettings: LeadAlertSettings;
   initialLeads: LeadRow[];
   initialTotal: number;
   /**
@@ -133,28 +122,10 @@ const FALLBACK_POLL_MS = 300_000;
 
 const ALL_FILTER = "__all__";
 
-/**
- * Nhãn cho từng nhóm. Bốn nhóm đầu là "có người phải nhấc máy", ba nhóm sau là
- * "không ai có lỗi" — và bảy nhóm này phủ hết danh sách.
- */
-const LEAD_HEALTH_LABEL: Record<LeadHealth, string> = {
-  never_contacted: "Never called",
-  follow_up_overdue: "Overdue follow-up",
-  stale: "Stale",
-  exhausted: "Max attempts",
-  on_track: "On track",
-  unassigned: "In the pool",
-  closed: "Closed (won/lost)",
-};
 const UNASSIGNED_FILTER = "";
 
 const FILTER_SELECT_BUTTON_CLASS =
   "!h-9 !rounded-lg !border !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
-
-const PRODUCT_FILTER_OPTIONS = [
-  { value: ALL_FILTER, label: "All products" },
-  ...LEAD_PRODUCTS.map((value) => ({ value, label: LEAD_PRODUCT_LABEL[value] })),
-];
 
 function sourceNonce(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
@@ -163,7 +134,6 @@ function sourceNonce(): string {
 }
 
 export function LeadsClient({
-  productFilter,
   currentUserEmail,
   canViewAll,
   isManager,
@@ -255,14 +225,9 @@ export function LeadsClient({
         ),
         eventName: typeof raw.eventName === "string" ? raw.eventName : null,
         leadType: isLeadType(raw.leadType) ? raw.leadType : null,
-        product: keepKnownString(
-          raw.product,
-          new Set<string>(LEAD_PRODUCTS)
-        ) as LeadProduct | null,
-        health: keepKnownString(
-          raw.health,
-          new Set<string>(LEAD_HEALTH_BUCKETS)
-        ) as LeadHealth | null,
+        // Ô lọc theo cảnh báo (Tag) đã bỏ 2026-10-03: không khôi phục, nếu không
+        // một bộ lọc vô hình sẽ âm thầm giấu bớt lead.
+        health: null,
       })
     );
     // Đây là ca ngoại lệ hợp lệ của react-hooks/set-state-in-effect: đồng bộ
@@ -332,7 +297,7 @@ export function LeadsClient({
   const requestInFlight = useRef(false);
   const pendingRefresh = useRef(false);
   const sourceIdRef = useRef(sourceId);
-  const loadedQueryRef = useRef(`${productFilter ?? "all"}:${activeAlert ?? ""}`);
+  const loadedQueryRef = useRef(`all:${activeAlert ?? ""}`);
   const leadLayoutHydratedRef = useRef(false);
   const leadLayoutUpdatedAtRef = useRef<string | null>(null);
   const leadLayoutSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -368,7 +333,6 @@ export function LeadsClient({
     const writeVersionAtStart = leadsWriteVersionRef.current;
     try {
       const params = new URLSearchParams();
-      if (productFilter) params.set("product", productFilter);
       if (activeAlert) params.set("alert", activeAlert);
       const response = await fetch(`/api/leads?${params.toString()}`, {
         cache: "no-store",
@@ -432,7 +396,6 @@ export function LeadsClient({
     // màn hình này hay không. Thiếu nó thì lead vừa chuyển sang Won vẫn nằm
     // lại trong danh sách "quá hạn" vì nó vẫn được trả về.
     const params = new URLSearchParams({ ids: ids.join(",") });
-    if (productFilter) params.set("product", productFilter);
     if (activeAlert) params.set("alert", activeAlert);
     const response = await fetch(`/api/leads?${params.toString()}`, {
       cache: "no-store",
@@ -573,11 +536,11 @@ export function LeadsClient({
   }, [columns]);
 
   useEffect(() => {
-    const queryKey = `${productFilter ?? "all"}:${activeAlert ?? ""}`;
+    const queryKey = `all:${activeAlert ?? ""}`;
     if (loadedQueryRef.current === queryKey) return;
     loadedQueryRef.current = queryKey;
     void reloadRef.current();
-  }, [activeAlert, productFilter]);
+  }, [activeAlert]);
 
   // One global channel carries every lead mutation in the company, so a single
   // agent logging a call used to make all 43 people's tabs refetch their whole
@@ -738,9 +701,6 @@ export function LeadsClient({
       if (index >= 0) pending.splice(index, 1);
       if (pending.length === 0 && pendingById.get(id) === pending) pendingById.delete(id);
     };
-    // Drawer cũng phải thấy bản lạc quan: ô Product trong drawer tính cú tick
-    // kế tiếp từ `selectedLead`, nên để nó đứng yên là cú tick thứ hai gửi đi
-    // một mảng thiếu product vừa tick ở cú đầu.
     const optimistic = (lead: LeadRow) =>
       lead.id === id ? mergeLeadPatch(lead, patch) : lead;
     writeLeads((current) => current.map(optimistic));
@@ -763,18 +723,6 @@ export function LeadsClient({
       });
       settle();
       updateLead(overlayPendingPatches(saved, pending));
-      // Changing Product can move a row out of a product-filtered list. The
-      // alert case already reloads in updateLead(), so do not issue two fetches.
-      // Đổi product có thể đẩy dòng ra khỏi bộ lọc product đang bật. Chỉ hỏi
-      // lại khi hết lượt chờ: bản server lúc này chưa có các lượt sau, và nó
-      // sẽ đè mất chúng trên màn hình.
-      if (
-        !activeAlert &&
-        pending.length === 0 &&
-        (patch.product !== undefined || patch.products !== undefined)
-      ) {
-        void patchLeadsByIdRef.current([id]).catch(() => void reloadRef.current());
-      }
       setEditError(null);
     } catch (error) {
       settle();
@@ -800,7 +748,7 @@ export function LeadsClient({
       }
       throw error;
     }
-  }, [sourceId, activeAlert, updateLead, writeLeads]);
+  }, [sourceId, updateLead, writeLeads]);
 
   const archiveLead = useCallback(async function archiveLead(id: string) {
     const before = leadsRef.current.find((lead) => lead.id === id);
@@ -941,6 +889,15 @@ export function LeadsClient({
    */
   async function assignSelected(toEmail: string | null) {
     if (selected.size === 0 || assigning) return;
+    if (
+      !toEmail &&
+      [...selected].some(
+        (id) => leadsRef.current.find((lead) => lead.id === id)?.event_id === null,
+      )
+    ) {
+      setAssignmentError("Personal leads must always have an Agent.");
+      return;
+    }
     const ids = [...selected];
     const idSet = new Set(ids);
     const previousById = new Map(
@@ -1052,7 +1009,7 @@ export function LeadsClient({
   );
   const { statusById, statusNameById } = lookups;
 
-  const { alertsByLeadId, healthByLeadId, healthCounts } = useMemo(
+  const { alertsByLeadId, healthByLeadId } = useMemo(
     () => buildLeadBadges(leads, lookups, alertSettings),
     [leads, lookups, alertSettings],
   );
@@ -1087,7 +1044,7 @@ export function LeadsClient({
       }))
       .sort((left, right) => left.label.localeCompare(right.label));
     return [
-      { value: ALL_FILTER, label: "All assignees" },
+      { value: ALL_FILTER, label: "All agents" },
       { value: UNASSIGNED_FILTER, label: "Unassigned" },
       ...assigneeOptions,
       ...holders,
@@ -1115,21 +1072,6 @@ export function LeadsClient({
     [eventNames],
   );
 
-  const healthFilterOptions = useMemo(
-    () => [
-      { value: ALL_FILTER, label: `All leads (${leads.length})` },
-      // Nhóm rỗng thì ẩn cho đỡ rối — trừ nhóm đang được chọn: nếu ẩn nó đi,
-      // ô select rơi về "All leads" trong khi bộ lọc vẫn đang chạy và danh sách
-      // vẫn rỗng, tức màn hình nói dối về trạng thái của chính nó.
-      ...LEAD_HEALTH_BUCKETS.filter(
-        (bucket) => healthCounts[bucket] > 0 || filters.health === bucket,
-      ).map((bucket) => ({
-        value: bucket,
-        label: `${LEAD_HEALTH_LABEL[bucket]} (${healthCounts[bucket]})`,
-      })),
-    ],
-    [leads.length, healthCounts, filters.health],
-  );
 
   const displayedLeads = useMemo(() => {
     const matched = filterLeads(leads, effectiveFilters, healthByLeadId);
@@ -1161,6 +1103,13 @@ export function LeadsClient({
   const allVisibleSelected =
     displayedLeads.length > 0 &&
     displayedLeads.every((lead) => selected.has(lead.id));
+  const selectedHasPersonalLead = useMemo(
+    () =>
+      [...selected].some(
+        (id) => leads.find((lead) => lead.id === id)?.event_id === null,
+      ),
+    [leads, selected],
+  );
 
   /** Click the same header to flip direction; a new header starts ascending. */
   const toggleSort = useCallback(
@@ -1180,12 +1129,11 @@ export function LeadsClient({
     // nên trang cần được dựng lại. Khác hẳn việc đổi tab, vốn chỉ đổi thứ đang
     // hiển thị từ dữ liệu đã có.
     setView("list");
-    router.push(productFilter ? `/tasks/leads?product=${productFilter}&alert=${alert}` : `/tasks/leads?alert=${alert}`);
+    router.push(`/tasks/leads?alert=${alert}`);
   }
 
   function changeView(nextView: "list" | "overview") {
     const params = new URLSearchParams(window.location.search);
-    if (productFilter) params.set("product", productFilter);
     if (nextView === "overview") {
       params.set("view", "overview");
       params.delete("alert");
@@ -1296,15 +1244,6 @@ export function LeadsClient({
             <div className="flex flex-wrap items-center justify-end gap-2">
               {isManager && (
                 <button
-                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
-                  type="button"
-                  onClick={() => setAddOpen(true)}
-                >
-                  <Plus className="h-4 w-4" /> Add lead
-                </button>
-              )}
-              {isManager && (
-                <button
                   className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:cursor-not-allowed disabled:opacity-50"
                   type="button"
                   onClick={() => setDistributeOpen(true)}
@@ -1320,6 +1259,16 @@ export function LeadsClient({
                   onClick={() => setImportOpen(true)}
                 >
                   <Upload className="h-4 w-4" /> Import
+                </button>
+              )}
+              {/* Nút chính ở ngoài cùng bên phải, như "New task" bên Task. */}
+              {isManager && (
+                <button
+                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
+                  type="button"
+                  onClick={() => setAddOpen(true)}
+                >
+                  <Plus className="h-4 w-4" /> Add lead
                 </button>
               )}
             </div>
@@ -1377,7 +1326,7 @@ export function LeadsClient({
               {alertFilterLabel ? (
                 <button
                   type="button"
-                  onClick={() => router.push(productFilter ? `/tasks/leads?product=${productFilter}` : "/tasks/leads")}
+                  onClick={() => router.push("/tasks/leads")}
                   className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#ffbdad] bg-[#fff7f5] px-3 text-sm font-semibold text-[#bf2600] transition hover:bg-[#ffebe6]"
                 >
                   <CircleAlert className="h-4 w-4" />
@@ -1389,30 +1338,11 @@ export function LeadsClient({
 
             {view === "list" ? (
               <div className="flex min-w-0 flex-wrap items-center gap-2">
-                {/* Cảnh báo là lý do module này tồn tại, nhưng trước đây chỉ
-                    Overview (manager-only) hiện chúng — agent không có cách nào
-                    biết lead nào của mình quá hạn. Một dropdown duy nhất, các
-                    nhóm rời nhau nên cộng lại đúng 100% danh sách: không lead
-                    nào lọt khe giữa hai lựa chọn. */}
-                <TaskSelect
-                  value={filters.health ?? ALL_FILTER}
-                  options={healthFilterOptions}
-                  placeholder="All leads"
-                  className="w-max min-w-[13rem]"
-                  buttonClassName={FILTER_SELECT_BUTTON_CLASS}
-                  onChange={(value) =>
-                    setFilters({
-                      ...filters,
-                      health: isLeadHealth(value) ? value : null,
-                    })
-                  }
-                />
-
                 {canViewAll ? (
                   <TaskSelect
                     value={filters.assignedTo ?? ALL_FILTER}
                     options={assigneeFilterOptions}
-                    placeholder="All assignees"
+                    placeholder="All agents"
                     searchable
                     className="w-max min-w-[11rem]"
                     buttonClassName={FILTER_SELECT_BUTTON_CLASS}
@@ -1438,22 +1368,6 @@ export function LeadsClient({
                     })
                   }
                 />
-
-                {productFilter === null ? (
-                  <TaskSelect
-                    value={filters.product ?? ALL_FILTER}
-                    options={PRODUCT_FILTER_OPTIONS}
-                    placeholder="All products"
-                    className="w-max min-w-[9rem]"
-                    buttonClassName={FILTER_SELECT_BUTTON_CLASS}
-                    onChange={(value) =>
-                      setFilters({
-                        ...filters,
-                        product: isLeadProduct(value) ? value : null,
-                      })
-                    }
-                  />
-                ) : null}
 
                 <TaskSelect
                   value={filters.leadType ?? ALL_FILTER}
@@ -1513,11 +1427,7 @@ export function LeadsClient({
       {view === "overview" && canViewAll ? (
         <div className="min-w-0 flex-1 px-6 pb-6">
           <div className="mx-auto max-w-[1760px]">
-            <LeadOverview
-              key={productFilter ?? "all"}
-              productFilter={productFilter}
-              onAlertClick={selectAlert}
-            />
+            <LeadOverview onAlertClick={selectAlert} />
           </div>
         </div>
       ) : null}
@@ -1558,12 +1468,22 @@ export function LeadsClient({
               <button
                 className="inline-flex h-9 items-center rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:cursor-not-allowed disabled:opacity-50"
                 type="button"
-                disabled={assigning}
+                disabled={assigning || selectedHasPersonalLead}
+                title={
+                  selectedHasPersonalLead
+                    ? "Personal leads must always have an Agent."
+                    : undefined
+                }
                 onClick={() => void assignSelected(null)}
               >
                 Unassign
               </button>
             </div>
+            {selectedHasPersonalLead ? (
+              <p className="mt-2 text-xs font-semibold text-[#974f0c]">
+                Personal leads must remain assigned to an Agent.
+              </p>
+            ) : null}
             {assignmentError && (
               <p className="mt-2 text-xs font-semibold text-red-700">
                 {assignmentError}
@@ -1747,7 +1667,6 @@ export function LeadsClient({
       />
       <LeadImportDialog
         open={importOpen}
-        productFilter={productFilter}
         nameByEmail={nameByEmail}
         sourceId={sourceId}
         onClose={() => setImportOpen(false)}
@@ -1768,7 +1687,6 @@ export function LeadsClient({
       />
       <LeadAddDialog
         open={addOpen}
-        productFilter={productFilter}
         assignees={assignees}
         collaboratorRoster={collaboratorRoster}
         currentUserEmail={currentUserEmail}

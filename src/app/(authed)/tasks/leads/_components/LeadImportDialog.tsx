@@ -6,11 +6,10 @@ import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
 import {
   fetchLeadEvents,
   peekLeadEvents,
-  primeLeadEvent,
   type LeadEventOption as LeadEvent,
 } from "@/lib/leads/events-cache";
-import { TaskSelect } from "../../_components/TaskSelect";
 import { leadDisplayKey } from "@/lib/leads/display";
+import { normalizeEventName } from "@/lib/leads/events";
 import type { ExistingMatchField } from "@/lib/leads/import-existing";
 import {
   LEAD_IMPORT_TEMPLATE,
@@ -22,23 +21,16 @@ import type {
   UnmatchedImportAgent,
 } from "@/lib/leads/import-types";
 import {
-  isLeadProduct,
-  LEAD_PRODUCT_LABEL,
-  LEAD_PRODUCTS,
-  toggleLeadProduct,
-  UNKNOWN_LEAD_PRODUCT,
-  type LeadProduct,
-} from "@/lib/leads/types";
+  isPersonalLeadEventName,
+  LEAD_TYPE_LABEL,
+  LEAD_TYPES,
+  type LeadType,
+} from "@/lib/leads/lead-type";
+import { useDebouncedValue } from "@/lib/leads/use-debounced-value";
 import { personLabel } from "@/lib/tasks/people";
 
 // Khớp trần của route: Vercel chặn body trên 4.5 MB trước khi tới server.
 const MAX_BYTES = 4 * 1024 * 1024;
-/** Giá trị của lựa chọn "không có event" trong ô Event. */
-const PERSONAL_EVENT = "__personal__";
-const PRODUCT_OPTIONS = LEAD_PRODUCTS.map((value) => ({
-  value,
-  label: LEAD_PRODUCT_LABEL[value],
-}));
 const MATCH_FIELD_LABEL: Record<ExistingMatchField, string> = {
   name: "name",
   phone: "phone",
@@ -46,24 +38,21 @@ const MATCH_FIELD_LABEL: Record<ExistingMatchField, string> = {
   fub: "FUB link",
 };
 
-const IMPORT_SELECT_BUTTON_CLASS =
-  "!h-10 !rounded !border-2 !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
+const IMPORT_INPUT_CLASS =
+  "h-10 w-full rounded border-2 border-[#dfe1e6] px-3 text-sm text-[#172b4d] outline-none transition focus:border-[#0c66e4]";
 const SECTION_CLASS =
   "border border-[#dbe2eb] bg-white p-4 shadow-[0_1px_2px_rgba(22,35,58,0.04)]";
 const SECTION_TITLE_CLASS =
   "text-xs font-bold uppercase tracking-[0.08em] text-[#667085]";
 
 type WeightPreview = {
-  /** Kèm product để một response về trễ của product cũ không hiện nhầm. */
-  product: LeadProduct;
+  eventId: string;
   enabled: boolean;
   preview: { email: string; count: number }[];
 };
 
 type LeadImportDialogProps = {
   open: boolean;
-  /** null = màn hình đang xem mọi product, dialog phải hỏi. */
-  productFilter: LeadProduct | null;
   /** Tên hiển thị theo email — để preview ghi tên người giữ lead, không ghi email. */
   nameByEmail: Map<string, string>;
   sourceId: string;
@@ -104,7 +93,6 @@ function downloadTemplate() {
 
 export function LeadImportDialog({
   open,
-  productFilter,
   nameByEmail,
   sourceId,
   onClose,
@@ -116,22 +104,13 @@ export function LeadImportDialog({
   const [eventsState, setEventsState] = useState<
     "idle" | "loading" | "ready" | "error"
   >("idle");
-  // "" = chưa chọn; PERSONAL_EVENT = không có event (Personal lead).
-  const [eventChoice, setEventChoice] = useState("");
-  const [newEventName, setNewEventName] = useState("");
-  const [newEventDate, setNewEventDate] = useState("");
-  const [creatingEvent, setCreatingEvent] = useState(false);
+  // Personal là mặc định. Event lead thì GÕ tên event (khai báo) — không có
+  // bước tạo: tên chưa có thì Import tạo luôn (user chốt 2026-10-03).
+  const [leadType, setLeadType] = useState<LeadType>("personal");
+  const [eventName, setEventName] = useState("");
   const [eventsTruncated, setEventsTruncated] = useState(
     () => peekLeadEvents()?.truncated ?? false,
   );
-  // Product cho cả file, chọn nhiều — cùng luật ô Product trên bảng. null =
-  // chưa đụng: mặc định product của bộ lọc đang xem, không thì Unknown.
-  const [chosenProducts, setChosenProducts] = useState<LeadProduct[] | null>(null);
-  const products =
-    chosenProducts ?? (productFilter ? [productFilter] : [UNKNOWN_LEAD_PRODUCT]);
-  /** Product chính — vòng chia tự động chạy theo pool của product này. */
-  const product = products[0] ?? UNKNOWN_LEAD_PRODUCT;
-  const productsPayload = JSON.stringify(products);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<LeadImportPreview | null>(null);
   const [previewState, setPreviewState] = useState<"idle" | "loading" | "error">("idle");
@@ -143,7 +122,20 @@ export function LeadImportDialog({
   const [autoAssign, setAutoAssign] = useState(false);
   const [weightPreview, setWeightPreview] = useState<WeightPreview | null>(null);
   const previewSequenceRef = useRef(0);
-  const eventId = eventChoice === PERSONAL_EVENT ? "" : eventChoice;
+  const isPersonal = leadType === "personal";
+  // Chạy thử lại theo tên đã ngừng gõ, không theo từng phím.
+  const typedEventName = normalizeEventName(useDebouncedValue(eventName, 400));
+  const eventNameForPreview = isPersonal ? "" : typedEventName;
+  const eventNameInvalid = !isPersonal && isPersonalLeadEventName(typedEventName);
+  // Tên trùng (không phân biệt hoa thường) một event có sẵn thì lấy id của nó
+  // để xem trước tỉ lệ chia; cùng cách so với server.
+  const matchedEvent = eventNameForPreview
+    ? events.find(
+        (event) => event.name.toLowerCase() === eventNameForPreview.toLowerCase(),
+      ) ?? null
+    : null;
+  const eventId = matchedEvent?.id ?? "";
+  const suggestedEvents = events.filter((event) => !isPersonalLeadEventName(event.name));
 
   useEffect(() => {
     if (!open || eventsState !== "idle") return;
@@ -159,14 +151,14 @@ export function LeadImportDialog({
   // Xem trước tỉ lệ ngay trong dialog: người bấm import phải thấy điều sắp xảy
   // ra trước khi nó xảy ra với 2.000 dòng.
   useEffect(() => {
-    if (!open) return;
+    if (!open || !eventId) return;
     let cancelled = false;
-    void fetch(`/api/leads/assignment-weights?product=${product}`, { cache: "no-store" })
+    void fetch(`/api/leads/assignment-weights?event_id=${encodeURIComponent(eventId)}`, { cache: "no-store" })
       .then(async (response) => {
         const payload = await response.json().catch(() => null);
         if (cancelled || !response.ok) return;
         setWeightPreview({
-          product,
+          eventId,
           enabled: payload?.enabled === true,
           preview: Array.isArray(payload?.preview) ? payload.preview : [],
         });
@@ -175,18 +167,20 @@ export function LeadImportDialog({
     return () => {
       cancelled = true;
     };
-  }, [open, product]);
+  }, [open, eventId]);
 
   // Preview = chính route Import chạy thử (`dry_run`), nên preview nói gì thì
-  // import làm đúng vậy. Gọi lại khi đổi event: "trùng trong cùng event" phụ
-  // thuộc event.
+  // import làm đúng vậy. Gọi lại khi đổi Lead type / tên event: "trùng trong
+  // cùng event" và luật Agent của Personal lead phụ thuộc hai thứ đó.
   useEffect(() => {
     if (!open || !file) return;
+    // Event lead chưa có tên (hoặc gõ "Personal lead") thì chưa chạy thử.
+    if (!isPersonal && (!eventNameForPreview || eventNameInvalid)) return;
     const sequence = ++previewSequenceRef.current;
     const form = new FormData();
     form.set("file", file);
-    form.set("event_id", eventId);
-    form.set("products", productsPayload);
+    form.set("lead_type", leadType);
+    form.set("event_name", eventNameForPreview);
     form.set("dry_run", "true");
     void Promise.resolve().then(async () => {
       setPreviewState("loading");
@@ -201,8 +195,10 @@ export function LeadImportDialog({
         if (!response.ok) throw new Error(payload?.error ?? "Could not read that file.");
         const next = payload as LeadImportPreview;
         setPreview(next);
-        // Bỏ tick của dòng không còn là khách cũ (vd. vừa đổi event).
-        const stillExisting = new Set(next.existingClients.map((match) => match.row));
+        // Bỏ tick của dòng không còn bỏ được (vd. vừa đổi event).
+        const stillExisting = new Set(
+          next.existingClients.filter((match) => match.removable).map((match) => match.row),
+        );
         setRemovedRows((current) => new Set([...current].filter((row) => stillExisting.has(row))));
         setPreviewState("idle");
       } catch (previewError) {
@@ -212,7 +208,7 @@ export function LeadImportDialog({
         setError(previewError instanceof Error ? previewError.message : "Could not read that file.");
       }
     });
-  }, [open, file, eventId, productsPayload, sourceId]);
+  }, [open, file, isPersonal, leadType, eventNameForPreview, eventNameInvalid, sourceId]);
 
   function resetAndClose() {
     previewSequenceRef.current += 1;
@@ -222,49 +218,11 @@ export function LeadImportDialog({
     setPreview(null);
     setPreviewState("idle");
     setRemovedRows(new Set());
-    setChosenProducts(null);
-    setEventChoice("");
-    setNewEventName("");
-    setNewEventDate("");
+    setLeadType("personal");
+    setEventName("");
     setEventsState("idle");
     setAutoAssign(false);
     onClose();
-  }
-
-  async function createEvent() {
-    const name = newEventName.trim();
-    if (!name || creatingEvent) return;
-    setCreatingEvent(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/leads/events", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-lead-client-source": sourceId,
-        },
-        body: JSON.stringify({ name, event_date: newEventDate || null }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok)
-        throw new Error(payload?.error ?? "Could not create event.");
-      const created = payload.event as LeadEvent;
-      // Đẩy vào cache dùng chung, nếu không sự kiện vừa tạo ở đây sẽ không có
-      // trong dialog Add cho tới khi tải lại trang.
-      primeLeadEvent(created);
-      setEvents((current) => [created, ...current]);
-      setEventChoice(created.id);
-      setNewEventName("");
-      setNewEventDate("");
-    } catch (createError) {
-      setError(
-        createError instanceof Error
-          ? createError.message
-          : "Could not create event.",
-      );
-    } finally {
-      setCreatingEvent(false);
-    }
   }
 
   function handleFile(event: ChangeEvent<HTMLInputElement>) {
@@ -285,15 +243,15 @@ export function LeadImportDialog({
   }
 
   async function importFile() {
-    if (!file || !preview || !eventChoice || importing) return;
+    if (!file || !preview || importing) return;
     setImporting(true);
     setError(null);
     try {
       const form = new FormData();
       form.set("file", file);
-      form.set("event_id", eventId);
-      form.set("products", productsPayload);
-      form.set("auto_assign", autoAssign ? "true" : "false");
+      form.set("lead_type", leadType);
+      form.set("event_name", eventNameForPreview);
+      form.set("auto_assign", eventId && autoAssign ? "true" : "false");
       form.set("exclude_rows", JSON.stringify([...removedRows]));
       const response = await fetch("/api/leads/import", {
         method: "POST",
@@ -331,21 +289,35 @@ export function LeadImportDialog({
   useBodyScrollLock(open);
   if (!open) return null;
 
-  const existingClients = preview?.existingClients ?? [];
+  // Preview của Lead type / tên khác thì ẩn (so theo tên đã ngừng gõ để không
+  // nháy khi đang gõ).
+  const shownPreview =
+    preview && preview.eventName === (isPersonal ? null : typedEventName || undefined)
+      ? preview
+      : null;
+  const existingClients = shownPreview?.existingClients ?? [];
+  // Dòng CHỈ trùng tên không bỏ được (user chốt 2026-10-03) — server cũng bỏ
+  // qua tick của dòng đó.
   const removableRows = existingClients
-    .filter((match) => !match.sameEventBlocked)
+    .filter((match) => match.removable && !match.sameEventBlocked)
     .map((match) => match.row);
   const removedCount = removableRows.filter((row) => removedRows.has(row)).length;
-  const importCount = preview ? Math.max(0, preview.importable - removedCount) : 0;
+  const importCount = shownPreview ? Math.max(0, shownPreview.importable - removedCount) : 0;
   const existingRowSet = new Set(existingClients.map((match) => match.row));
   const presentHeaders = new Set(preview?.presentHeaders ?? []);
+  // Preview phải khớp đúng tên đang gõ — gõ dở thì chưa cho import.
+  const previewIsCurrent =
+    preview !== null &&
+    (isPersonal
+      ? preview.eventName === null
+      : preview.eventName === normalizeEventName(eventName));
   const canImport = Boolean(
-    file && preview && eventChoice && importCount > 0 && previewState !== "loading" && !importing,
+    file && preview && previewIsCurrent && importCount > 0 && previewState !== "loading" && !importing,
   );
   const missingForImport = [
-    !eventChoice ? "an event (or No event — Personal lead)" : null,
+    !isPersonal && !normalizeEventName(eventName) ? "the event name" : null,
     !file ? "a file" : null,
-    preview && importCount === 0 ? "at least one row to import" : null,
+    shownPreview && importCount === 0 ? "at least one row to import" : null,
   ].filter((item): item is string => item !== null);
 
   return (
@@ -382,93 +354,96 @@ export function LeadImportDialog({
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
           <div className="space-y-5">
             <section className={SECTION_CLASS}>
-              <div className="mb-3">
-                <h3 className={SECTION_TITLE_CLASS}>Product</h3>
-                {/* Product cho cả file, chọn nhiều. Insurance Needs là cột
-                    riêng, không suy ra product. */}
-                <TaskSelect
-                  label="Product"
-                  values={products}
-                  multi
-                  summaryLabel="products"
-                  showSelectedValues
-                  options={PRODUCT_OPTIONS}
-                  placeholder="Choose product…"
-                  className="mt-2 w-full"
-                  buttonClassName="!rounded !border-2 !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none"
-                  onValuesChange={(nextValues) => {
-                    const toggled =
-                      nextValues.find((value) => !products.includes(value as LeadProduct)) ??
-                      products.find((current) => !nextValues.includes(current));
-                    if (toggled && isLeadProduct(toggled)) {
-                      setChosenProducts(toggleLeadProduct(products, toggled));
-                    }
-                  }}
-                />
-              </div>
               <h3 className={SECTION_TITLE_CLASS}>
-                1. Choose an event
+                1. Lead type
                 <span className="text-[#bf2600]" title="Required">{" *"}</span>
               </h3>
-              <div className="mt-2 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
-                <TaskSelect
-                  label="event"
-                  value={eventChoice}
-                  options={[
-                    { value: PERSONAL_EVENT, label: "No event — Personal lead" },
-                    ...events.map((event) => ({
-                      value: event.id,
-                      label: formatEvent(event),
-                    })),
-                  ]}
-                  placeholder={
-                    eventsState === "loading" || eventsState === "idle"
-                      ? "Loading events..."
-                      : "Choose event"
-                  }
-                  searchable
-                  menuClassName="max-h-64 min-w-full"
-                  buttonClassName={IMPORT_SELECT_BUTTON_CLASS}
-                  onChange={setEventChoice}
-                  disabled={eventsState === "loading" || eventsState === "idle"}
-                />
-                <div className="flex gap-2">
-                  <input
-                    className="h-10 min-w-0 rounded border-2 border-[#dfe1e6] px-3 text-sm outline-none focus:border-[#0c66e4]"
-                    placeholder="New event name"
-                    value={newEventName}
-                    onChange={(event) => setNewEventName(event.target.value)}
-                  />
-                  <input
-                    className="h-10 rounded border-2 border-[#dfe1e6] px-3 text-sm outline-none focus:border-[#0c66e4]"
-                    type="date"
-                    value={newEventDate}
-                    onChange={(event) => setNewEventDate(event.target.value)}
-                  />
-                  <button
-                    type="button"
-                    className="inline-flex h-10 items-center rounded border border-[#cfd8e5] bg-white px-3 text-sm font-bold text-[#344054] transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:cursor-not-allowed disabled:opacity-40"
-                    onClick={() => void createEvent()}
-                    disabled={!newEventName.trim() || creatingEvent}
-                  >
-                    Create
-                  </button>
+              <div className="mt-2 grid gap-3 sm:grid-cols-[16rem_minmax(0,1fr)]">
+                <div
+                  role="radiogroup"
+                  aria-label="Lead type"
+                  className="grid h-10 grid-cols-2 gap-1 rounded border-2 border-[#dfe1e6] bg-white p-0.5"
+                >
+                  {LEAD_TYPES.map((type) => {
+                    const selected = leadType === type;
+                    return (
+                      <button
+                        key={type}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        onClick={() => {
+                          setLeadType(type);
+                          setAutoAssign(false);
+                        }}
+                        className={`rounded text-sm font-semibold transition ${
+                          selected
+                            ? "bg-[#e9f2ff] text-[#0c66e4]"
+                            : "text-[#42526e] hover:bg-[#f4f5f7]"
+                        }`}
+                      >
+                        {LEAD_TYPE_LABEL[type]}
+                      </button>
+                    );
+                  })}
                 </div>
+                {isPersonal ? (
+                  <p className="flex items-center text-xs font-medium text-[#626f86]">
+                    Each row goes to the Agent named in its Agent column.
+                  </p>
+                ) : (
+                  <div>
+                    {/* Gõ tên = khai báo event. Danh sách chỉ là gợi ý; tên
+                        chưa có thì Import tạo event đó. */}
+                    <input
+                      className={IMPORT_INPUT_CLASS}
+                      list="lead-import-event-names"
+                      value={eventName}
+                      onChange={(event) => {
+                        setEventName(event.target.value);
+                        setAutoAssign(false);
+                      }}
+                      placeholder="Event name, e.g. Health Fair 2026"
+                      aria-label="Event name"
+                      autoFocus
+                    />
+                    <datalist id="lead-import-event-names">
+                      {suggestedEvents.map((event) => (
+                        <option key={event.id} value={event.name}>
+                          {formatEvent(event)}
+                        </option>
+                      ))}
+                    </datalist>
+                  </div>
+                )}
               </div>
-              {eventsTruncated ? (
-                // Danh sách bị cắt ở 200. Không nói ra thì người dùng tưởng
-                // sự kiện của mình chưa được tạo và đi tạo trùng một cái nữa.
-                <p className="mt-2 text-xs font-semibold text-[#974f0c]">
-                  Showing the 200 most recent events. If yours is not here,
-                  create it using its exact name — matching is case-insensitive,
-                  so it joins the existing event rather than making a duplicate.
+              {!isPersonal && eventNameInvalid ? (
+                <p className="mt-2 text-xs font-semibold text-[#bf2600]">
+                  Personal leads have no event — choose Personal lead instead.
+                </p>
+              ) : !isPersonal && shownPreview ? (
+                <p
+                  className={`mt-2 text-xs font-semibold ${
+                    shownPreview.eventIsNew ? "text-[#974f0c]" : "text-[#216e4e]"
+                  }`}
+                >
+                  {shownPreview.eventIsNew
+                    ? `New event — "${shownPreview.eventName}" will be created when you import.`
+                    : `Existing event — leads join "${matchedEvent?.name ?? shownPreview.eventName}".`}
                 </p>
               ) : null}
-              {eventsState === "error" && (
-                <p className="mt-2 text-xs font-semibold text-red-700">
-                  Could not load events.
+              {!isPersonal && eventsTruncated ? (
+                // Gợi ý bị cắt ở 200; gõ đúng tên vẫn khớp event cũ.
+                <p className="mt-2 text-xs font-medium text-[#6b778c]">
+                  Suggestions show the 200 most recent events. Typing an older
+                  event&apos;s exact name still adds to it — matching ignores case.
                 </p>
-              )}
+              ) : null}
+              {!isPersonal && eventsState === "error" ? (
+                <p className="mt-2 text-xs font-semibold text-rose-700">
+                  Could not load past events; you can still type a name.
+                </p>
+              ) : null}
             </section>
 
             <section className={SECTION_CLASS}>
@@ -506,7 +481,7 @@ export function LeadImportDialog({
                     {previewState === "loading"
                       ? "Checking the file…"
                       : preview
-                        ? `${preview.totalRows.toLocaleString()} rows`
+                        ? `Sheet "${preview.sheetName}" · ${preview.totalRows.toLocaleString()} rows`
                         : "First row must be the template's column headers"}
                   </span>
                 </span>
@@ -550,7 +525,7 @@ export function LeadImportDialog({
               </ul>
             </section>
 
-            {preview ? (
+            {shownPreview ? (
               <>
                 {existingClients.length > 0 ? (
                   // Khách cũ: ĐỎ và lên ĐẦU (user chốt 2026-10-03). Tick là bỏ
@@ -582,9 +557,10 @@ export function LeadImportDialog({
                     <p className="mt-1 text-xs font-medium text-[#ae2a19]">
                       These rows match leads already in the system by name,
                       phone, email or FUB link. Tick a row to remove it from
-                      this import.
+                      this import. A match on name only is just a heads-up —
+                      that row is always imported.
                     </p>
-                    {preview.existingCheckTruncated ? (
+                    {shownPreview.existingCheckTruncated ? (
                       <p className="mt-1 text-xs font-semibold text-[#974f0c]">
                         Only the first 20,000 leads were checked.
                       </p>
@@ -592,14 +568,17 @@ export function LeadImportDialog({
                     <ul className="mt-3 max-h-72 space-y-1.5 overflow-y-auto pr-1">
                       {existingClients.map((match) => {
                         const removed = match.sameEventBlocked || removedRows.has(match.row);
+                        const nameOnly = !match.removable && !match.sameEventBlocked;
                         return (
                           <li key={match.row}>
-                            <label className="flex items-start gap-2 rounded border border-[#ffd2c7] bg-white px-3 py-2 text-sm">
+                            <label className={`flex items-start gap-2 rounded border px-3 py-2 text-sm ${
+                              nameOnly ? "border-[#dfe1e6] bg-[#fafbfc]" : "border-[#ffd2c7] bg-white"
+                            }`}>
                               <input
                                 type="checkbox"
-                                className="mt-0.5"
+                                className={`mt-0.5 ${nameOnly ? "invisible" : ""}`}
                                 checked={removed}
-                                disabled={match.sameEventBlocked}
+                                disabled={match.sameEventBlocked || nameOnly}
                                 onChange={(event) => {
                                   const checked = event.target.checked;
                                   setRemovedRows((current) => {
@@ -629,6 +608,10 @@ export function LeadImportDialog({
                                   <span className="mt-0.5 block text-xs font-semibold text-[#bf2600]">
                                     Already in this event — it will not be imported again.
                                   </span>
+                                ) : nameOnly ? (
+                                  <span className="mt-0.5 block text-xs font-semibold text-[#626f86]">
+                                    Same name only — this row will be imported.
+                                  </span>
                                 ) : null}
                               </span>
                             </label>
@@ -642,27 +625,27 @@ export function LeadImportDialog({
                 <section className={SECTION_CLASS}>
                   <h3 className={SECTION_TITLE_CLASS}>3. Preview and import</h3>
                   <div className="mt-3 space-y-2 text-xs">
-                    {preview.missingHeaders.length > 0 ? (
+                    {shownPreview.missingHeaders.length > 0 ? (
                       <p className="rounded border border-[#ffbdad] bg-[#ffebe6] px-3 py-2 font-semibold text-[#bf2600]">
-                        This file is missing {preview.missingHeaders.join(", ")}.
+                        This file is missing {shownPreview.missingHeaders.join(", ")}.
                         Check that it uses the lead template — those columns
                         will be empty.
                       </p>
                     ) : null}
-                    {preview.ignoredColumns.length > 0 ? (
+                    {shownPreview.ignoredColumns.length > 0 ? (
                       <p className="rounded border border-[#f5cd47] bg-[#fff7d6] px-3 py-2 font-semibold text-[#7f5f01]">
                         Not set up in Lead Table Configuration yet, so these
-                        columns will not be saved: {preview.ignoredColumns.join(", ")}.
+                        columns will not be saved: {shownPreview.ignoredColumns.join(", ")}.
                       </p>
                     ) : null}
-                    {preview.unmatchedAgents.length > 0 ? (
+                    {shownPreview.unmatchedAgents.length > 0 ? (
                       <div className="rounded border border-[#f5cd47] bg-[#fff7d6] px-3 py-2 text-[#7f5f01]">
                         <p className="font-semibold">
                           These Agent names do not match anyone in Account Management →
-                          Agent membership, so their rows stay unassigned:
+                          Agent membership, so {isPersonal ? "their Personal lead rows will be skipped" : "their rows stay unassigned"}:
                         </p>
                         <ul className="mt-1 list-disc space-y-0.5 pl-4">
-                          {preview.unmatchedAgents.map((agent) => (
+                          {shownPreview.unmatchedAgents.map((agent) => (
                             <li key={agent.name}>
                               <strong>{agent.name}</strong> — {unmatchedAgentText(agent)} (rows{" "}
                               {rowList(agent.rows)})
@@ -671,27 +654,27 @@ export function LeadImportDialog({
                         </ul>
                       </div>
                     ) : null}
-                    {preview.rowsWithoutPhone > 0 ? (
+                    {shownPreview.rowsWithoutPhone > 0 ? (
                       <p className="rounded border border-[#dfe1e6] bg-[#f7f8fa] px-3 py-2 font-medium text-[#42526e]">
-                        {preview.rowsWithoutPhone} row{preview.rowsWithoutPhone === 1 ? " has" : "s have"} no
+                        {shownPreview.rowsWithoutPhone} row{shownPreview.rowsWithoutPhone === 1 ? " has" : "s have"} no
                         phone number and will be imported without one.
                       </p>
                     ) : null}
-                    {preview.optionsToCreate.length > 0 ? (
+                    {shownPreview.optionsToCreate.length > 0 ? (
                       <p className="rounded border border-[#dfe1e6] bg-[#f7f8fa] px-3 py-2 font-medium text-[#42526e]">
                         New options will be added:{" "}
-                        {preview.optionsToCreate
+                        {shownPreview.optionsToCreate
                           .map((option) => `${option.column}: ${option.label}`)
                           .join(" · ")}
                       </p>
                     ) : null}
-                    {preview.unknownHeaders.length > 0 ? (
+                    {shownPreview.unknownHeaders.length > 0 ? (
                       <p className="font-medium text-[#6b778c]">
-                        Ignored columns not in the template: {preview.unknownHeaders.join(", ")}
+                        Ignored columns not in the template: {shownPreview.unknownHeaders.join(", ")}
                       </p>
                     ) : null}
-                    <NoteList title="Will be skipped" tone="amber" notes={preview.skipped} />
-                    <NoteList title="Imported with a note" tone="gray" notes={preview.warnings} />
+                    <NoteList title="Will be skipped" tone="amber" notes={shownPreview.skipped} />
+                    <NoteList title="Imported with a note" tone="gray" notes={shownPreview.warnings} />
                   </div>
 
                   <div className="mt-3 overflow-x-auto border border-[#dfe1e6]">
@@ -707,7 +690,7 @@ export function LeadImportDialog({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#eef1f5]">
-                        {preview.previewRows.map((row) => {
+                        {shownPreview.previewRows.map((row) => {
                           const existing = existingRowSet.has(row.row);
                           const removed =
                             removedRows.has(row.row) ||
@@ -743,14 +726,14 @@ export function LeadImportDialog({
                       </tbody>
                     </table>
                   </div>
-                  {preview.totalRows > preview.previewRows.length ? (
+                  {shownPreview.totalRows > shownPreview.previewRows.length ? (
                     <p className="mt-1 text-xs text-[#6b778c]">
-                      Showing the first {preview.previewRows.length} of{" "}
-                      {preview.totalRows.toLocaleString()} rows.
+                      Showing the first {shownPreview.previewRows.length} of{" "}
+                      {shownPreview.totalRows.toLocaleString()} rows.
                     </p>
                   ) : null}
 
-                  {weightPreview?.enabled && weightPreview.product === product ? (
+                  {eventId && weightPreview?.enabled && weightPreview.eventId === eventId ? (
                     <label className="mt-3 flex items-start gap-2 rounded border border-[#dfe1e6] bg-white p-3 text-sm">
                       <input
                         type="checkbox"
@@ -771,7 +754,7 @@ export function LeadImportDialog({
                           </span>
                         ) : (
                           <span className="mt-0.5 block text-xs text-[#974f0c]">
-                            Nobody is set to receive this product — these leads will stay in the pool.
+                            Nobody is set to receive this Event — these leads will stay in the pool.
                           </span>
                         )}
                       </span>
@@ -873,7 +856,7 @@ export function LeadImportDialog({
               <Upload className="h-4 w-4" />
               {importing
                 ? "Importing..."
-                : preview
+                : shownPreview
                   ? `Import ${importCount.toLocaleString()} lead${importCount === 1 ? "" : "s"}`
                   : "Import leads"}
             </button>

@@ -28,7 +28,9 @@ type AttachmentRow = {
   storage_path: string;
   created_at: string;
 };
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+// Thiếu nhóm `{3}-` trước 12 ký tự cuối (từ 6575485, 2026-09-30) khiến MỌI id
+// lead bị coi là sai: drawer báo "Invalid lead id." và không đính kèm được file.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const COLUMNS = "id,file_name,mime_type,size_bytes,storage_path,created_at";
 
 function measure<T>(

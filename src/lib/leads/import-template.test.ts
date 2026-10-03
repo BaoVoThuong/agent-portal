@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { readFirstSheet } from "./import-read";
+import * as XLSX from "xlsx";
+import { readSpreadsheet } from "./import-read";
 import {
   buildImportDescription,
   fubPersonKey,
@@ -21,14 +22,42 @@ const CSV = [
 ].join("\n");
 
 function sheet() {
-  return readFirstSheet(new TextEncoder().encode(CSV).buffer as ArrayBuffer);
+  return readSpreadsheet(new TextEncoder().encode(CSV).buffer as ArrayBuffer);
 }
 
-describe("readFirstSheet", () => {
+describe("readSpreadsheet", () => {
   // SheetJS đọc CSV theo latin1 nếu không ép UTF-8 — "Bé" thành "BÃ©".
   it("keeps Vietnamese text from a UTF-8 CSV intact", () => {
     const { records } = sheet();
     expect(records[1]["Client's Note"]).toBe("Bé gái 2.5Y\ncần gấp");
+  });
+
+  // File thật "Mid-Autumn Festival 0926.xlsx": sheet đầu là danh sách hãng, dữ
+  // liệu ở sheet thứ hai. Chỉ đọc sheet đầu là báo "không đúng mẫu".
+  it("picks the sheet whose headers match the template best", () => {
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet([["P&C", "HEALTH", "LIFE"], ["GEICO", "AMBETTER", "NLG"]]),
+      "Carriers",
+    );
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet([
+        ["Full Name", "Phone Number", "FUB link"],
+        ["Lan Test", 7135550101, "https://x.followupboss.com/2/people/view/1"],
+      ]),
+      "Trung thu",
+    );
+    const data = XLSX.write(workbook, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+    const result = readSpreadsheet(
+      data,
+      (headers) => Object.keys(matchTemplateHeaders(headers).headerByField).length,
+    );
+    expect(result.sheetName).toBe("Trung thu");
+    expect(result.records[0]["Full Name"]).toBe("Lan Test");
+    // Không chấm điểm thì giữ hành vi cũ: sheet đầu.
+    expect(readSpreadsheet(data).sheetName).toBe("Carriers");
   });
 
   it("reports the real Excel row number of each record", () => {

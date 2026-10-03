@@ -23,6 +23,27 @@ export function normalizeEventName(raw: string): string {
 }
 
 /**
+ * Tìm event theo tên (không tạo). Cùng cách so với resolveEventByName: không
+ * phân biệt hoa thường, gộp khoảng trắng. Preview của Import dùng hàm này — chạy
+ * thử không được tạo event thật.
+ */
+export async function findEventIdByName(
+  supabase: SupabaseClient,
+  rawName: string,
+): Promise<{ ok: true; id: string | null } | { ok: false; error: string }> {
+  const name = normalizeEventName(rawName);
+  if (!name) return { ok: true, id: null };
+  const existing = await supabase
+    .from("lead_events")
+    .select("id")
+    .ilike("name", escapeLikePattern(name))
+    .is("archived_at", null)
+    .limit(1);
+  if (existing.error) return { ok: false, error: existing.error.message };
+  return { ok: true, id: (existing.data?.[0]?.id as string | undefined) ?? null };
+}
+
+/**
  * Find the event with this name, or create it. Matching ignores case and
  * surrounding space; a unique index on lower(btrim(name)) makes two people
  * typing the same name at the same moment collapse to one row rather than

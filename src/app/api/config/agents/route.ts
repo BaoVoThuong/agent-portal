@@ -65,7 +65,17 @@ export async function DELETE(request: Request) {
   const { error } = await getSupabaseAdmin().rpc("delete_task_agent_atomic", {
     p_email: email,
   });
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    // Trigger DB (2026-10-03-lead-personal-agent-integrity.sql): Personal lead
+    // luôn phải có Agent, nên không gỡ được Agent còn giữ Personal lead.
+    if (error.message.includes("AGENT_HAS_PERSONAL_LEADS")) {
+      return NextResponse.json(
+        { error: "This Agent still owns Personal leads. Reassign them to another Agent first." },
+        { status: 409 },
+      );
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
   await broadcastTableConfigChanged();
   return NextResponse.json({ ok: true });

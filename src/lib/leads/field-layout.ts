@@ -3,7 +3,7 @@
  * drawer — một nguồn để hai màn hình không xếp mỗi nơi một kiểu.
  *
  *  - Thông tin về KHÁCH: cột trái, cạnh tên / số điện thoại / email.
- *  - NHU CẦU: ngay dưới Product, trên Agent — Insurance Needs đọc cùng Product.
+ *  - NHU CẦU: sau thông tin khách, trước Agent.
  *  - Thuộc tính LEAD còn lại: cột phải, sau Agent / Collaborators.
  */
 export const LEAD_CLIENT_FIELD_KEYS = ["age", "gender"] as const;

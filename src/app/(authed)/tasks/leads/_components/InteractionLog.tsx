@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, X } from "lucide-react";
+import { Plus, Send, X } from "lucide-react";
 import { useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type {
   LeadComment,
@@ -40,6 +40,8 @@ type InteractionLogProps = {
   canComment: boolean;
   /** Who owns the lead, so a locked composer can say why rather than just look broken. */
   ownerLabel: string | null;
+  /** Avatar cạnh ô viết comment, như Task/Enrollment. */
+  currentUserEmail?: string;
   sourceId: string;
   onSave: (payload: {
     type_id: string;
@@ -191,6 +193,7 @@ export function InteractionLog({
   canLog,
   canComment,
   ownerLabel,
+  currentUserEmail,
   onSave,
   onInteractionSaved,
   onSaveComment,
@@ -792,47 +795,64 @@ export function InteractionLog({
           ))}
       </div>
       {canComment ? (
+        // Cùng kiểu ô viết comment với Task/Enrollment (CommentThread Composer):
+        // avatar, khung bo tròn, dải đáy chứa nút phụ và nút Send.
         <form
           className="shrink-0 border-t border-[#dfe1e6] bg-white pt-3"
           onSubmit={submitComment}
         >
-          <textarea
-            value={commentBody}
-            onChange={(event) => {
-              setCommentBody(event.target.value);
-              if (commentError) setCommentError(null);
-            }}
-            maxLength={4000}
-            placeholder="Add a comment…"
-            className="min-h-20 w-full resize-y rounded border border-[#cfd8e5] bg-white px-3 py-2 text-sm text-[#172b4d] outline-none placeholder:text-[#8993a4] focus:border-[#0c66e4] disabled:bg-[#f4f5f7]"
-          />
-          {commentError ? (
-            <p className="mt-2 rounded border border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-xs font-semibold text-[#bf2600]">
-              {commentError}
-            </p>
-          ) : null}
-          <div className="mt-2 flex items-center justify-between gap-3">
-            <span className="text-xs text-[#8993a4]">
-              {commentBody.length > 0 ? `${commentBody.length}/4000` : " "}
-            </span>
-            <div className="flex items-center gap-2">
-              {canLog ? (
-                <button
-                  type="button"
-                  onClick={openComposer}
-                  className="inline-flex h-8 items-center gap-1.5 rounded border border-[#cfd8e5] bg-white px-2.5 text-xs font-bold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+          <div className="flex gap-3">
+            {currentUserEmail ? (
+              <div className="shrink-0 pt-1">
+                <Initials email={currentUserEmail} label={personLabel(currentUserEmail)} />
+              </div>
+            ) : null}
+            <div className="relative min-w-0 flex-1 overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_1px_rgba(9,30,66,0.08)] transition focus-within:border-[#0c66e4] focus-within:shadow-[0_0_0_1px_#0c66e4]">
+              <textarea
+                value={commentBody}
+                onChange={(event) => {
+                  setCommentBody(event.target.value);
+                  if (commentError) setCommentError(null);
+                }}
+                maxLength={4000}
+                rows={2}
+                placeholder="Add a comment…"
+                className="block min-h-[2.25rem] w-full resize-y bg-white px-3 py-2 text-sm leading-5 text-[#172b4d] outline-none placeholder:text-[#7a869a]"
+              />
+              {commentError ? (
+                <div
+                  role="alert"
+                  className="border-t border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-xs font-semibold text-[#bf2600]"
                 >
-                  <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                  Add interaction
-                </button>
+                  {commentError}
+                </div>
               ) : null}
-              <button
-                type="submit"
-                disabled={!commentBody.trim()}
-                className="inline-flex h-8 items-center rounded bg-[#0c66e4] px-3 text-xs font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Send comment
-              </button>
+              <div className="flex items-center justify-between gap-2 border-t border-[#ebecf0] bg-[#fafbfc] px-2 py-1">
+                <div className="flex items-center gap-1">
+                  {canLog ? (
+                    <button
+                      type="button"
+                      onClick={openComposer}
+                      className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-semibold text-[#44546f] transition hover:bg-[#ebecf0] hover:text-[#172b4d]"
+                    >
+                      <Plus className="h-4 w-4" aria-hidden="true" />
+                      Add interaction
+                    </button>
+                  ) : null}
+                </div>
+                <div className="flex items-center gap-2">
+                  {commentBody.length > 0 ? (
+                    <span className="text-[11px] text-[#8993a4]">{commentBody.length}/4000</span>
+                  ) : null}
+                  <button
+                    type="submit"
+                    disabled={!commentBody.trim()}
+                    className="inline-flex h-7 items-center gap-1.5 rounded bg-[#0c66e4] px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <Send className="h-3.5 w-3.5" aria-hidden="true" /> Send
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </form>

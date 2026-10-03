@@ -1,10 +1,4 @@
 import { normalizePhone } from "./import-parse";
-import {
-  isLeadProduct,
-  normalizeLeadProducts,
-  UNKNOWN_LEAD_PRODUCT,
-  type LeadProduct,
-} from "./types";
 import { parseCollaboratorEmails } from "./collaborators";
 import { isLeadType, isPersonalLeadEventName, type LeadType } from "./lead-type";
 
@@ -15,10 +9,6 @@ const MAX_CUSTOM_FIELDS = 100;
 const MAX_CUSTOM_KEY_LENGTH = 120;
 
 export type CreateLeadInput = {
-  /** Product chính = phần tử đầu của `products` (cùng luật trigger DB). */
-  product: LeadProduct;
-  /** Một lead có thể mang nhiều product; đã chuẩn hoá bằng normalizeLeadProducts. */
-  products: LeadProduct[];
   fullName: string | null;
   phone: string;
   email: string | null;
@@ -34,7 +24,7 @@ export type CreateLeadInput = {
   eventName: string | null;
   /**
    * Chỉ dialog Add lead gửi. null = client cũ: event tuỳ chọn, gán như trước.
-   * "personal" thì không có event và route gán cho người tạo nếu chưa chọn ai;
+   * "personal" thì không có event và bắt buộc có một Agent;
    * "event" thì bắt buộc có event — xem lib/leads/lead-type.ts.
    */
   leadType: LeadType | null;
@@ -118,18 +108,6 @@ export function parseCreateLeadInput(body: unknown): CreateLeadParseResult {
     return { ok: false, error: "Request body must be an object." };
   }
   const input = body as Record<string, unknown>;
-  // `products` (form Add lead chọn nhiều) thắng `product` (client cũ, một product).
-  let products: LeadProduct[];
-  if (input.products !== undefined && input.products !== null) {
-    if (!Array.isArray(input.products) || !input.products.every(isLeadProduct)) {
-      return { ok: false, error: "Invalid product." };
-    }
-    products = normalizeLeadProducts(input.products);
-  } else {
-    if (!isLeadProduct(input.product)) return { ok: false, error: "Invalid product." };
-    products = [input.product];
-  }
-
   const phone = normalizePhone(input.phone);
   if (!phone) return { ok: false, error: "A valid phone number is required." };
 
@@ -161,7 +139,7 @@ export function parseCreateLeadInput(body: unknown): CreateLeadParseResult {
   }
   const statusId = optionalUuid(input.status_id, "Status");
   if (statusId !== null && typeof statusId === "object") return { ok: false, error: statusId.error };
-  const assignedToEmail = optionalEmail(input.assigned_to_email, "Assignee");
+  const assignedToEmail = optionalEmail(input.assigned_to_email, "Agent");
   if (assignedToEmail !== null && typeof assignedToEmail === "object") return { ok: false, error: assignedToEmail.error };
   const collaboratorEmails = parseCollaboratorEmails(input.collaborator_emails);
   if (!collaboratorEmails.ok) return collaboratorEmails;
@@ -173,8 +151,6 @@ export function parseCreateLeadInput(body: unknown): CreateLeadParseResult {
   return {
     ok: true,
     value: {
-      product: products[0],
-      products,
       fullName,
       phone,
       email,
@@ -192,26 +168,7 @@ export function parseCreateLeadInput(body: unknown): CreateLeadParseResult {
   };
 }
 
-/**
- * Which product a create/import dialog will actually write.
- *
- * Returns null when the answer is not known yet and the dialog must ask. The
- * screen merged P&C and Health into one list, so "no product filter" is the
- * normal state — and both dialogs used to fall back to `"health"` there,
- * silently filing a P&C campaign as Health with nothing on screen saying so.
- * A misfiled lead is worse than one extra click.
- */
-export function resolveDialogProduct(
-  productFilter: LeadProduct | null,
-  chosen: LeadProduct | null
-): LeadProduct | null {
-  return productFilter ?? chosen;
-}
-
 export type NewLeadRowInput = {
-  product: LeadProduct | null;
-  /** Có thì thắng `product`; trigger DB đặt `product` = phần tử đầu. */
-  products?: LeadProduct[];
   eventId: string | null;
   statusId: string | null;
   fullName: string | null;
@@ -222,6 +179,8 @@ export type NewLeadRowInput = {
   fubLink?: string | null;
   description?: string | null;
   collaboratorEmails?: string[];
+  /** Personal leads are created with their required Agent already assigned. */
+  assignedToEmail?: string | null;
   customValues: Record<string, unknown>;
   /** Người bấm nút — dùng cho cả `created_by_email` lẫn `updated_by_email`. */
   actorEmail: string;
@@ -241,18 +200,15 @@ export type NewLeadRowInput = {
  * Gom về một chỗ thì một trường thêm vào là thêm cho CẢ HAI cửa, không phải nhớ
  * sửa hai nơi.
  *
- * `assigned_*` cố ý luôn null: cả hai đường đều gán SAU khi insert — Create qua
- * `assign_leads_manual`, Import qua vòng xoay chia tự động. Set sẵn ở đây thì
- * RPC sẽ đọc chính người đó làm "chủ cũ" và ghi lịch sử "từ X sang X".
+ * Event leads bắt đầu trong pool, nên `assigned_*` để trống. Personal leads
+ * phải có Agent ngay từ lúc insert; lịch sử tạo lead đó được trigger DB ghi
+ * với from_email = null, thay vì gọi RPC rồi tự ghi "từ X sang X".
  */
 export function buildNewLeadRow(input: NewLeadRowInput): Record<string, unknown> {
   const actor = input.actorEmail.trim().toLowerCase();
+  const assignedToEmail = input.assignedToEmail?.trim().toLowerCase() || null;
   const nowIso = (input.now ?? new Date()).toISOString();
   return {
-    product: input.products?.[0] ?? input.product ?? UNKNOWN_LEAD_PRODUCT,
-    products: input.products?.length
-      ? normalizeLeadProducts(input.products)
-      : [input.product ?? UNKNOWN_LEAD_PRODUCT],
     event_id: input.eventId,
     status_id: input.statusId,
     full_name: input.fullName,
@@ -261,9 +217,9 @@ export function buildNewLeadRow(input: NewLeadRowInput): Record<string, unknown>
     fub_link: input.fubLink ?? null,
     description: input.description ?? null,
     collaborator_emails: input.collaboratorEmails ?? [],
-    assigned_to_email: null,
-    assigned_at: null,
-    assigned_by_email: null,
+    assigned_to_email: assignedToEmail,
+    assigned_at: assignedToEmail ? nowIso : null,
+    assigned_by_email: assignedToEmail ? actor : null,
     custom_values: input.customValues,
     created_by_email: actor,
     updated_by_email: actor,

@@ -10,6 +10,11 @@ export const LEAD_LIST_LOCKED_COLUMN_KEYS = new Set(["key", "name"]);
 // column for the same value.
 export const LEAD_LIST_INLINE_COLUMN_KEYS = new Set(["fub"]);
 
+// Cột đã bỏ khỏi bảng Lead (2026-10-03, user): Tag — nhãn cảnh báo No contact /
+// Stale… — cùng ô lọc theo nó. Cột hệ thống vẫn còn trong Table Config cho tới
+// khi archive bằng SQL, nên phải lọc ở đây để bảng và nút cài đặt cột không hiện.
+export const LEAD_LIST_RETIRED_COLUMN_KEYS = new Set(["tag", "product"]);
+
 export function toggleHiddenLeadListColumn(
   current: ReadonlySet<string>,
   key: string,
@@ -17,7 +22,8 @@ export function toggleHiddenLeadListColumn(
   const next = new Set(current);
   if (
     LEAD_LIST_LOCKED_COLUMN_KEYS.has(key) ||
-    LEAD_LIST_INLINE_COLUMN_KEYS.has(key)
+    LEAD_LIST_INLINE_COLUMN_KEYS.has(key) ||
+    LEAD_LIST_RETIRED_COLUMN_KEYS.has(key)
   )
     return next;
   if (next.has(key)) next.delete(key);
@@ -37,6 +43,7 @@ export function visibleLeadListColumns(
   return columns.filter(
     (column) =>
       !LEAD_LIST_INLINE_COLUMN_KEYS.has(column.key) &&
+      !LEAD_LIST_RETIRED_COLUMN_KEYS.has(column.key) &&
       !column.hidden_default &&
       (LEAD_LIST_LOCKED_COLUMN_KEYS.has(column.key) ||
         column.pinned ||

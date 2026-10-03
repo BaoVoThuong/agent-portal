@@ -11,6 +11,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { validateCustomValues } from "@/lib/table-config/custom-values";
 import { findMissingRequiredFieldsFromContext } from "@/lib/table-config/required";
 import { fetchLeadMemberEmails } from "@/lib/leads/assignees";
+import { fetchTaskAgents } from "@/lib/tasks/assignees";
 import {
   fetchWriteValidationContext,
   TableConfigUnavailableError,
@@ -24,7 +25,7 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const LEAD_SELECT =
-  "id,display_number,product,products,event_id,full_name,phone,email,fub_link,description," +
+  "id,display_number,event_id,full_name,phone,email,fub_link,description," +
   "assigned_to_email,collaborator_emails,assigned_at,assigned_by_email,status_id," +
   "first_contacted_at,last_contacted_at,contact_attempt_count," +
   "next_follow_up_at,closed_at,created_by_email,created_at," +
@@ -158,6 +159,16 @@ export async function PATCH(request: Request, { params }: Ctx) {
 
   if (parsed.eventName !== undefined) {
     if (parsed.eventName === null) {
+      // Bỏ event = thành Personal lead, mà Personal lead luôn phải có một Agent
+      // đang hoạt động (DB cũng chặn, nhưng chỉ bằng một lỗi thô).
+      const owner = lead.assigned_to_email?.trim().toLowerCase() ?? "";
+      const agents = owner ? await fetchTaskAgents() : [];
+      if (!agents.some((agent) => agent.email.trim().toLowerCase() === owner)) {
+        return NextResponse.json(
+          { error: "A Personal lead needs an Agent from Account Management. Assign one before removing the event." },
+          { status: 400 },
+        );
+      }
       patch.event_id = null;
     } else {
       const resolved = await resolveEventByName(supabase, parsed.eventName, email);
@@ -172,11 +183,8 @@ export async function PATCH(request: Request, { params }: Ctx) {
   // columns, their options, and the person emails that actually matched, so
   // Create / Import / inline edit cannot end up with three different contracts
   // for the same column.
-  // `products` is the internal multi-product representation, not a configured
-  // table column. Keep it out of table-config validation while still allowing
-  // the DB trigger to derive the legacy primary `product` column from it.
   const touchedSystemKeys = Object.keys(parsed.patch).filter(
-    (key) => key !== "products" && key !== "description" && key !== "collaborator_emails",
+    (key) => key !== "description" && key !== "collaborator_emails",
   );
   const submittedCustomValues = parsed.customValues ?? {};
   let writeContext;
@@ -222,7 +230,6 @@ export async function PATCH(request: Request, { params }: Ctx) {
       name: parsed.patch.full_name,
       phone: parsed.patch.phone,
       email: parsed.patch.email,
-      product: parsed.patch.product,
       status: parsed.patch.status_id,
       ...(parsed.eventName !== undefined ? { event: parsed.eventName } : {}),
     },
@@ -252,7 +259,18 @@ export async function PATCH(request: Request, { params }: Ctx) {
     .eq("updated_at", currentRow.updated_at)
     .select(LEAD_SELECT)
     .maybeSingle();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    if (
+      error.message.includes("LEAD_PERSONAL_AGENT_REQUIRED") ||
+      error.message.includes("LEAD_PERSONAL_AGENT_INVALID")
+    ) {
+      return NextResponse.json(
+        { error: "A Personal lead needs an Agent from Account Management." },
+        { status: 400 },
+      );
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
   if (!data) {
     // Không ghi được: hoặc lead vừa bị archive, hoặc có người ghi trước. Phân
     // biệt hai chuyện đó, vì lời khuyên cho người dùng khác hẳn nhau.

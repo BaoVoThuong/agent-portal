@@ -12,7 +12,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 export const dynamic = "force-dynamic";
 
 const LEAD_AFTER_SELECT =
-  "id,display_number,product,products,event_id,full_name,phone,email," +
+  "id,display_number,event_id,full_name,phone,email," +
   "assigned_to_email,assigned_at,assigned_by_email,status_id," +
   "first_contacted_at,last_contacted_at,contact_attempt_count," +
   "next_follow_up_at,closed_at,created_by_email,created_at," +
@@ -32,6 +32,28 @@ export async function POST(request: Request) {
   );
   if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
 
+  const supabase = getSupabaseAdmin();
+  // Personal leads (event_id null) never enter an Event pool. Read the active
+  // targets before validation so a mixed batch cannot unassign one of them or
+  // hand it to a person who merely has Lead permission.
+  const { data: targetLeads, error: targetLeadsError } = await supabase
+    .from("leads")
+    .select("id,event_id")
+    .in("id", parsed.leadIds)
+    .is("archived_at", null);
+  if (targetLeadsError) {
+    return NextResponse.json({ error: targetLeadsError.message }, { status: 500 });
+  }
+  const hasPersonalLead = (targetLeads ?? []).some(
+    (lead) => !lead.event_id,
+  );
+  if (hasPersonalLead && !parsed.toEmail) {
+    return NextResponse.json(
+      { error: "Personal leads must always have an Agent." },
+      { status: 400 },
+    );
+  }
+
   if (parsed.toEmail) {
     // "Agent" của lead là danh sách Agent ở Account Management (task_agents,
     // 2026-10-03) — Agent không cần tự có quyền Lead, Assistant của họ xử lý
@@ -43,12 +65,14 @@ export async function POST(request: Request) {
     const isAgent = agents.some(
       (agent) => agent.email.trim().toLowerCase() === parsed.toEmail,
     );
-    if (!targetAccess.isActive || (!isAgent && !canBeAssignedLead(targetAccess))) {
+    if (
+      !targetAccess.isActive ||
+      (hasPersonalLead ? !isAgent : (!isAgent && !canBeAssignedLead(targetAccess)))
+    ) {
       return NextResponse.json({ error: "That person cannot be assigned leads." }, { status: 400 });
     }
   }
 
-  const supabase = getSupabaseAdmin();
   // Một giao dịch: gán và ghi lịch sử cùng nhau. Trước đó là ba truy vấn rời và
   // lỗi ở bước ghi lịch sử chỉ được console.error, nên lead đổi chủ mà bảng
   // lịch sử trống — mà đó là bảng duy nhất trả lời được "ai giao việc này".
@@ -66,6 +90,15 @@ export async function POST(request: Request) {
   if (assignError) {
     if (assignError.message.includes("LEAD_ACTOR_REQUIRED")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (
+      assignError.message.includes("LEAD_PERSONAL_AGENT_REQUIRED") ||
+      assignError.message.includes("LEAD_PERSONAL_AGENT_INVALID")
+    ) {
+      return NextResponse.json(
+        { error: "Personal leads must always have an Agent from Account Management." },
+        { status: 400 },
+      );
     }
     return NextResponse.json({ error: assignError.message }, { status: 500 });
   }

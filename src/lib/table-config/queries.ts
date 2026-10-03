@@ -119,15 +119,13 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("medicare", "updated", "Last Updated", "date", 180, true),
     col("medicare", "qc", "Complete", "checkbox", 190),
   ],
-  // One screen for both products; `product` is a column rather than two
-  // separate tables, so an event's whole intake is worked from one list.
+  // Lead Management uses one event-based intake list.
   lead: [
     col("lead", "key", "Key", "text", 10, false, true),
     col("lead", "name", "Name", "text", 20, false, true, true),
     // Derived from the lead alert settings; keeping it separate prevents a
     // warning badge from truncating the customer's name.
     col("lead", "tag", "Tag", "text", 22),
-    col("lead", "product", "Product", "dropdown", 25, false, false, true),
     col("lead", "phone", "Phone", "text", 30, false, false, true),
     customCol("lead", "secondary_phone", "Secondary Phone", "text", 35),
     col("lead", "email", "Email", "text", 40, false, false, true),
@@ -150,22 +148,37 @@ export function defaultTableColumns(scope: TableScope): TableColumn[] {
   return DEFAULT_TABLE_COLUMNS[scope].map((column) => ({ ...column }));
 }
 
+/** A forward rollout removes Product; keep stale database rows out of every UI meanwhile. */
+export function withoutRetiredLeadColumns(
+  scope: TableScope,
+  columns: readonly TableColumn[],
+): TableColumn[] {
+  if (scope !== "lead") return [...columns];
+  return columns.filter((column) => column.key !== "product" && column.key !== "products");
+}
+
 export async function fetchTableColumns(
   scope: TableScope,
   supabase: SupabaseClient = getSupabaseAdmin()
 ): Promise<TableColumn[]> {
   const activeRows = await fetchActiveTableColumnRows(scope, supabase);
   if (!activeRows.ok) {
-    if (isTableConfigMissingError(activeRows.error)) return defaultTableColumns(scope);
+    if (isTableConfigMissingError(activeRows.error)) return withoutRetiredLeadColumns(scope, defaultTableColumns(scope));
     throw new Error(activeRows.error?.message ?? "Could not fetch table columns.");
   }
 
   if (hasDefaultColumns(scope, activeRows.rows)) {
-    return activeRows.rows.length > 0 ? sortColumns(activeRows.rows) : defaultTableColumns(scope);
+    return withoutRetiredLeadColumns(
+      scope,
+      activeRows.rows.length > 0 ? sortColumns(activeRows.rows) : defaultTableColumns(scope),
+    );
   }
 
   const ensuredRows = await ensureTableColumns(scope, supabase);
-  return ensuredRows.length > 0 ? sortColumns(ensuredRows) : defaultTableColumns(scope);
+  return withoutRetiredLeadColumns(
+    scope,
+    ensuredRows.length > 0 ? sortColumns(ensuredRows) : defaultTableColumns(scope),
+  );
 }
 
 export async function ensureTableColumns(
@@ -220,7 +233,7 @@ export async function ensureTableColumns(
     if (isTableConfigMissingError(activeRows.error)) return defaultTableColumns(scope);
     throw new Error(activeRows.error?.message ?? "Could not fetch table columns.");
   }
-  return activeRows.rows;
+  return withoutRetiredLeadColumns(scope, activeRows.rows);
 }
 
 async function fetchActiveTableColumnRows(

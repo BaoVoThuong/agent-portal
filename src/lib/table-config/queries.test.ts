@@ -1,91 +1,34 @@
-import { describe, it, expect } from "vitest";
-import { defaultTableColumns, isTableConfigMissingError } from "./queries";
+import { describe, expect, it } from "vitest";
+import type { TableColumn } from "./types";
+import { withoutRetiredLeadColumns } from "./queries";
 
-describe("isTableConfigMissingError", () => {
-  it("treats a missing table (Postgres 42P01) as missing", () => {
-    expect(isTableConfigMissingError({ code: "42P01" })).toBe(true);
-  });
-
-  it("treats a missing table (PostgREST schema cache) as missing", () => {
-    expect(isTableConfigMissingError({ code: "PGRST205" })).toBe(true);
-  });
-
-  it("treats a table-not-found message without a code as missing", () => {
-    expect(
-      isTableConfigMissingError({
-        message: 'relation "table_column" does not exist',
-      })
-    ).toBe(true);
-    expect(
-      isTableConfigMissingError({
-        message: "Could not find the table 'public.table_column' in the schema cache",
-      })
-    ).toBe(true);
-  });
-
-  it("does NOT treat a missing column (Postgres 42703) as missing", () => {
-    expect(
-      isTableConfigMissingError({
-        code: "42703",
-        message: "column table_column.pinned does not exist",
-      })
-    ).toBe(false);
-  });
-
-  it("does NOT treat a missing-column message without a code as missing", () => {
-    expect(
-      isTableConfigMissingError({
-        message: "column table_column.pinned does not exist",
-      })
-    ).toBe(false);
-  });
-
-  it("returns false for unrelated errors", () => {
-    expect(isTableConfigMissingError({ code: "23505", message: "duplicate key" })).toBe(false);
-    expect(isTableConfigMissingError(null)).toBe(false);
-    expect(isTableConfigMissingError(undefined)).toBe(false);
-  });
+const column = (key: string): TableColumn => ({
+  id: key,
+  scope: "lead",
+  key,
+  label: key,
+  type: "text",
+  is_system: true,
+  position: 0,
+  pinned: false,
+  hidden_default: false,
+  show_in_detail: false,
+  required: false,
+  created_by_email: null,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+  archived_at: null,
 });
 
-describe("lead interaction-history columns", () => {
-  it.each(["lead"] as const)(
-    "seeds a visible system column for %s",
-    (scope) => {
-      expect(defaultTableColumns(scope)).toContainEqual(
-        expect.objectContaining({
-          key: "interactionHistory",
-          label: "Interaction history",
-          is_system: true,
-          position: 65,
-          hidden_default: false,
-        }),
-      );
-    },
-  );
-});
-
-describe("lead alert tag column", () => {
-  it("seeds a visible system column for derived lead alerts", () => {
-    expect(defaultTableColumns("lead")).toContainEqual(
-      expect.objectContaining({
-        key: "tag",
-        label: "Tag",
-        is_system: true,
-        position: 22,
-        hidden_default: false,
-      }),
-    );
+describe("withoutRetiredLeadColumns", () => {
+  it("hides stale Product rows while the database rollout is pending", () => {
+    expect(withoutRetiredLeadColumns("lead", [
+      column("name"), column("product"), column("products"),
+    ]).map((item) => item.key)).toEqual(["name"]);
   });
-});
 
-describe("lead assignee column", () => {
-  it("uses Agent as the user-facing label", () => {
-    expect(defaultTableColumns("lead")).toContainEqual(
-      expect.objectContaining({
-        key: "assignee",
-        label: "Agent",
-        type: "person",
-      }),
-    );
+  it("leaves other table scopes unchanged", () => {
+    const csColumn = { ...column("product"), scope: "cs" as const };
+    expect(withoutRetiredLeadColumns("cs", [csColumn])).toEqual([csColumn]);
   });
 });

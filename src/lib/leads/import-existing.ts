@@ -20,6 +20,13 @@ export type ExistingLeadCandidate = {
 
 export type ExistingMatchField = "name" | "phone" | "email" | "fub";
 
+/**
+ * Event lead với tên event chưa có (preview của Import — chưa tạo gì). Event
+ * chưa tồn tại thì không lead nào nằm trong đó, nên không dòng nào bị chặn;
+ * KHÔNG được truyền null thay vào — null là Personal lead.
+ */
+export const EVENT_NOT_CREATED_YET = "event-not-created-yet";
+
 export type ExistingLeadMatch = {
   /** Số dòng Excel của dòng trong file. */
   row: number;
@@ -34,6 +41,12 @@ export type ExistingLeadMatch = {
     owner: string | null;
     on: ExistingMatchField[];
   }[];
+  /**
+   * Bỏ được dòng này khỏi lượt import không: chỉ khi trùng phone, email hoặc FUB
+   * link. CHỈ trùng tên thì không — tên trùng nhau là chuyện thường (user chốt
+   * 2026-10-03): vẫn báo để người import biết, nhưng dòng luôn được import.
+   */
+  removable: boolean;
   /**
    * Lead đã có trong CHÍNH event này với cùng số (hoặc, khi dòng không có số,
    * cùng FUB link / email). Import đằng nào cũng không ghi được — DB chặn trùng
@@ -112,10 +125,12 @@ export function findExistingLeadMatches(
       }
     }
     if (hits.size === 0) continue;
+    const matches = [...hits.values()].sort((left, right) => right.displayNumber - left.displayNumber);
     result.push({
       row: row.row,
       name: row.full_name,
-      matches: [...hits.values()].sort((left, right) => right.displayNumber - left.displayNumber),
+      matches,
+      removable: matches.some((hit) => hit.on.some((field) => field !== "name")),
       sameEventBlocked,
     });
   }

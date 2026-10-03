@@ -17,6 +17,27 @@
 
 begin;
 
+-- Một Event legacy tên "Personal Lead" không được giữ pool. Bảng pool chỉ có
+-- sau rollout Event pools, vì vậy dùng to_regclass để file vẫn chạy được trước
+-- hoặc sau rollout đó.
+do $$
+begin
+  if to_regclass('public.lead_event_assignment_weights') is not null then
+    delete from public.lead_event_assignment_weights weights
+    using public.lead_events event_row
+    where weights.event_id = event_row.id
+      and lower(regexp_replace(btrim(event_row.name), '\s+', ' ', 'g'))
+          in ('personal', 'personal lead', 'personal leads');
+  end if;
+  if to_regclass('public.lead_event_assignment_settings') is not null then
+    delete from public.lead_event_assignment_settings settings
+    using public.lead_events event_row
+    where settings.event_id = event_row.id
+      and lower(regexp_replace(btrim(event_row.name), '\s+', ' ', 'g'))
+          in ('personal', 'personal lead', 'personal leads');
+  end if;
+end $$;
+
 update leads l
 set event_id = null,
     updated_at = now()

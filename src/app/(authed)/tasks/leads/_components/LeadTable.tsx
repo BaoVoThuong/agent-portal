@@ -28,12 +28,6 @@ import {
   type SortDir,
 } from "@/lib/leads/sorting";
 import {
-  LEAD_PRODUCT_LABEL,
-  LEAD_PRODUCTS,
-  normalizeLeadProducts,
-  toggleLeadProduct,
-  UNKNOWN_LEAD_PRODUCT,
-  type LeadProduct,
   type LeadInteractionPreview,
   type LeadInteractionType,
   type LeadRow,
@@ -41,7 +35,6 @@ import {
 } from "@/lib/leads/types";
 import { personLabel } from "@/lib/tasks/people";
 import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
-import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
 import {
   formatTableDate,
   formatTableDateTimeFull,
@@ -59,11 +52,6 @@ const LEAD_COLUMN_WIDTHS: Record<string, number> = {
   // Derived alert badges live here instead of competing with the customer's
   // name for width.
   tag: 150,
-  // Badge product nay XẾP DỌC, mỗi dòng một cái, nên chỉ cần đủ cho badge RỘNG
-  // NHẤT: "HEALTH" (~64px) + padding nút 12px + padding ô 24px. Bề rộng 156 là
-  // của bản xếp ngang; giữ nó lại là chiếm chỗ vô ích của Client Name và
-  // Assignee.
-  product: 112,
   phone: 112,
   secondary_phone: 160,
   email: 190,
@@ -178,7 +166,6 @@ export function LeadTable({
   );
   const assigneeChoices = useMemo(
     () => [
-      { value: "", label: "Unassigned" },
       ...assignees.map((person) => ({
         value: person.email,
         label: personLabel(person.email, nameByEmail),
@@ -203,11 +190,7 @@ export function LeadTable({
   // component; windowing giữ con số đó ở khoảng 450 bất kể danh sách dài bao
   // nhiêu.
   //
-  // `estimateSize` chỉ là phỏng đoán ban đầu — `measureElement` đo lại từng
-  // dòng thật. Bắt buộc phải đo, không được dùng chiều cao cố định: lead mang
-  // hai product xếp badge DỌC (người dùng chốt 2026-09-02), nên dòng đó cao
-  // ~68px so với 44px của dòng thường, và chiều cao cố định sẽ đặt sai vị trí
-  // mọi dòng nằm sau lead multi-product đầu tiên.
+  // `estimateSize` is an initial guess — `measureElement` measures each row.
   //
   // Hook phải nằm TRÊN nhánh return sớm cho danh sách rỗng bên dưới, nếu không
   // là vi phạm rules of hooks ngay khi một bộ lọc làm rỗng danh sách.
@@ -680,19 +663,6 @@ const LeadDataCell = memo(function LeadDataCell({
     );
   }
 
-  if (column.key === "product") {
-    return (
-      <div style={style} className={baseClassName} onClick={stopPropagation}>
-        <ProductMenu
-          selected={lead.products ?? []}
-          options={options}
-          canEdit={canEdit}
-          onToggle={(next) => void onPatch({ products: next })}
-        />
-      </div>
-    );
-  }
-
   if (column.key === "status") {
     return (
       <div style={style} className={baseClassName} onClick={stopPropagation}>
@@ -757,8 +727,12 @@ const LeadDataCell = memo(function LeadDataCell({
       <div style={style} className={baseClassName} onClick={stopPropagation}>
         <LeadChoiceField
           label={label}
-          ariaLabel="Assignee"
-          choices={assigneeChoices}
+          ariaLabel="Agent"
+          choices={
+            lead.event_id
+              ? [{ value: "", label: "Unassigned" }, ...assigneeChoices]
+              : assigneeChoices
+          }
           selectedValue={lead.assigned_to_email ?? ""}
           canEdit
           onSelect={(value) => onAssign(value || null)}
@@ -862,10 +836,6 @@ function renderLeadCell(
     return <StatusBadge status={status} />;
   }
 
-  if (column.key === "product") {
-    return <ProductBadge product={lead.product} options={options} />;
-  }
-
   const value = leadColumnValue(lead, column, statuses, options, nameByEmail);
   if (column.type === "checkbox") {
     return value === "Yes" ? (
@@ -947,127 +917,6 @@ function LeadAlertBadges({
   );
 }
 
-
-/**
- * The labels the Product column's configured values are seeded with — the label
- * is the key the badge joins on to find its colour. Null only survives on rows
- * read before the 2026-09-29 rollout, and means the same thing as Unknown.
- */
-function productOptionLabel(product: LeadRow["product"]): string {
-  return LEAD_PRODUCT_LABEL[product ?? UNKNOWN_LEAD_PRODUCT];
-}
-
-/**
- * Ô Product: vẫn là dropdown như ban đầu — cùng nút, cùng chevron, cùng panel
- * của LeadChoiceField — chỉ khác là tick được cả hai lựa chọn.
- *
- * Không tự dựng menu riêng: một trường chọn giá trị mà trông khác mọi trường
- * chọn giá trị khác trong màn này là thứ người dùng phải học lại từ đầu.
- */
-export function ProductMenu({
-  selected,
-  options,
-  canEdit,
-  onToggle,
-  // Trong BẢNG: badge trần, không viền không mũi tên — giống hệt cột Status
-  // ngay bên cạnh. Mỗi dòng đã chật, thêm một khung và một mũi tên cho mỗi
-  // dòng là thêm nhiễu.
-  // Trong MODAL: hai cái đó bật lên, cũng để khớp với trường Status ở đó.
-  showChevron = false,
-  buttonClassName = "",
-}: {
-  selected: readonly LeadProduct[];
-  options: TableColumnOption[];
-  canEdit: boolean;
-  onToggle: (next: LeadProduct[]) => void;
-  showChevron?: boolean;
-  buttonClassName?: string;
-}) {
-  // Rỗng (dữ liệu trước rollout) hiện là Unknown — đúng thứ DB sẽ lưu.
-  const current = normalizeLeadProducts(selected);
-  const label = current.map(productOptionLabel).join(", ");
-
-  return (
-    <LeadChoiceField
-      label={label}
-      ariaLabel="Product"
-      multi
-      choices={LEAD_PRODUCTS.map((value) => ({
-        value,
-        label: productOptionLabel(value),
-      }))}
-      selectedValue=""
-      selectedValues={current}
-      canEdit={canEdit}
-      onSelect={() => undefined}
-      onToggle={(value) => {
-        // Unknown đứng một mình: chọn nó là bỏ các product khác, chọn product
-        // thật là bỏ nó. Bấm lại Unknown đang chọn thì không có gì đổi.
-        const next = toggleLeadProduct(current, value as LeadProduct);
-        if (next.join() !== current.join()) onToggle(next);
-      }}
-      showChevron={showChevron}
-      buttonClassName={buttonClassName}
-      renderValue={
-        // Lead mang hai product thì XẾP DỌC, mỗi product một dòng — người
-        // dùng chốt vậy (2026-09-02). Xếp ngang thì hai badge tranh nhau bề
-        // rộng cột và badge dài bị cắt.
-        //
-        // `items-start` chứ không `items-center`: khi một dòng có hai badge
-        // còn dòng bên cạnh chỉ có một, canh giữa làm badge đơn lẻ trôi xuống
-        // giữa ô và không thẳng hàng với các cột khác.
-        <span className="flex min-w-0 flex-col items-start gap-1">
-          {current.map((value) => (
-            <span
-              key={value}
-              className="inline-flex max-w-full items-center truncate rounded px-2 py-1 text-[11px] font-bold uppercase leading-none tracking-wide"
-              style={productBadgeStyle(productOptionLabel(value), options)}
-            >
-              {productOptionLabel(value)}
-            </span>
-          ))}
-        </span>
-      }
-    />
-  );
-}
-
-/**
- * Product is a dropdown, so its colour is config data like every other dropdown
- * value — it lives on the column's options and an admin owns it. The join is by
- * label, which is why Lead Config locks the label on this column. Before the
- * rollout seeds those rows the badge still renders, on the shared hashed
- * fallback, rather than showing a bare word where every neighbour is a badge.
- */
-function productBadgeStyle(label: string, options: TableColumnOption[]) {
-  const option = options.find((candidate) => candidate.label === label);
-  const palette = tableColumnOptionBadgePalette(
-    option ?? { id: label, label, color: null },
-  );
-  return { backgroundColor: palette.background, color: palette.foreground };
-}
-
-function ProductBadge({
-  product,
-  options,
-}: {
-  product: LeadRow["product"];
-  options: TableColumnOption[];
-}) {
-  const label = productOptionLabel(product);
-  const option = options.find((candidate) => candidate.label === label);
-  const palette = tableColumnOptionBadgePalette(
-    option ?? { id: label, label, color: null },
-  );
-  return (
-    <span
-      className="inline-flex max-w-full items-center truncate whitespace-nowrap rounded px-2 py-1 text-[11px] font-bold uppercase leading-none tracking-wide"
-      style={{ backgroundColor: palette.background, color: palette.foreground }}
-    >
-      {label}
-    </span>
-  );
-}
 
 function StatusBadge({ status }: { status: LeadStatus | undefined }) {
   if (!status) {
@@ -1227,8 +1076,6 @@ function leadColumnValue(
       return displayDate(lead.next_follow_up_at);
     case "event":
       return lead.event_name ?? "—";
-    case "product":
-      return productOptionLabel(lead.product);
     case "createdAt":
       // Cột "Created date": cùng dạng "Oct 2" với mọi bảng khác (Task CS…).
       return formatTableDate(lead.created_at);

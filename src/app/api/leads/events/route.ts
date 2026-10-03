@@ -33,7 +33,9 @@ export async function GET() {
   const rows = data ?? [];
   const truncated = rows.length > EVENT_PAGE_SIZE;
   return NextResponse.json({
-    events: truncated ? rows.slice(0, EVENT_PAGE_SIZE) : rows,
+    events: (truncated ? rows.slice(0, EVENT_PAGE_SIZE) : rows).filter(
+      (event) => !isPersonalLeadEventName(event.name),
+    ),
     truncated,
   });
 }

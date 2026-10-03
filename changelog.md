@@ -6,6 +6,72 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-03 — Lead: bỏ Product, pool chia theo Event, Personal lead luôn có Agent
+
+Cần chạy SQL **sau khi** deploy code này (code mới vẫn đọc/ghi được DB cũ; code
+cũ thì hỏng ngay khi cột Product bị xoá):
+`2026-10-03-lead-remove-product-event-pools.sql` rồi
+`2026-10-03-lead-personal-agent-integrity.sql`.
+
+- **Bỏ hẳn Product** của Lead: cột `leads.product/products`, bộ lọc, cột bảng,
+  ô trong Add/drawer/Import, `?product=` trên URL, màu Product ở Config. SQL xoá
+  cột, trigger `lead_sync_primary_product`, cột Product trong Table Config và
+  layout đã lưu.
+- **Distribute pool theo từng Event** thay cho theo Product: bảng
+  `lead_event_assignment_weights` / `lead_event_assignment_settings` (mặc định
+  tắt tự chia), RPC `assign_leads_round_robin(…, p_event_id, …)` và
+  `save_lead_event_assignment_weights`. Tỉ lệ cũ theo Product bị bỏ (không map
+  được sang Event). Import chỉ tự chia khi pool của chính Event đó bật; Add lead
+  Event chỉ gán cho người trong pool của Event đó.
+- **Ngưỡng cảnh báo** (Config → Alert settings) còn MỘT bộ cho mọi Event — SQL
+  giữ giá trị chặt nhất trong các bộ cũ.
+- **Personal lead (không có Event) luôn có một Agent đang hoạt động** ở Account
+  Management: Add lead bắt buộc chọn Agent (không còn tự gán người tạo); Import
+  Personal bỏ dòng không khớp Agent; không Unassign được; bỏ event của một lead
+  chưa có Agent bị chặn. SQL thêm constraint + trigger, backfill lead thiếu
+  Agent bằng người tạo nếu người đó là Agent, và chặn gỡ Agent / tắt tài khoản
+  còn giữ Personal lead (API trả 409 dễ hiểu thay vì lỗi DB thô).
+- Account Management: **Agent ID không còn bắt buộc** (để trống = null; vẫn
+  không được trùng).
+- Sync Sheet: `node datasync/sync.js --config <x> --resume-run <run-id>` chạy lại
+  bước `finalize_sheet_sync` của một lượt đã upload xong mà bị timeout; SQL
+  `2026-10-03-sheet-sync-timeout.sql` nâng `statement_timeout` của
+  `service_role` lên 120s.
+
+## 2026-10-03 — Lead Import: chọn Lead type, gõ tên event; trùng tên không bỏ được
+
+- **Lead type thay cho ô chọn event + nút Create.** Dialog Import chọn Personal
+  lead (mặc định) hoặc Event lead; Event lead thì GÕ tên event (gợi ý từ event
+  có sẵn). Route `/api/leads/import` nhận `lead_type` + `event_name` (vẫn nhận
+  `event_id` cũ). Preview (`dry_run`) chỉ TÌM event theo tên (`findEventIdByName`,
+  không tạo) và báo "Existing event" / "New event"; Import thật mới tìm-hoặc-tạo
+  (`resolveEventByName`), và chỉ khi có ít nhất một dòng để ghi — không để lại
+  event rỗng. Tên "Personal lead" bị từ chối ở Event lead.
+- **Khách cũ chỉ trùng tên không bỏ được.** `ExistingLeadMatch.removable` = trùng
+  phone, email hoặc FUB link. Dòng chỉ trùng tên vẫn hiện trong khối đỏ để biết
+  nhưng không có ô tick, "Tick all" bỏ qua, và server bỏ qua `exclude_rows` của
+  dòng đó — luôn được import.
+- Event chưa tồn tại: dò "trùng trong cùng event" dùng `EVENT_NOT_CREATED_YET`
+  (không chặn dòng nào) thay vì null — null là Personal lead.
+
+## 2026-10-03 — Lead: sửa lỗi file đính kèm, bỏ Tag, drawer giống Enrollment
+
+- **Sửa lỗi:** `/api/leads/[id]/attachments` kiểm id bằng regex thiếu nhóm
+  `{3}-` (từ `6575485`, 2026-09-30) nên MỌI lead bị coi là id sai — drawer báo
+  "Invalid lead id." và không xem/đính kèm được file trên production từ đó.
+- **Import file Excel nhiều sheet:** đọc sheet khớp mẫu cột nhiều nhất thay vì
+  luôn sheet đầu (file "Mid-Autumn Festival 0926.xlsx" có sheet đầu là danh
+  sách hãng nên bị báo "không đúng mẫu"). Preview ghi tên sheet đã đọc.
+- **Bỏ cột Tag** (nhãn cảnh báo No contact / Stale…) và ô lọc theo nó ("All
+  leads (N)") khỏi bảng Lead. Cột ẩn bằng `LEAD_LIST_RETIRED_COLUMN_KEYS`; bộ lọc
+  cũ lưu trong trình duyệt không được khôi phục (tránh lọc vô hình). Link
+  `?alert=` từ Overview vẫn chạy. SQL tuỳ chọn
+  `2026-10-03-lead-retire-tag-column.sql` archive cột trong Table Config.
+- Drawer Lead cùng khung với Enrollment: trên-trái cố định (tên, FUB link có
+  nút mở, mô tả gọn "Show more", file), "Lead details" 3 cột cuộn riêng, comment
+  bên phải; ô viết comment cùng kiểu Task/Enrollment. Nút Add lead ra ngoài cùng
+  bên phải.
+
 ## 2026-10-03 — Lead: Agent và Collaborators lấy từ danh sách Agent
 
 - Bộ lọc Assignee, ô Agent (bảng, drawer, gán hàng loạt), Assign to của

@@ -5,7 +5,7 @@ import {
   collectEventNames,
 } from "./list-derivations";
 import type { LeadInteractionType, LeadRow, LeadStatus } from "./types";
-import type { LeadAlertSettingsByProduct } from "./overview";
+import type { LeadAlertSettings } from "./types";
 import type { TableColumnOption } from "@/lib/table-config/types";
 
 const status = (over: Partial<LeadStatus>): LeadStatus => ({
@@ -43,8 +43,6 @@ const option = (over: Partial<TableColumnOption>): TableColumnOption => ({
 const lead = (over: Partial<LeadRow>): LeadRow => ({
   id: "l1",
   display_number: 1,
-  product: "health",
-  products: ["health"],
   event_id: null,
   full_name: "A",
   phone: null,
@@ -70,12 +68,7 @@ const lead = (over: Partial<LeadRow>): LeadRow => ({
   ...over,
 });
 
-const settings: LeadAlertSettingsByProduct = {
-  pc: { product: "pc", no_contact_hours: 24, stale_days: 3, max_attempts: 4 },
-  health: { product: "health", no_contact_hours: 24, stale_days: 3, max_attempts: 4 },
-  life: { product: "life", no_contact_hours: 24, stale_days: 3, max_attempts: 4 },
-  unknown: { product: "unknown", no_contact_hours: 24, stale_days: 3, max_attempts: 4 },
-};
+const settings: LeadAlertSettings = { no_contact_hours: 24, stale_days: 3, max_attempts: 4 };
 
 describe("buildLeadLookups", () => {
   it("indexes active + archived statuses and keeps a label-only active map", () => {

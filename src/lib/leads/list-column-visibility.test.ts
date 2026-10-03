@@ -63,4 +63,16 @@ describe("lead list column visibility", () => {
     ]);
     expect([...toggleHiddenLeadListColumn(new Set(), "fub")]).toEqual([]);
   });
+
+  // Tag (nhãn cảnh báo) đã bỏ khỏi bảng Lead 2026-10-03 — kể cả khi cột hệ
+  // thống vẫn còn trong Table Config.
+  it("never shows the retired Tag column", () => {
+    const columns = [column("name"), column("tag"), column("phone")];
+
+    expect(visibleLeadListColumns(columns, new Set()).map((item) => item.key)).toEqual([
+      "name",
+      "phone",
+    ]);
+    expect([...toggleHiddenLeadListColumn(new Set(), "tag")]).toEqual([]);
+  });
 });

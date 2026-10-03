@@ -1,137 +1,96 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import {
-  buildLeadActor,
-  canManageLeads,
-  isLeadViewAdmin,
-} from "@/lib/leads/access";
-import {
-  autoAssignLeads,
-  groupLeadIdsByProduct,
-} from "@/lib/leads/auto-assign";
-import {
-  broadcastLeadsChanged,
-  readLeadMutationSourceId,
-} from "@/lib/leads/realtime";
-import {
-  byLeadProduct,
-  isLeadProduct,
-  LEAD_PRODUCTS,
-  type LeadProduct,
-} from "@/lib/leads/types";
+import { buildLeadActor, canManageLeads, isLeadViewAdmin } from "@/lib/leads/access";
+import { autoAssignLeads } from "@/lib/leads/auto-assign";
+import { isPersonalLeadEventName } from "@/lib/leads/lead-type";
+import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
-/**
- * One press distributes at most this many. A cap keeps the request inside its
- * time budget and, more importantly, keeps a mistake small: getting back 500
- * wrongly-assigned leads is recoverable, 20,000 is not.
- */
 const MAX_PER_RUN = 500;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-type PoolRow = {
-  id: string;
-  product: LeadProduct | null;
-  products: LeadProduct[] | null;
-};
-
-async function fetchPool(
+async function fetchEventPool(
   supabase: ReturnType<typeof getSupabaseAdmin>,
-  /** null = mọi product. Nút Distribute đứng dưới một tab product thì chỉ chia
-   *  product đó — nó nói "Distribute 4" trong khi cả 4 lead là của product kia
-   *  là dối, và bấm vào thì chia mất lead của tab khác. */
-  product: LeadProduct | null = null
-): Promise<{ rows: PoolRow[]; remaining: number }> {
-  let query = supabase
+  eventId: string,
+): Promise<{ ids: string[]; remaining: number }> {
+  const { data, error, count } = await supabase
     .from("leads")
-    .select("id,product,products", { count: "exact" })
+    .select("id", { count: "exact" })
+    .eq("event_id", eventId)
     .is("assigned_to_email", null)
     .is("archived_at", null)
-    // Oldest first: a lead nobody has touched for a week deserves an agent
-    // before one that arrived this morning.
     .order("created_at", { ascending: true })
     .limit(MAX_PER_RUN);
-  // `@>` trên mảng, không phải `=` trên cột scalar: một lead mang cả hai product
-  // có `product = "pc"` (trigger lấy phần tử đầu), nên lọc bằng cột cũ là tab
-  // Health không bao giờ thấy nó — trong khi luật là lead nằm trong pool của MỌI
-  // product nó mang.
-  if (product) query = query.contains("products", [product]);
-  const { data, error, count } = await query;
   if (error) throw new Error(error.message);
-  const rows = (data ?? []) as PoolRow[];
-  return { rows, remaining: Math.max((count ?? rows.length) - rows.length, 0) };
+  const ids = ((data ?? []) as { id: string }[]).map((row) => row.id);
+  return { ids, remaining: Math.max((count ?? ids.length) - ids.length, 0) };
 }
 
-/** GET previews what a run would do, so the confirmation can state real numbers. */
-export async function GET(request: Request) {
+async function managerActor() {
   const session = await auth();
   const email = session?.user?.email;
-  if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!email) return { response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
   const actor = buildLeadActor(session.user.permissions, email, {
     isAdmin: isLeadViewAdmin(session.user),
   });
-  if (!canManageLeads(actor)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  if (!canManageLeads(actor)) return { response: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
+  return { actor };
+}
 
-  // Không truyền product thì trả cả pool — phần tóm tắt đầu dialog cần con số
-  // tổng, còn nút Distribute hỏi riêng theo tab của nó.
-  const raw = new URL(request.url).searchParams.get("product");
-  const product = isLeadProduct(raw) ? raw : null;
-  const { rows, remaining } = await fetchPool(getSupabaseAdmin(), product);
-  const grouped = groupLeadIdsByProduct(rows, product);
-  return NextResponse.json({
-    product,
-    pending: rows.length,
-    remaining,
-    byProduct: byLeadProduct((key) => grouped[key].length),
-  });
+function readEventId(value: unknown): string | null {
+  return typeof value === "string" && UUID_RE.test(value) ? value : null;
+}
+
+async function requireDistributableEvent(eventId: string) {
+  const { data, error } = await getSupabaseAdmin()
+    .from("lead_events")
+    .select("name")
+    .eq("id", eventId)
+    .is("archived_at", null)
+    .maybeSingle();
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!data) return NextResponse.json({ error: "That Event is not available." }, { status: 400 });
+  if (isPersonalLeadEventName(data.name)) {
+    return NextResponse.json(
+      { error: "Personal leads do not have an Event pool." },
+      { status: 400 },
+    );
+  }
+  return null;
+}
+
+export async function GET(request: Request) {
+  const authResult = await managerActor();
+  if ("response" in authResult) return authResult.response;
+  const eventId = readEventId(new URL(request.url).searchParams.get("event_id"));
+  if (!eventId) return NextResponse.json({ error: "A valid event_id is required." }, { status: 400 });
+  const eventError = await requireDistributableEvent(eventId);
+  if (eventError) return eventError;
+  const pool = await fetchEventPool(getSupabaseAdmin(), eventId);
+  return NextResponse.json({ event_id: eventId, pending: pool.ids.length, remaining: pool.remaining });
 }
 
 export async function POST(request: Request) {
-  const session = await auth();
-  const email = session?.user?.email;
-  if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
-  if (!canManageLeads(actor)) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  }
+  const authResult = await managerActor();
+  if ("response" in authResult) return authResult.response;
+  const { actor } = authResult;
+  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+  const eventId = readEventId(body?.event_id);
+  if (!eventId) return NextResponse.json({ error: "A valid event_id is required." }, { status: 400 });
+  const eventError = await requireDistributableEvent(eventId);
+  if (eventError) return eventError;
 
   const supabase = getSupabaseAdmin();
-  const actorEmail = actor.email.trim().toLowerCase();
-  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-  const product = isLeadProduct(body?.product) ? body.product : null;
-  const { rows, remaining } = await fetchPool(supabase, product);
-  if (rows.length === 0) {
-    return NextResponse.json({ assigned: 0, unassigned: 0, remaining: 0, results: {} });
+  const pool = await fetchEventPool(supabase, eventId);
+  if (pool.ids.length === 0) {
+    return NextResponse.json({ assigned: 0, unassigned: 0, remaining: 0, event_id: eventId });
   }
-
-  // Each product carries its own ratio AND its own rotation cursor, so a mixed
-  // batch has to be split before either is touched.
-  const grouped = groupLeadIdsByProduct(rows, product);
-  const results: Record<string, { assigned: number; unassigned: number; reason?: string }> = {};
-  let assigned = 0;
-  let unassigned = 0;
-
-  for (const product of LEAD_PRODUCTS) {
-    const ids = grouped[product];
-    if (ids.length === 0) continue;
-    // Deliberately sequential: two concurrent calls would contend on the same
-    // locked weight rows, and one product finishing late is not worth it.
-    const outcome = await autoAssignLeads(ids, product, actorEmail, supabase);
-    results[product] = outcome;
-    assigned += outcome.assigned;
-    unassigned += outcome.unassigned;
-  }
-
-  if (assigned > 0) {
+  const outcome = await autoAssignLeads(pool.ids, eventId, actor.email.trim().toLowerCase(), supabase);
+  if (outcome.assigned > 0) {
     const sourceId = readLeadMutationSourceId(request);
-    after(async () => {
-      await broadcastLeadsChanged(sourceId);
-    });
+    after(async () => { await broadcastLeadsChanged(sourceId); });
   }
-  return NextResponse.json({ assigned, unassigned, remaining, results });
+  return NextResponse.json({ ...outcome, remaining: pool.remaining, event_id: eventId });
 }

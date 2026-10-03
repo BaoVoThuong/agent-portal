@@ -34,6 +34,12 @@ export type LeadImportPreviewRow = {
 
 export type LeadImportPreview = {
   dryRun: true;
+  /** Sheet đã đọc (file nhiều sheet: sheet khớp mẫu nhất). */
+  sheetName: string;
+  /** Event lead: tên event đã chuẩn hoá; null = Personal lead. */
+  eventName: string | null;
+  /** Event lead với tên chưa có — Import thật sẽ tạo event này. */
+  eventIsNew: boolean;
   /** Dòng có dữ liệu trong file (không tính dòng trống). */
   totalRows: number;
   /** Sẽ import nếu không tick bỏ dòng khách cũ nào. */

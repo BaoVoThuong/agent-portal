@@ -22,13 +22,23 @@ describe("parseCreateUserInput", () => {
     if (!r.ok) expect(r.error).toContain("at least 8");
   });
 
-  it("thiếu agentId -> 400", () => {
+  it("Agent ID không bắt buộc và mặc định null", () => {
     const r = parseCreateUserInput({
       email: "a@b.com",
       password: "12345678",
     });
-    expect(r).toMatchObject({ ok: false, status: 400 });
-    if (!r.ok) expect(r.error).toContain("Agent ID");
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.agentId).toBeNull();
+  });
+
+  it("Agent ID chỉ có khoảng trắng được chuẩn hoá thành null", () => {
+    const r = parseCreateUserInput({
+      email: "a@b.com",
+      password: "12345678",
+      agentId: "   ",
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.agentId).toBeNull();
   });
 
   it("nhiều hơn 1 role -> 400", () => {
@@ -41,7 +51,7 @@ describe("parseCreateUserInput", () => {
     expect(r).toMatchObject({ ok: false, status: 400 });
   });
 
-  it("chuẩn hoá email (trim + lowercase), name, agentId; role mặc định agent", () => {
+  it("chuẩn hoá email (trim + lowercase), name, Agent ID; role mặc định agent", () => {
     const r = parseCreateUserInput({
       email: "  A@B.COM  ",
       password: "12345678",

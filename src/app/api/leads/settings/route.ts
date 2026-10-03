@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { buildLeadActor, canManageLeads, canWorkLeads, isLeadViewAdmin } from "@/lib/leads/access";
-import { isLeadProduct } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
-const SETTINGS_COLUMNS = "product,no_contact_hours,stale_days,max_attempts,updated_by_email,updated_at";
+const SETTINGS_COLUMNS = "no_contact_hours,stale_days,max_attempts,updated_by_email,updated_at";
 
 export async function GET() {
   const session = await auth();
@@ -20,7 +19,7 @@ export async function GET() {
   const { data, error } = await getSupabaseAdmin()
     .from("lead_alert_settings")
     .select(SETTINGS_COLUMNS)
-    .order("product");
+    .limit(1);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ settings: data ?? [] });
 }
@@ -35,9 +34,6 @@ export async function PATCH(request: Request) {
   if (!canManageLeads(actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-  const product = body?.product;
-  if (!isLeadProduct(product)) return NextResponse.json({ error: "Invalid product." }, { status: 400 });
-
   const values: Record<string, number> = {};
   for (const key of ["no_contact_hours", "stale_days", "max_attempts"] as const) {
     const value = typeof body?.[key] === "number" ? body[key] : Number(body?.[key]);
@@ -50,11 +46,11 @@ export async function PATCH(request: Request) {
   const { data, error } = await getSupabaseAdmin()
     .from("lead_alert_settings")
     .upsert({
-      product,
+      id: true,
       ...values,
       updated_by_email: actor.email.trim().toLowerCase(),
       updated_at: new Date().toISOString(),
-    }, { onConflict: "product" })
+    }, { onConflict: "id" })
     .select(SETTINGS_COLUMNS)
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

@@ -7,14 +7,14 @@ import {
 import type { LeadAlertSettings, LeadRow, LeadStatus } from "./types";
 
 const settings: LeadAlertSettings = {
-  product: "health", no_contact_hours: 24, stale_days: 3, max_attempts: 4,
+  no_contact_hours: 24, stale_days: 3, max_attempts: 4,
 };
 const NOW = new Date("2026-09-10T12:00:00Z");
 const daysAgo = (n: number) => new Date(NOW.getTime() - n * 86_400_000).toISOString();
 
 function lead(patch: Partial<LeadRow> = {}): LeadRow {
   return {
-    id: "l1", display_number: 1, product: "health", products: ["health"], event_id: null, event_name: null,
+    id: "l1", display_number: 1, event_id: null, event_name: null,
     full_name: "A", phone: "1", email: null,
     assigned_to_email: "cs@x.com", assigned_at: daysAgo(10), assigned_by_email: null,
     status_id: null, first_contacted_at: daysAgo(1), last_contacted_at: daysAgo(1),

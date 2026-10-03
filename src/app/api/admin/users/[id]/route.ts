@@ -244,7 +244,7 @@ export async function PATCH(req: Request, context: RouteContext) {
     const updates: {
       email?: string;
       name?: string | null;
-      agent_id?: string;
+      agent_id?: string | null;
       role?: UserRole;
       is_active?: boolean;
       password_hash?: string;
@@ -304,38 +304,40 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     if (agentId !== undefined) {
-      const normalizedAgentId =
-        typeof agentId === "string" ? agentId.trim() : "";
-
-      if (!normalizedAgentId) {
+      if (agentId !== null && typeof agentId !== "string") {
         return NextResponse.json(
-          { error: "Agent ID is required." },
+          { error: "Invalid Agent ID." },
           { status: 400 }
         );
       }
 
-      const { data: existingAgentId, error: agentIdError } = await supabase
-        .from(PORTAL_ACCOUNT_TABLE)
-        .select("id")
-        .eq("agent_id", normalizedAgentId)
-        .neq("id", id)
-        .maybeSingle();
+      const normalizedAgentId =
+        typeof agentId === "string" ? agentId.trim() : "";
 
-      if (agentIdError) {
-        return NextResponse.json(
-          { error: agentIdError.message },
-          { status: 500 }
-        );
+      if (normalizedAgentId) {
+        const { data: existingAgentId, error: agentIdError } = await supabase
+          .from(PORTAL_ACCOUNT_TABLE)
+          .select("id")
+          .eq("agent_id", normalizedAgentId)
+          .neq("id", id)
+          .maybeSingle();
+
+        if (agentIdError) {
+          return NextResponse.json(
+            { error: agentIdError.message },
+            { status: 500 }
+          );
+        }
+
+        if (existingAgentId) {
+          return NextResponse.json(
+            { error: "This Agent ID is already in use." },
+            { status: 409 }
+          );
+        }
       }
 
-      if (existingAgentId) {
-        return NextResponse.json(
-          { error: "This Agent ID is already in use." },
-          { status: 409 }
-        );
-      }
-
-      updates.agent_id = normalizedAgentId;
+      updates.agent_id = normalizedAgentId || null;
     }
 
     if (role !== undefined) {
@@ -446,6 +448,13 @@ export async function PATCH(req: Request, context: RouteContext) {
       .single();
 
     if (error) {
+      // Trigger DB: không tắt được tài khoản của Agent còn giữ Personal lead.
+      if (error.message.includes("AGENT_HAS_PERSONAL_LEADS")) {
+        return NextResponse.json(
+          { error: "This Agent still owns Personal leads. Reassign them to another Agent before deactivating the account." },
+          { status: 409 }
+        );
+      }
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 

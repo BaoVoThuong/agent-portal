@@ -6,12 +6,11 @@ import { Initials } from "../../_components/board-ui";
 import type { LeadAlert } from "@/lib/leads/alerts";
 import type { LeadSummary } from "@/lib/leads/overview";
 import { LEAD_TYPE_LABEL } from "@/lib/leads/lead-type";
-import type { LeadProduct } from "@/lib/leads/types";
 
 type OverviewEvent = { id: string; name: string; event_date: string | null };
 
 /**
- * Kết quả Overview đã tải, giữ theo product ở phạm vi module.
+ * Kết quả Overview đã tải, dùng chung cho danh sách Lead.
  *
  * `/api/leads/overview` quét toàn bộ lead theo offset 1.000 dòng/trang rồi
  * tổng hợp ở Node, nên nó là request đắt nhất của màn hình này. Không cache thì
@@ -27,7 +26,6 @@ const overviewCache = new Map<
 >();
 
 type LeadOverviewProps = {
-  productFilter: LeadProduct | null;
   onAlertClick: (alert: LeadAlert) => void;
 };
 
@@ -39,8 +37,8 @@ const ALERTS: Array<{ key: LeadAlert; label: string; tone: "red" | "amber" }> =
     { key: "exhausted", label: "Could not reach", tone: "amber" },
   ];
 
-export function LeadOverview({ productFilter, onAlertClick }: LeadOverviewProps) {
-  const cached = overviewCache.get(productFilter ?? "all");
+export function LeadOverview({ onAlertClick }: LeadOverviewProps) {
+  const cached = overviewCache.get("all");
   const [summary, setSummary] = useState<LeadSummary | null>(cached?.summary ?? null);
   const [events, setEvents] = useState<OverviewEvent[]>(cached?.events ?? []);
   const [state, setState] = useState<"idle" | "loading" | "ready" | "error">(
@@ -48,13 +46,13 @@ export function LeadOverview({ productFilter, onAlertClick }: LeadOverviewProps)
   );
   const [truncated, setTruncated] = useState(cached?.truncated ?? false);
 
-  // Chạy mỗi lần mount và mỗi lần đổi product — KHÔNG chặn bằng `state`. Chặn
+  // Chạy mỗi lần mount — KHÔNG chặn bằng `state`. Chặn
   // thì bản cache hiện ra rồi đứng im mãi, và người dùng đọc số liệu cũ mà
   // không biết. Cache chỉ để lần thứ hai có cái hiện ra NGAY, còn số liệu vẫn
   // được làm mới ở nền.
   useEffect(() => {
     let cancelled = false;
-    void fetch(`/api/leads/overview${productFilter ? `?product=${productFilter}` : ""}`, { cache: "no-store" })
+    void fetch("/api/leads/overview", { cache: "no-store" })
       .then(async (response) => {
         const payload = await response.json().catch(() => null);
         if (!response.ok)
@@ -64,7 +62,7 @@ export function LeadOverview({ productFilter, onAlertClick }: LeadOverviewProps)
         const nextEvents = Array.isArray(payload.events)
           ? (payload.events as OverviewEvent[])
           : [];
-        overviewCache.set(productFilter ?? "all", {
+        overviewCache.set("all", {
           summary: nextSummary,
           events: nextEvents,
           truncated: payload.truncated === true,
@@ -78,14 +76,14 @@ export function LeadOverview({ productFilter, onAlertClick }: LeadOverviewProps)
       // Có cache rồi mà lượt làm mới hỏng thì GIỮ số cũ, đừng thay bằng màn
       // hình lỗi: số hơi cũ vẫn dùng được, một trang lỗi thì không.
       .catch(() => {
-        if (!cancelled && !overviewCache.has(productFilter ?? "all")) {
+        if (!cancelled && !overviewCache.has("all")) {
           setState("error");
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [productFilter]);
+  }, []);
 
   const eventNames = useMemo(
     () => new Map(events.map((event) => [event.id, event.name])),

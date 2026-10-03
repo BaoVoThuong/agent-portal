@@ -1,6 +1,6 @@
 import type { LeadHealth } from "./health";
 import { leadTypeOf, type LeadType } from "./lead-type";
-import type { LeadProduct, LeadRow } from "./types";
+import type { LeadRow } from "./types";
 
 export type LeadFilters = {
   /** Free text over name, phone and email. */
@@ -14,7 +14,6 @@ export type LeadFilters = {
   eventName: string | null;
   /** Personal = không có event; suy ra từ ô Event, xem lib/leads/lead-type.ts. */
   leadType: LeadType | null;
-  product: LeadProduct | null;
   /**
    * One bucket per lead — see lib/leads/health.ts. Single-valued on purpose so
    * the option counts add up to the whole list; a lead tripping two alerts
@@ -33,7 +32,6 @@ export const EMPTY_LEAD_FILTERS: LeadFilters = {
   statusId: null,
   eventName: null,
   leadType: null,
-  product: null,
   health: null,
 };
 
@@ -50,14 +48,6 @@ function digits(value: string): string {
  * Matches name, email and phone. Unassigned rows are matched by the literal
  * word "unassigned" so a manager can find the pool by typing what they see.
  */
-/** Luôn đọc `products`; `product` chỉ là phần tử đầu do DB suy ra. */
-export function leadHasProduct(
-  lead: Pick<LeadRow, "product" | "products">,
-  product: LeadProduct
-): boolean {
-  return (lead.products?.length ? lead.products : lead.product ? [lead.product] : []).includes(product);
-}
-
 export function matchesLeadSearch(lead: LeadRow, rawQuery: string): boolean {
   const query = rawQuery.trim().toLowerCase();
   if (!query) return true;
@@ -83,9 +73,6 @@ export function filterLeads(
     if (filters.health && healthByLeadId?.get(lead.id) !== filters.health) {
       return false;
     }
-    // Lead mang cả hai product phải khớp cả hai bộ lọc — so bằng cột `product`
-    // (chỉ là phần tử đầu) sẽ giấu nó khỏi bộ lọc còn lại.
-    if (filters.product && !leadHasProduct(lead, filters.product)) return false;
     if (filters.statusId && lead.status_id !== filters.statusId) return false;
     if (filters.leadType && leadTypeOf(lead) !== filters.leadType) return false;
     if (filters.eventName) {
@@ -110,7 +97,6 @@ export function activeLeadFilterCount(filters: LeadFilters): number {
     (filters.statusId ? 1 : 0) +
     (filters.eventName ? 1 : 0) +
     (filters.leadType ? 1 : 0) +
-    (filters.product ? 1 : 0) +
     (filters.health ? 1 : 0)
   );
 }

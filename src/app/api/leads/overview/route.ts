@@ -1,18 +1,18 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { buildLeadActor, isLeadViewAdmin } from "@/lib/leads/access";
-import { parseOverviewProduct, summarizeLeads } from "@/lib/leads/overview";
+import { summarizeLeads } from "@/lib/leads/overview";
 import { fetchLeadAlertSettings } from "@/lib/leads/queries";
-import type { LeadProduct, LeadRow, LeadStatus } from "@/lib/leads/types";
+import type { LeadRow, LeadStatus } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
 // Only what summarizeLeads and resolveLeadAlerts actually read. The list view
 // needs the whole row; this one aggregates, and pulling custom_values (arbitrary
-// jsonb) for every lead in the product just to count flags is pure payload.
+// jsonb) for every lead just to count flags is pure payload.
 const SUMMARY_COLUMNS =
-  "id,product,products,event_id,assigned_to_email,assigned_at,status_id,first_contacted_at," +
+  "id,event_id,assigned_to_email,assigned_at,status_id,first_contacted_at," +
   "last_contacted_at,contact_attempt_count,next_follow_up_at,archived_at";
 
 // PostgREST caps a single response, so one unbounded select silently returns a
@@ -24,41 +24,31 @@ const SUMMARY_MAX_ROWS = 20_000;
 
 type SummaryRow = Pick<
   LeadRow,
-  | "id" | "product" | "products" | "event_id" | "assigned_to_email" | "assigned_at" | "status_id"
+  | "id" | "event_id" | "assigned_to_email" | "assigned_at" | "status_id"
   | "first_contacted_at" | "last_contacted_at" | "contact_attempt_count"
   | "next_follow_up_at" | "archived_at"
 >;
 
 async function fetchAllLeadsForSummary(
   supabase: ReturnType<typeof getSupabaseAdmin>,
-  product: LeadProduct | null
 ): Promise<{ rows: LeadRow[]; truncated: boolean; error: string | null }> {
   const rows: LeadRow[] = [];
   for (let offset = 0; offset < SUMMARY_MAX_ROWS; offset += SUMMARY_PAGE_SIZE) {
-    let query = supabase
+    const query = supabase
       .from("leads")
       .select(SUMMARY_COLUMNS)
       .is("archived_at", null)
       .order("id", { ascending: true })
       .range(offset, offset + SUMMARY_PAGE_SIZE - 1);
-    // null = mọi product; đừng để một fallback quyết định nghĩa của "không lọc".
-    if (product) query = query.contains("products", [product]);
     const { data, error } = await query;
     if (error) return { rows, truncated: false, error: error.message };
     const page = (data ?? []) as unknown as SummaryRow[];
     for (const row of page) {
       // summarizeLeads takes a LeadRow; the fields it never reads are filled in
       // rather than widening its signature for one caller.
-      const products = Array.isArray(row.products)
-        ? row.products
-        : row.product
-          ? [row.product]
-          : [];
       rows.push({
         ...row,
         display_number: 0,
-        products,
-        product: row.product ?? products[0] ?? null,
         full_name: null, phone: null, email: null, fub_link: null,
         assigned_by_email: null, closed_at: null,
         created_by_email: "", created_at: "",
@@ -73,7 +63,7 @@ async function fetchAllLeadsForSummary(
   return { rows, truncated: true, error: null };
 }
 
-export async function GET(request: Request) {
+export async function GET() {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -82,15 +72,13 @@ export async function GET(request: Request) {
   });
   if (!actor.canViewAll) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const product = parseOverviewProduct(new URL(request.url).searchParams.get("product"));
   const supabase = getSupabaseAdmin();
   const [leadsResult, statusesResult, settingsResult, eventsResult] = await Promise.all([
-    fetchAllLeadsForSummary(supabase, product),
+    fetchAllLeadsForSummary(supabase),
     // KHÔNG lọc archived: bảng tra này dùng để PHÂN LOẠI lead đã có, không phải
     // để dựng danh sách chọn. Lọc ở đây là đếm lead đã chốt Won vào nhóm còn mở
     // và cộng thêm cảnh báo cho nó.
     supabase.from("lead_statuses").select("id,label,color,position,kind,archived_at"),
-    // Cả hai dòng khi xem mọi product: summarizeLeads chọn theo product từng lead.
     fetchLeadAlertSettings(supabase),
     supabase.from("lead_events").select("id,name,event_date").is("archived_at", null),
   ]);
@@ -101,10 +89,8 @@ export async function GET(request: Request) {
   const statusById = new Map(
     ((statusesResult.data ?? []) as LeadStatus[]).map((status) => [status.id, status])
   );
-  const byProduct = settingsResult;
-  const settings = product ? byProduct[product] : byProduct;
   return NextResponse.json({
-    summary: summarizeLeads(leadsResult.rows, statusById, settings),
+    summary: summarizeLeads(leadsResult.rows, statusById, settingsResult),
     events: eventsResult.data ?? [],
     // The client must be able to tell an honest total from a capped one.
     truncated: leadsResult.truncated,

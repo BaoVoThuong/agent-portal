@@ -9,8 +9,7 @@ export const dynamic = "force-dynamic";
  * kết sâu dạng `?alert=stale`. Một link chết ở đây là một người bấm vào rồi
  * thấy trang 404 mà không hiểu vì sao.
  *
- * `searchParams` được chuyển tiếp nguyên vẹn để `?alert=`, `?product=`,
- * `?view=` vẫn hoạt động.
+ * `searchParams` được chuyển tiếp nguyên vẹn để `?alert=` và `?view=` vẫn hoạt động.
  */
 export default async function LegacyLeadsPage({
   searchParams,

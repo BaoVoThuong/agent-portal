@@ -36,7 +36,6 @@ export function resolveLeadAlerts(
   now: Date = new Date()
 ): LeadAlert[] {
   if (lead.archived_at) return [];
-  // A lead with no known product has no product-specific thresholds yet.
   if (!settings) return [];
   if (status && (status.kind === "won" || status.kind === "lost")) return [];
   // Chưa giao thì không ai có lỗi.

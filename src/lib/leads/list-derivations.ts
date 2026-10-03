@@ -4,9 +4,8 @@ import {
   emptyLeadHealthCounts,
   type LeadHealth,
 } from "./health";
-import { settingsForLead, type LeadAlertSettingsByProduct } from "./overview";
 import { buildStatusById } from "./status-lookup";
-import type { LeadInteractionType, LeadRow, LeadStatus } from "./types";
+import type { LeadAlertSettings, LeadInteractionType, LeadRow, LeadStatus } from "./types";
 import type { TableColumnOption } from "@/lib/table-config/types";
 
 /**
@@ -68,7 +67,7 @@ export type LeadBadges = {
 export function buildLeadBadges(
   leads: readonly LeadRow[],
   lookups: Pick<LeadLookups, "statusById">,
-  alertSettings: LeadAlertSettingsByProduct,
+  alertSettings: LeadAlertSettings,
 ): LeadBadges {
   const alertsByLeadId = new Map<string, LeadAlert[]>();
   const healthByLeadId = new Map<string, LeadHealth>();
@@ -77,9 +76,8 @@ export function buildLeadBadges(
     const status = lead.status_id
       ? lookups.statusById.get(lead.status_id) ?? null
       : null;
-    const forLead = settingsForLead(alertSettings, lead);
-    alertsByLeadId.set(lead.id, resolveLeadAlerts(lead, status, forLead));
-    const bucket = classifyLeadHealth(lead, status, forLead);
+    alertsByLeadId.set(lead.id, resolveLeadAlerts(lead, status, alertSettings));
+    const bucket = classifyLeadHealth(lead, status, alertSettings);
     healthByLeadId.set(lead.id, bucket);
     healthCounts[bucket] += 1;
   }

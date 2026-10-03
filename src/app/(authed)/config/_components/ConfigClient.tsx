@@ -1383,15 +1383,6 @@ function DropdownValueColorControl({
   );
 }
 
-/**
- * System dropdown columns whose colours are config data even though their value
- * list is not. Keyed by scope so a stray key on another table cannot promote a
- * column nobody meant to expose.
- */
-const FIXED_VALUE_SET_COLUMN_KEYS: Partial<Record<TableScope, string[]>> = {
-  lead: ["product"],
-};
-
 type DropdownValueGroup =
   | { kind: "category"; key: string; navLabel: string; count: number }
   | {
@@ -1400,11 +1391,6 @@ type DropdownValueGroup =
       navLabel: string;
       count: number;
       columnId: string;
-      /**
-       * The value list is decided elsewhere (a DB CHECK, an enum) and only the
-       * colour is admin-owned. Adding, renaming or archiving is off.
-       */
-      fixedValueSet?: boolean;
     }
   | {
       kind: "optionSet";
@@ -1466,22 +1452,7 @@ function ConfigDropdownValuesSection({
   const isEnrollmentScope = isEnrollmentProgram(scope);
   // KHÔNG nhận Status/Priority (CS) — cũng is_system+dropdown nhưng giá trị
   // hardcode trong TASK_STATUSES/TASK_PRIORITIES (TS enum), không có bảng để sửa.
-  const customDropdownColumns = columns.filter(
-    (column) =>
-      canManageColumnOptions(column) &&
-      !FIXED_VALUE_SET_COLUMN_KEYS[scope]?.includes(column.key),
-  );
-  // Lead's Product is a system dropdown, but unlike CS Status/Priority its
-  // values are rows in table_column_option rather than a TS enum — so its
-  // colours belong here with everything else. The value set stays fixed: it is
-  // pinned by the leads.product CHECK, and the label is the key the cell joins
-  // on to find the colour.
-  const fixedValueSetColumns = columns.filter(
-    (column) =>
-      canManageColumnOptions(column) &&
-      column.is_system &&
-      FIXED_VALUE_SET_COLUMN_KEYS[scope]?.includes(column.key),
-  );
+  const customDropdownColumns = columns.filter(canManageColumnOptions);
   const hasCategory = scope === "cs" && columns.some((column) => column.is_system && column.key === "category");
 
   const groups: DropdownValueGroup[] = [
@@ -1520,14 +1491,6 @@ function ConfigDropdownValuesSection({
           },
         ] satisfies DropdownValueGroup[])
       : []),
-    ...fixedValueSetColumns.map((column) => ({
-      kind: "custom" as const,
-      key: `col:${column.id}`,
-      navLabel: column.label,
-      count: options.filter((o) => o.column_id === column.id && !o.archived_at).length,
-      columnId: column.id,
-      fixedValueSet: true,
-    })),
   ];
 
   const [selectedKey, setSelectedKey] = useState(groups[0]?.key ?? "");
@@ -1540,13 +1503,9 @@ function ConfigDropdownValuesSection({
   const isLeadStatusGroup = selected?.kind === "leadStatus";
   const isLeadTypeGroup = selected?.kind === "leadType";
   const isLeadVocabularyGroup = isLeadStatusGroup || isLeadTypeGroup;
-  const hasFixedValueSet = selected?.kind === "custom" && Boolean(selected.fixedValueSet);
   const protectsLabelIdentity =
-    hasFixedValueSet ||
     (selected?.kind === "optionSet" && (selected.setKey === "stage" || selected.setKey === "consent"));
-  const protectedLabelReason = hasFixedValueSet
-    ? `${selected?.navLabel ?? "This column"} values are fixed by the data model; only their colour is editable here.`
-    : "Stage and Consent labels are protected workflow identities.";
+  const protectedLabelReason = "Stage and Consent labels are protected workflow identities.";
 
   const [label, setLabel] = useState("");
   const [color, setColor] = useState("");
@@ -1908,11 +1867,6 @@ function ConfigDropdownValuesSection({
             ))}
           </nav>
           <div className="flex min-h-0 min-w-0 flex-col p-4">
-            {hasFixedValueSet ? (
-              <p className="shrink-0 border-b border-[#dfe1e6] pb-4 text-sm font-medium text-[#6b778c]">
-                {protectedLabelReason}
-              </p>
-            ) : (
             <form
               className={`grid shrink-0 grid-cols-1 gap-2 border-b border-[#dfe1e6] pb-4 ${
                 isStageGroup
@@ -2031,7 +1985,6 @@ function ConfigDropdownValuesSection({
                 <Plus className="h-4 w-4" /> Add
               </button>
             </form>
-            )}
             <div className="mt-4 min-h-0 min-w-0 flex-1 overflow-y-auto rounded-lg border border-[#dfe1e6]">
               <table className="w-full table-fixed border-collapse text-sm">
                 <colgroup>
@@ -2054,8 +2007,7 @@ function ConfigDropdownValuesSection({
                 </thead>
                 <tbody>
                   {valueRows.map((row) => {
-                    const disableArchive =
-                      hasFixedValueSet || (isConsentGroup && wouldDropConsentBelowTwo);
+                    const disableArchive = isConsentGroup && wouldDropConsentBelowTwo;
                     return (
                       <tr key={row.id}>
                         <td className="border-b border-r border-[#dfe1e6] px-3 py-2">
@@ -2180,13 +2132,7 @@ function ConfigDropdownValuesSection({
                           <button
                             type="button"
                             disabled={controlsDisabled || disableArchive}
-                            title={
-                              hasFixedValueSet
-                                ? protectedLabelReason
-                                : disableArchive
-                                  ? "Consent needs at least 2 active options."
-                                  : undefined
-                            }
+                            title={disableArchive ? "Consent needs at least 2 active options." : undefined}
                             onClick={() => void run(
                               () => prepareArchive(row.id),
                               "Archive confirmation ready."

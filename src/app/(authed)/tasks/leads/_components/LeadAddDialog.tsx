@@ -17,12 +17,6 @@ import {
   type LeadType,
 } from "@/lib/leads/lead-type";
 import {
-  isLeadProduct,
-  LEAD_PRODUCT_LABEL,
-  LEAD_PRODUCTS,
-  toggleLeadProduct,
-  UNKNOWN_LEAD_PRODUCT,
-  type LeadProduct,
   type LeadRow,
   type LeadStatus,
 } from "@/lib/leads/types";
@@ -45,8 +39,6 @@ import { LeadCollaboratorsPicker } from "./LeadCollaboratorsPicker";
 
 type LeadAddDialogProps = {
   open: boolean;
-  /** null = màn hình đang xem mọi product, dialog phải hỏi. */
-  productFilter: LeadProduct | null;
   sourceId: string;
   columns: TableColumn[];
   columnOptions: TableColumnOption[];
@@ -55,7 +47,7 @@ type LeadAddDialogProps = {
   assignees: { email: string; name: string | null }[];
   /** Agent ở Account Management — danh sách chọn Collaborators. */
   collaboratorRoster: { email: string; name: string | null }[];
-  /** Personal lead mặc định thuộc về người tạo. */
+  /** Dùng để tự chọn người tạo khi họ cũng là Agent. */
   currentUserEmail: string;
   onClose: () => void;
   /**
@@ -68,7 +60,7 @@ type LeadAddDialogProps = {
 type DistributionAgent = {
   email: string;
   name: string | null;
-  products: LeadProduct[];
+  eventIds: string[];
 };
 
 const INPUT_CLASS =
@@ -79,18 +71,18 @@ const SELECT_BUTTON_CLASS =
 // định !h-10 như ô chọn một.
 const MULTI_SELECT_BUTTON_CLASS =
   "!rounded !border-2 !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
-const PROPERTY_MULTI_SELECT_BUTTON_CLASS = "!border-[#dfe1e6] !bg-white !shadow-none";
 const LABEL_CLASS = "block text-xs font-bold uppercase text-[#6b778c]";
 // Thấp vừa đủ để cột trái không phải cuộn; kéo góc để mở rộng khi cần.
 const TEXTAREA_CLASS =
   "min-h-[9rem] w-full resize-y rounded border-2 border-[#dfe1e6] bg-white px-3 py-3 text-sm leading-6 text-[#172b4d] outline-none transition placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4]";
-const PRODUCT_OPTIONS = LEAD_PRODUCTS.map((value) => ({
-  value,
-  label: LEAD_PRODUCT_LABEL[value],
-}));
-
 function formatEvent(event: LeadEvent): string {
   return event.event_date ? `${event.name} · ${event.event_date}` : event.name;
+}
+
+function suggestedEventId(events: LeadEvent[], name: string): string | null {
+  const normalized = name.trim().toLocaleLowerCase();
+  if (!normalized || isPersonalLeadEventName(normalized)) return null;
+  return events.find((event) => event.name.trim().toLocaleLowerCase() === normalized)?.id ?? null;
 }
 
 function fieldLabel(
@@ -117,7 +109,7 @@ function requiredSystemValue(
 }
 
 /**
- * Một lựa chọn vẽ thành nhãn màu — cùng kiểu nhãn Product, màu theo màu admin
+ * Một lựa chọn vẽ thành nhãn màu — màu theo cấu hình admin
  * đặt ở Config (chưa đặt thì bảng màu mặc định theo id).
  */
 function OptionBadge({ option }: { option: { id: string; label: string; color: string | null } }) {
@@ -249,7 +241,6 @@ function CustomLeadField({
 
 export function LeadAddDialog({
   open,
-  productFilter,
   sourceId,
   columns,
   columnOptions,
@@ -273,7 +264,7 @@ export function LeadAddDialog({
   const [email, setEmail] = useState("");
   const [fubLink, setFubLink] = useState("");
   const [description, setDescription] = useState("");
-  const [leadType, setLeadType] = useState<LeadType>("event");
+  const [leadType, setLeadType] = useState<LeadType>("personal");
   const [eventName, setEventName] = useState("");
   const [assignedToEmail, setAssignedToEmail] = useState("");
   const [collaboratorEmails, setCollaboratorEmails] = useState<string[]>([]);
@@ -286,26 +277,25 @@ export function LeadAddDialog({
   const [fileError, setFileError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const createRequestIdRef = useRef<string | null>(null);
-  // Chọn nhiều product, cùng luật ô Product trên bảng (Unknown đứng một mình).
-  // null = chưa đụng: mặc định product của bộ lọc đang xem, không thì Unknown.
-  const [chosenProducts, setChosenProducts] = useState<LeadProduct[] | null>(null);
-  const products =
-    chosenProducts ?? (productFilter ? [productFilter] : [UNKNOWN_LEAD_PRODUCT]);
-  /** Product chính — phần tử đầu, như trigger DB suy ra. */
-  const product: LeadProduct | null = products[0] ?? null;
-  // Người nhận nằm trong pool của MỘT trong các product đã chọn (route kiểm y vậy).
-  const productAgents = distributionAgents?.filter((agent) =>
-    agent.products.some((candidate) => products.includes(candidate)),
-  ) ?? [];
   const isPersonalLead = leadType === "personal";
+  const selectedEventId = isPersonalLead
+    ? null
+    : suggestedEventId(events, eventName);
+  const eventAgents = distributionAgents?.filter((agent) =>
+    selectedEventId !== null && agent.eventIds.includes(selectedEventId),
+  ) ?? [];
   const actorEmail = currentUserEmail.trim().toLowerCase();
-  // Personal lead không qua Distribute pool: giao được cho bất kỳ ai có quyền
-  // Lead, và chưa chọn ai thì người tạo giữ (route cũng mặc định như vậy).
-  const personalAgents = assignees.some((person) => person.email === actorEmail)
-    ? assignees
-    : [{ email: actorEmail, name: null }, ...assignees];
+  // Personal lead không qua Distribute pool. Nó phải thuộc về một Agent trong
+  // Account Management ngay khi tạo; manager không nằm trong roster không thể
+  // tự nhận một Personal lead.
+  const personalAgents = assignees;
+  const defaultPersonalAgent = personalAgents.some(
+    (person) => person.email === actorEmail,
+  )
+    ? actorEmail
+    : "";
   const effectiveAssignee = isPersonalLead
-    ? assignedToEmail || actorEmail
+    ? assignedToEmail || defaultPersonalAgent
     : assignedToEmail;
   // Event cũ tên "Personal Lead" (cách đánh dấu trước khi có Lead type) không
   // còn là một event để gợi ý.
@@ -332,8 +322,7 @@ export function LeadAddDialog({
     [columns],
   );
   // Thông tin về khách (Age, Gender) ở cột trái cạnh tên; thuộc tính lead
-  // (Insurance Needs, Contact Method, Best Time, Ticket #) ở cột phải, sau
-  // Product — cùng chỗ với drawer (lib/leads/field-layout.ts).
+  // (Insurance Needs, Contact Method, Best Time, Ticket #) ở cột phải.
   const demographicColumns = pickColumnsInOrder(fixedFieldColumns, LEAD_CLIENT_FIELD_KEYS);
   const needFieldColumns = pickColumnsInOrder(fixedFieldColumns, LEAD_NEED_FIELD_KEYS);
   const propertyFieldColumns = pickColumnsInOrder(fixedFieldColumns, LEAD_PROPERTY_FIELD_KEYS);
@@ -347,12 +336,6 @@ export function LeadAddDialog({
     }
     return result;
   }, [columnOptions]);
-  const productColumn = columns.find(
-    (column) => column.key === "product" && !column.archived_at,
-  );
-  const productColorOptions = productColumn
-    ? optionsByColumnId.get(productColumn.id) ?? []
-    : [];
   // A lead being created has not been worked yet, so it starts at the first
   // open status — "New" in the seeded vocabulary. Picked by position and kind
   // rather than by the label "New", because an admin may rename it.
@@ -402,12 +385,31 @@ export function LeadAddDialog({
 
   function chooseLeadType(next: LeadType) {
     setLeadType(next);
-    // Người được chọn cho Personal lead có thể không nằm trong Distribute pool
-    // của product — quay lại Event lead thì bỏ chọn, như khi đổi product.
+    if (
+      next === "personal" &&
+      assignedToEmail &&
+      !personalAgents.some((agent) => agent.email === assignedToEmail)
+    ) {
+      setAssignedToEmail("");
+      return;
+    }
     if (
       next === "event" &&
       assignedToEmail &&
-      !productAgents.some((agent) => agent.email === assignedToEmail)
+      !eventAgents.some((agent) => agent.email === assignedToEmail)
+    ) {
+      setAssignedToEmail("");
+    }
+  }
+
+  function chooseEventName(next: string) {
+    setEventName(next);
+    const eventId = suggestedEventId(events, next);
+    if (
+      assignedToEmail &&
+      !distributionAgents?.some(
+        (agent) => agent.email === assignedToEmail && eventId !== null && agent.eventIds.includes(eventId),
+      )
     ) {
       setAssignedToEmail("");
     }
@@ -417,40 +419,18 @@ export function LeadAddDialog({
     setCustomValues((current) => ({ ...current, [key]: value }));
   }
 
-  function chooseProducts(nextValues: string[]) {
-    // TaskSelect trả cả danh sách; lấy đúng product vừa bấm rồi áp luật chung
-    // (chọn Unknown là bỏ hết; chọn product thật là bỏ Unknown).
-    const toggled =
-      nextValues.find((value) => !products.includes(value as LeadProduct)) ??
-      products.find((current) => !nextValues.includes(current));
-    if (!toggled || !isLeadProduct(toggled)) return;
-    const next = toggleLeadProduct(products, toggled);
-    setChosenProducts(next);
-    if (
-      assignedToEmail &&
-      !distributionAgents?.some(
-        (agent) =>
-          agent.email === assignedToEmail &&
-          agent.products.some((candidate) => next.includes(candidate)),
-      )
-    ) {
-      setAssignedToEmail("");
-    }
-  }
-
   function resetAndClose() {
     setFullName("");
     setPhone("");
     setEmail("");
     setFubLink("");
     setDescription("");
-    setLeadType("event");
+    setLeadType("personal");
     setEventName("");
     setAssignedToEmail("");
     setCollaboratorEmails([]);
     setDistributionAgents(null);
     setDistributionAgentsError(false);
-    setChosenProducts(null);
     setCustomValues({});
     setPendingFiles([]);
     setFileError(null);
@@ -462,12 +442,6 @@ export function LeadAddDialog({
 
   async function submit() {
     if (saving) return;
-    // The button is disabled without one, but the guard belongs here too: a
-    // lead filed under the wrong product is invisible to the team that owns it.
-    if (!product) {
-      setError("Choose a product for this lead.");
-      return;
-    }
     const fieldValues: Record<string, unknown> = {
       name: fullName,
       phone,
@@ -478,7 +452,7 @@ export function LeadAddDialog({
       status: selectedStatusId,
     };
     const missing = columns
-      .filter((column) => column.required && !column.archived_at)
+      .filter((column) => column.required && !column.archived_at && column.key !== "product")
       .filter((column) => {
         const value = storesInCustomValues(column)
           ? customValues[column.key]
@@ -488,11 +462,13 @@ export function LeadAddDialog({
     // Không có event thì lead là Personal — Event lead trống event là mâu thuẫn.
     const missingEvent =
       !isPersonalLead && (!eventName.trim() || isPersonalLeadEventName(eventName));
-    if (missing.length > 0 || !phone.trim() || missingEvent) {
+    const missingPersonalAgent = isPersonalLead && !effectiveAssignee;
+    if (missing.length > 0 || !phone.trim() || missingEvent || missingPersonalAgent) {
       const labels = [
         ...missing.map((field) => field.label),
         ...(phone.trim() ? [] : ["Phone"]),
         ...(missingEvent ? [fieldLabel(columns, "event", "Event")] : []),
+        ...(missingPersonalAgent ? [fieldLabel(columns, "assignee", "Agent")] : []),
       ].filter((label, index, list) => list.indexOf(label) === index);
       setError(`${labels.join(", ")} required.`);
       return;
@@ -511,8 +487,6 @@ export function LeadAddDialog({
           "x-lead-client-source": sourceId,
         },
         body: JSON.stringify({
-          product,
-          products,
           full_name: fullName,
           phone,
           email,
@@ -560,7 +534,7 @@ export function LeadAddDialog({
         <header className="flex shrink-0 items-center justify-between gap-4 border-b border-[#dfe1e6] px-6 py-4">
           <div className="min-w-0">
             <h2 className="text-xl font-semibold text-[#172b4d]">
-              New {products.map((value) => LEAD_PRODUCT_LABEL[value]).join(" + ")} lead
+              New lead
             </h2>
             <p className="mt-1 text-sm text-[#626f86]">
               Capture the lead details, then set ownership on the right.
@@ -771,7 +745,7 @@ export function LeadAddDialog({
                   className={INPUT_CLASS}
                   list="lead-event-names"
                   value={eventName}
-                  onChange={(event) => setEventName(event.target.value)}
+                  onChange={(event) => chooseEventName(event.target.value)}
                   placeholder="e.g. Health Fair 2026"
                 />
                 <datalist id="lead-event-names">
@@ -788,48 +762,6 @@ export function LeadAddDialog({
                 ) : null}
               </label>
               )}
-              <div>
-                <span className="mb-1.5 block text-xs font-bold uppercase text-[#6b778c]">
-                  {fieldLabel(columns, "product", "Product")}
-                  {!productFilter ? <span className="text-[#bf2600]"> *</span> : null}
-                </span>
-                <TaskSelect
-                  label="Product"
-                  values={products}
-                  multi
-                  summaryLabel="products"
-                  showSelectedValues
-                  options={PRODUCT_OPTIONS}
-                  placeholder="Select product"
-                  buttonClassName={PROPERTY_MULTI_SELECT_BUTTON_CLASS}
-                  menuClassName="min-w-full"
-                  renderOption={(option) => {
-                    const configured = productColorOptions.find(
-                      (candidate) => candidate.label === option.label,
-                    );
-                    const palette = tableColumnOptionBadgePalette(
-                      configured ?? {
-                        id: option.label,
-                        label: option.label,
-                        color: null,
-                      },
-                    );
-                    return (
-                      <span
-                        className="inline-flex max-w-full min-w-0 items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]"
-                        style={{
-                          backgroundColor: palette.background,
-                          color: palette.foreground,
-                        }}
-                        title={option.label}
-                      >
-                        {option.label}
-                      </span>
-                    );
-                  }}
-                  onValuesChange={chooseProducts}
-                />
-              </div>
               {needFieldColumns.map((column) => (
                 <label key={column.id} className="block space-y-1">
                   <span className={LABEL_CLASS}>
@@ -846,21 +778,27 @@ export function LeadAddDialog({
               ))}
               <label className="block space-y-1">
                 <span className={LABEL_CLASS}>
-                  {fieldLabel(columns, "assignee", "Assign to")}
+                  {fieldLabel(columns, "assignee", "Agent")}
+                  {isPersonalLead ? <span className="text-[#bf2600]"> *</span> : null}
                 </span>
-                {/* Event lead: the product-specific receiving list configured
+                {/* Event lead: the selected event's receiving pool configured
                     in Distribute pool — active agents with a positive weight.
-                    Personal lead: anyone with lead access, defaulting to you. */}
+                    Personal lead: one Agent in Account Management is required. */}
                 {isPersonalLead ? (
                   <TaskSelect
-                    label={fieldLabel(columns, "assignee", "Assign to")}
+                    label={fieldLabel(columns, "assignee", "Agent")}
                     value={effectiveAssignee}
                     options={personalAgents.map((person) => ({
                       value: person.email,
                       label: person.name?.trim() || person.email,
                       keywords: [person.email],
                     }))}
-                    placeholder="You"
+                    placeholder={
+                      personalAgents.length === 0
+                        ? "No Agents in Account Management"
+                        : "Choose an Agent"
+                    }
+                    disabled={personalAgents.length === 0}
                     searchable
                     // Ô người giống Agent ở form tạo Task: avatar + tên.
                     personValue
@@ -870,29 +808,29 @@ export function LeadAddDialog({
                   />
                 ) : (
                 <TaskSelect
-                  label={fieldLabel(columns, "assignee", "Assign to")}
+                  label={fieldLabel(columns, "assignee", "Agent")}
                   value={assignedToEmail}
-                  options={productAgents.map((person) => ({
+                  options={eventAgents.map((person) => ({
                     value: person.email,
                     label: person.name?.trim() || person.email,
                     keywords: [person.email],
                   }))}
                   placeholder={
-                    !product
-                      ? "Choose a product first"
+                    !selectedEventId
+                      ? "Choose an existing event first"
                       : distributionAgentsError
-                        ? "Could not load agents"
-                        : distributionAgents === null
-                          ? "Loading agents…"
-                          : productAgents.length === 0
+                      ? "Could not load agents"
+                      : distributionAgents === null
+                        ? "Loading agents…"
+                          : eventAgents.length === 0
                             ? "No agents in Distribute pool"
                             : "Unassigned"
                   }
                   disabled={
-                    !product ||
+                    !selectedEventId ||
                     distributionAgents === null ||
                     distributionAgentsError ||
-                    productAgents.length === 0
+                    eventAgents.length === 0
                   }
                   searchable
                   personValue
@@ -908,9 +846,15 @@ export function LeadAddDialog({
                   </span>
                 ) : !isPersonalLead && distributionAgents === null ? (
                   <span className="text-xs text-[#667085]">Loading agents…</span>
-                ) : !isPersonalLead && productAgents.length === 0 ? (
+                ) : !isPersonalLead && !selectedEventId ? (
+                  <span className="text-xs text-[#667085]">Select an existing event to see its Agent pool.</span>
+                ) : !isPersonalLead && eventAgents.length === 0 ? (
                   <span className="text-xs font-semibold text-[#974f0c]">
-                    No agents in the Distribute pool for these products.
+                    No agents are configured for this Event. The lead can still be created unassigned.
+                  </span>
+                ) : isPersonalLead && personalAgents.length === 0 ? (
+                  <span className="text-xs font-semibold text-[#bf2600]">
+                    Add an Agent in Account Management before creating a Personal lead.
                   </span>
                 ) : null}
               </label>
@@ -960,11 +904,6 @@ export function LeadAddDialog({
                   />
                 </label>
               ))}
-              <p className="text-xs leading-5 text-[#667085]">
-                Phone numbers are normalized automatically. Duplicate phone
-                numbers are blocked within the same event, and across personal
-                leads.
-              </p>
               </fieldset>
             </aside>
           </div>
@@ -990,8 +929,7 @@ export function LeadAddDialog({
           <button
             type="button"
             onClick={() => void submit()}
-            disabled={saving || !product}
-            title={product ? undefined : "Choose a product first."}
+            disabled={saving}
             className="inline-flex h-9 items-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"
           >
             {saving ? "Creating..." : "Create lead"}

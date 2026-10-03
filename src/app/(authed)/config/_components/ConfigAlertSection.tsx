@@ -2,12 +2,7 @@
 
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
-import {
-  LEAD_PRODUCT_LABEL,
-  LEAD_PRODUCTS,
-  type LeadAlertSettings,
-  type LeadProduct,
-} from "@/lib/leads/types";
+import type { LeadAlertSettings } from "@/lib/leads/types";
 
 /**
  * Ngưỡng để một lead bị gọi tên là "cần quản lý để mắt tới".
@@ -21,8 +16,6 @@ import {
  */
 
 type AlertField = "no_contact_hours" | "stale_days" | "max_attempts";
-
-const PRODUCT_LABEL = LEAD_PRODUCT_LABEL;
 
 const FIELDS: { key: AlertField; label: string; hint: string }[] = [
   {
@@ -53,25 +46,20 @@ export default function ConfigAlertSection({
   available: boolean;
   availabilityError?: string;
 }) {
-  const [saving, setSaving] = useState<LeadProduct | null>(null);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  function updateField(product: LeadProduct, key: AlertField, value: string) {
+  function updateField(key: AlertField, value: string) {
     const parsed = Number(value);
-    onSettingsChange(
-      settings.map((row) =>
-        row.product === product
-          ? { ...row, [key]: Number.isFinite(parsed) ? parsed : 0 }
-          : row
-      )
-    );
+    if (!settings[0]) return;
+    onSettingsChange([{ ...settings[0], [key]: Number.isFinite(parsed) ? parsed : 0 }]);
   }
 
-  async function save(product: LeadProduct) {
-    const setting = settings.find((row) => row.product === product);
+  async function save() {
+    const setting = settings[0];
     if (!setting || saving) return;
-    setSaving(product);
+    setSaving(true);
     setError(null);
     setMessage(null);
     try {
@@ -83,17 +71,13 @@ export default function ConfigAlertSection({
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.error ?? "Unable to update alert settings.");
       if (payload?.setting) {
-        onSettingsChange(
-          settings.map((row) =>
-            row.product === product ? (payload.setting as LeadAlertSettings) : row
-          )
-        );
+        onSettingsChange([payload.setting as LeadAlertSettings]);
       }
-      setMessage(`${PRODUCT_LABEL[product]} alert settings updated.`);
+      setMessage("Alert settings updated.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to update alert settings.");
     } finally {
-      setSaving(null);
+      setSaving(false);
     }
   }
 
@@ -111,20 +95,15 @@ export default function ConfigAlertSection({
         <h2 className="text-base font-semibold text-[#172b4d]">Alert settings</h2>
         <p className="mt-1 text-sm text-[#6b778c]">
           Set when an active lead should be called out for manager attention.
-          These thresholds apply company-wide, and are set per product.
+          These thresholds apply to every Event.
         </p>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-2">
-        {LEAD_PRODUCTS.map((product) => {
-          const setting = settings.find((row) => row.product === product);
-          if (!setting) return null;
-          return (
+      {settings[0] ? (
             <div
-              key={product}
               className="rounded-lg border border-[#e6eaf0] bg-[#f7f8fa] p-4"
             >
-              <h3 className="font-semibold text-[#172b4d]">{PRODUCT_LABEL[product]}</h3>
+              <h3 className="font-semibold text-[#172b4d]">All Events</h3>
               <div className="mt-4 grid gap-4">
                 {FIELDS.map((field) => (
                   <label key={field.key} className="block">
@@ -134,8 +113,8 @@ export default function ConfigAlertSection({
                       type="number"
                       min={1}
                       step={1}
-                      value={setting[field.key]}
-                      onChange={(event) => updateField(product, field.key, event.target.value)}
+                      value={settings[0][field.key]}
+                      onChange={(event) => updateField(field.key, event.target.value)}
                     />
                     <span className="mt-1 block text-xs text-[#6b778c]">{field.hint}</span>
                   </label>
@@ -145,17 +124,15 @@ export default function ConfigAlertSection({
                 <button
                   type="button"
                   className="inline-flex items-center gap-2 rounded-md bg-[#0c66e4] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                  disabled={saving !== null}
-                  onClick={() => void save(product)}
+                  disabled={saving}
+                  onClick={() => void save()}
                 >
-                  {saving === product ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                  {saving === product ? "Saving…" : "Save alert settings"}
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  {saving ? "Saving…" : "Save alert settings"}
                 </button>
               </div>
             </div>
-          );
-        })}
-      </div>
+      ) : null}
 
       {error ? (
         <p className="mt-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">

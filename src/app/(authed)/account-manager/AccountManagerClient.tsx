@@ -361,10 +361,12 @@ export default function AccountManagerClient({
     if (!editUser) return;
     const user = editUser;
     const draft = { ...editForm };
+    const nextAgentId = draft.agentId.trim();
+
     const patch = {
       email: draft.email.trim(),
       name: draft.name.trim() || null,
-      agent_id: draft.agentId.trim() || null,
+      agent_id: nextAgentId || null,
     };
 
     // Đóng hộp và đổi dòng ngay; server từ chối thì mở lại hộp với dữ liệu
@@ -375,7 +377,7 @@ export default function AccountManagerClient({
     const updated = await updateUser(user, {
       email: patch.email,
       name: patch.name,
-      agentId: draft.agentId.trim(),
+      agentId: nextAgentId,
     });
 
     if (updated) {
@@ -814,8 +816,10 @@ export default function AccountManagerClient({
                       agentId: event.target.value,
                     }))
                   }
-                  required
                 />
+                <span className="mt-1 block text-xs text-[#667085]">
+                  Optional
+                </span>
               </label>
               <label className="block">
                 <span className="text-sm font-medium text-[#344054]">
@@ -934,8 +938,10 @@ export default function AccountManagerClient({
                       agentId: event.target.value,
                     }))
                   }
-                  required
                 />
+                <span className="mt-1 block text-xs text-[#667085]">
+                  Optional
+                </span>
               </label>
 	            </div>
 	            <div className="mt-6 flex justify-end gap-3">
@@ -953,13 +959,13 @@ export default function AccountManagerClient({
 	                className="rounded-md bg-[#163f6b] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0f3155] disabled:cursor-not-allowed disabled:opacity-60"
 	                type="submit"
 	                disabled={
-                  busyUserId === editUser.id ||
-                  !editForm.agentId.trim() ||
-                  (editForm.email.trim().toLowerCase() ===
-                    editUser.email.toLowerCase() &&
-                    editForm.name.trim() === (editUser.name ?? "") &&
-                    editForm.agentId.trim() === (editUser.agent_id ?? ""))
-                }
+	                  busyUserId === editUser.id ||
+	                  (editForm.email.trim().toLowerCase() ===
+	                    editUser.email.toLowerCase() &&
+	                    editForm.name.trim() === (editUser.name ?? "") &&
+	                    editForm.agentId.trim() ===
+	                      (editUser.agent_id ?? "").trim())
+	                }
 	              >
 	                {busyUserId === editUser.id ? "Saving..." : "Save"}
 	              </button>

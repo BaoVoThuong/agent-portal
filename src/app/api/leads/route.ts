@@ -9,6 +9,8 @@ import { resolveEventByName } from "@/lib/leads/events";
 import { resolveLeadOwnerEmails } from "@/lib/leads/membership";
 import { findMissingRequiredFields } from "@/lib/table-config/required";
 import { fetchLeadMemberEmails } from "@/lib/leads/assignees";
+import { fetchTaskAgents } from "@/lib/tasks/assignees";
+import { isPersonalLeadEventName } from "@/lib/leads/lead-type";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +51,7 @@ export async function GET(request: Request) {
 }
 
 const LEAD_COLUMNS =
-  "id,display_number,product,products,event_id,full_name,phone,email,fub_link,description," +
+  "id,display_number,event_id,full_name,phone,email,fub_link,description," +
   "assigned_to_email,collaborator_emails,assigned_at,assigned_by_email,status_id," +
   "first_contacted_at,last_contacted_at,contact_attempt_count," +
   "next_follow_up_at,closed_at,created_by_email,created_at," +
@@ -69,11 +71,7 @@ export async function POST(request: Request) {
   const input = parsed.value;
   const supabase = getSupabaseAdmin();
   const normalizedActorEmail = actor.email.trim().toLowerCase();
-  const isPersonalLead = input.leadType === "personal";
-  // Personal lead là lead người tạo tự mang về: chưa chọn ai thì người tạo giữ.
-  // Vẫn cho chọn người khác — manager nhập hộ lead cá nhân của một agent.
-  const assignedToEmail =
-    input.assignedToEmail ?? (isPersonalLead ? normalizedActorEmail : null);
+  const assignedToEmail = input.assignedToEmail;
 
   if (input.clientRequestId) {
     const { data: existing, error: existingError } = await supabase
@@ -97,12 +95,18 @@ export async function POST(request: Request) {
   if (eventId) {
     const { data: event, error: eventError } = await supabase
       .from("lead_events")
-      .select("id")
+      .select("id,name")
       .eq("id", eventId)
       .is("archived_at", null)
       .maybeSingle();
     if (eventError) return NextResponse.json({ error: eventError.message }, { status: 500 });
     if (!event) return NextResponse.json({ error: "That event is no longer available." }, { status: 400 });
+    if (isPersonalLeadEventName(event.name)) {
+      return NextResponse.json(
+        { error: "Personal leads do not have an Event. Create it as a Personal lead instead." },
+        { status: 400 },
+      );
+    }
   } else if (input.eventName) {
     const resolved = await resolveEventByName(
       supabase,
@@ -111,6 +115,16 @@ export async function POST(request: Request) {
     );
     if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 500 });
     eventId = resolved.id;
+  }
+  // Lead không có Event là Personal lead. Không suy từ request để các client
+  // cũ cũng không thể tạo một lead không Event mà thiếu Agent.
+  const isPersonalLead = eventId === null;
+
+  if (isPersonalLead && !assignedToEmail) {
+    return NextResponse.json(
+      { error: "A Personal lead must be assigned to an Agent." },
+      { status: 400 },
+    );
   }
 
   let statusId = input.statusId;
@@ -150,11 +164,13 @@ export async function POST(request: Request) {
   }
 
   if (assignedToEmail && !isPersonalLead) {
-    // Lead nhiều product: người nhận chỉ cần nằm trong pool của MỘT trong số đó.
+    if (!eventId) {
+      return NextResponse.json({ error: "An Event is required to choose an Agent." }, { status: 400 });
+    }
     const { data: receivingAgents, error: receivingAgentError } = await supabase
-      .from("lead_assignment_weights")
+      .from("lead_event_assignment_weights")
       .select("agent_email")
-      .in("product", input.products)
+      .eq("event_id", eventId)
       .eq("agent_email", assignedToEmail)
       .eq("is_active", true)
       .gt("weight", 0)
@@ -164,26 +180,27 @@ export async function POST(request: Request) {
     }
     if (!receivingAgents?.length) {
       return NextResponse.json(
-        { error: "That agent is not in the Distribute pool for this product." },
+        { error: "That agent is not in this Event's Distribute pool." },
         { status: 400 },
       );
     }
   }
 
-  // Personal lead không đi qua Distribute pool: người nhận là một Agent (danh
-  // sách ở Account Management) hoặc người có quyền Lead. Người tạo luôn được.
-  const personalAssigneeToCheck =
-    isPersonalLead && assignedToEmail && assignedToEmail !== normalizedActorEmail
-      ? assignedToEmail
-      : null;
-  if (input.collaboratorEmails.length > 0 || personalAssigneeToCheck) {
-    const eligibleEmails = await fetchLeadMemberEmails();
-    if (personalAssigneeToCheck && !eligibleEmails.has(personalAssigneeToCheck)) {
+  // Personal lead không có pool. Người nhận bắt buộc là Agent đang hoạt động
+  // trong Account Management; quyền Lead riêng lẻ không đủ để nhận ownership.
+  if (isPersonalLead) {
+    const personalAgentEmails = new Set(
+      (await fetchTaskAgents()).map((agent) => agent.email.trim().toLowerCase()),
+    );
+    if (!assignedToEmail || !personalAgentEmails.has(assignedToEmail)) {
       return NextResponse.json(
         { error: "Choose one of the Agents in Account Management." },
         { status: 400 },
       );
     }
+  }
+  if (input.collaboratorEmails.length > 0) {
+    const eligibleEmails = await fetchLeadMemberEmails();
     if (input.collaboratorEmails.some((collaborator) => !eligibleEmails.has(collaborator))) {
       return NextResponse.json(
         { error: "Choose collaborators from the Agents in Account Management." },
@@ -218,8 +235,6 @@ export async function POST(request: Request) {
     .from("leads")
     .insert(
       buildNewLeadRow({
-        product: input.product,
-        products: input.products,
         eventId,
         statusId,
         fullName: input.fullName,
@@ -228,6 +243,7 @@ export async function POST(request: Request) {
         fubLink: input.fubLink,
         description: input.description,
         collaboratorEmails: input.collaboratorEmails,
+        assignedToEmail: isPersonalLead ? assignedToEmail : null,
         customValues: input.customValues,
         actorEmail: normalizedActorEmail,
         clientRequestId: input.clientRequestId,
@@ -257,20 +273,16 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ error: insertError.message }, { status: 500 });
   }
-  const createdLead = lead as unknown as { id: string };
-
   let finalLead = lead;
-  if (assignedToEmail) {
+  if (assignedToEmail && !isPersonalLead) {
     // Cùng RPC với đường gán tay: gán và ghi lịch sử trong một giao dịch. Trước
     // đó lỗi ghi lịch sử chỉ được console.error, nên lead tạo ra đã có chủ mà
     // bảng lịch sử trống.
     const { error: assignError } = await supabase.rpc("assign_leads_manual", {
-      p_lead_ids: [createdLead.id],
+      p_lead_ids: [(lead as unknown as { id: string }).id],
       p_to_email: assignedToEmail,
       p_actor_email: normalizedActorEmail,
-      p_reason: isPersonalLead
-        ? "Personal lead assigned when created"
-        : "Assigned when lead was created",
+      p_reason: "Assigned when lead was created",
     });
     if (assignError) {
       // Lead đã tồn tại và CHƯA gán — trạng thái hợp lệ, nhìn thấy được trên
@@ -288,7 +300,7 @@ export async function POST(request: Request) {
     const { data: reread } = await supabase
       .from("leads")
       .select(LEAD_COLUMNS)
-      .eq("id", createdLead.id)
+      .eq("id", (lead as unknown as { id: string }).id)
       .maybeSingle();
     if (reread) finalLead = reread;
   }

@@ -6,13 +6,12 @@ import {
   isLeadViewAdmin,
 } from "@/lib/leads/access";
 import { fetchTaskAgents } from "@/lib/tasks/assignees";
-import { LEAD_PRODUCTS, type LeadProduct } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
 /**
- * The agents a lead can be handed to, plus which products each one covers.
+ * Registered Agents and the Events where each one is enabled in the distribution pool.
  *
  * The list is the registered agent roster — the `task_agents` table, read here
  * through `fetchTaskAgents()`, which is the exact function Account Management →
@@ -46,8 +45,8 @@ export async function GET() {
     // (is_active = false) hiện thành đã tick, trong khi tab Health nói không ai
     // nhận — hai màn hình cùng một dữ liệu mà nói ngược nhau.
     supabase
-      .from("lead_assignment_weights")
-      .select("product,agent_email")
+      .from("lead_event_assignment_weights")
+      .select("event_id,agent_email")
       .eq("is_active", true)
       .gt("weight", 0),
   ]);
@@ -55,14 +54,14 @@ export async function GET() {
     return NextResponse.json({ error: weightsResult.error.message }, { status: 500 });
   }
 
-  const assignedTo = new Map<string, Set<LeadProduct>>();
+  const assignedTo = new Map<string, Set<string>>();
   for (const row of (weightsResult.data ?? []) as {
-    product: LeadProduct;
+    event_id: string;
     agent_email: string;
   }[]) {
     const key = row.agent_email.trim().toLowerCase();
-    const set = assignedTo.get(key) ?? new Set<LeadProduct>();
-    set.add(row.product);
+    const set = assignedTo.get(key) ?? new Set<string>();
+    set.add(row.event_id);
     assignedTo.set(key, set);
   }
 
@@ -73,9 +72,7 @@ export async function GET() {
         return {
           email: key,
           name: agent.name,
-          products: LEAD_PRODUCTS.filter((product) =>
-            assignedTo.get(key)?.has(product)
-          ),
+          eventIds: [...(assignedTo.get(key) ?? [])],
         };
       })
       .sort((a, b) => (a.name ?? a.email).localeCompare(b.name ?? b.email)),

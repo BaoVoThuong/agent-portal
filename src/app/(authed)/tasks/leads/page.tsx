@@ -10,7 +10,6 @@ import {
 } from "@/lib/leads/queries";
 import { resolveLeadOwnerEmails } from "@/lib/leads/membership";
 import { fetchTableColumnsWithOptions } from "@/lib/table-config/queries";
-import { isLeadProduct } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchTaskAgents } from "@/lib/tasks/assignees";
 import { LeadsClient } from "./_components/LeadsClient";
@@ -23,10 +22,6 @@ export default async function LeadsPage({
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = searchParams ? await searchParams : {};
-  // One list for both products now; ?product= is a filter the user can clear,
-  // not two separate screens.
-  const rawProduct = Array.isArray(params.product) ? params.product[0] : params.product;
-  const productFilter = isLeadProduct(rawProduct) ? rawProduct : null;
   const session = await requireAnyPermission([
     PERMISSIONS.LEAD_MANAGE,
     PERMISSIONS.LEAD_WORK,
@@ -46,7 +41,7 @@ export default async function LeadsPage({
   const [page, config, vocabulary, alertSettings, leadWorkers, agents] = await Promise.all([
     fetchAllLeads(
       actor,
-      { product: productFilter, alert: params.alert },
+      { alert: params.alert },
       supabase,
       ownerEmails,
     ),
@@ -81,7 +76,6 @@ export default async function LeadsPage({
 
   return (
     <LeadsClient
-      productFilter={productFilter}
       currentUserEmail={email}
       canViewAll={Boolean(actor.canViewAll)}
       editableOwnerEmails={ownerEmails}

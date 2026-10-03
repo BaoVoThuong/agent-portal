@@ -7,7 +7,7 @@ export type CreateUserInput = {
   email: string;
   password: string;
   name: string | null;
-  agentId: string;
+  agentId: string | null;
   legacyRoleFallback: UserRole;
   roleIds: string[];
 };
@@ -32,7 +32,17 @@ export function parseCreateUserInput(body: unknown): ParseResult<CreateUserInput
 
   const normalizedEmail =
     typeof email === "string" ? email.trim().toLowerCase() : "";
-  const normalizedAgentId = typeof agentId === "string" ? agentId.trim() : "";
+  if (
+    agentId !== undefined &&
+    agentId !== null &&
+    typeof agentId !== "string"
+  ) {
+    return { ok: false, error: "Invalid Agent ID.", status: 400 };
+  }
+  const normalizedAgentId =
+    typeof agentId === "string" && agentId.trim()
+      ? agentId.trim()
+      : null;
   const legacyRoleFallback: UserRole = LEGACY_ROLES.includes(role as UserRole)
     ? (role as UserRole)
     : "agent";
@@ -50,10 +60,6 @@ export function parseCreateUserInput(body: unknown): ParseResult<CreateUserInput
       error: "Password must be at least 8 characters.",
       status: 400,
     };
-  }
-
-  if (!normalizedAgentId) {
-    return { ok: false, error: "Agent ID is required.", status: 400 };
   }
 
   if (selectedRoleIds.length > 1) {

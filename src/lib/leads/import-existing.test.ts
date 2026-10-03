@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { findExistingLeadMatches, type ExistingLeadCandidate } from "./import-existing";
+import {
+  EVENT_NOT_CREATED_YET,
+  findExistingLeadMatches,
+  type ExistingLeadCandidate,
+} from "./import-existing";
 import type { TemplateLead } from "./import-template";
 
 const EVENT = "11111111-1111-4111-8111-111111111111";
@@ -94,6 +98,32 @@ describe("findExistingLeadMatches", () => {
       EVENT,
     );
     expect(sameNameOnly[0].sameEventBlocked).toBe(false);
+  });
+
+  // Chỉ trùng tên thì không bỏ được (user chốt 2026-10-03): tên trùng là
+  // chuyện thường, dòng vẫn import.
+  it("lets a row be removed only when it matches on phone, email or FUB", () => {
+    const [nameOnly, namePhone] = findExistingLeadMatches(
+      [
+        row({ row: 2, full_name: "Lan" }),
+        row({ row: 3, full_name: "Lan", phone: "7135550101" }),
+      ],
+      [lead({ id: "a", full_name: "Lan" }), lead({ id: "b", phone: "7135550101" })],
+      EVENT,
+    );
+    expect(nameOnly.removable).toBe(false);
+    expect(namePhone.removable).toBe(true);
+  });
+
+  // Event gõ tên chưa có: không lead nào nằm trong đó, nên Personal lead cùng
+  // số không được coi là "cùng event".
+  it("blocks nothing for an event that does not exist yet", () => {
+    const [match] = findExistingLeadMatches(
+      [row({ phone: "7135550101" })],
+      [lead({ phone: "7135550101", event_id: null })],
+      EVENT_NOT_CREATED_YET,
+    );
+    expect(match.sameEventBlocked).toBe(false);
   });
 
   it("blocks a phone-less row by its FUB link within the same event", () => {

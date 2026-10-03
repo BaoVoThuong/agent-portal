@@ -6476,21 +6476,6 @@ create sequence if not exists leads_display_number_seq;
 create table if not exists leads (
   id uuid primary key default gen_random_uuid(),
   display_number bigint not null default nextval('leads_display_number_seq'),
-  -- Trigger luôn đặt cột này = products[1]; chưa biết product thì là 'unknown'
-  -- (2026-09-29-lead-life-unknown-products.sql).
-  product text,
-  constraint leads_product_valid check (product in ('pc', 'health', 'life', 'unknown')),
-  -- `products` là nguồn sự thật; cột scalar `product` do trigger
-  -- lead_sync_primary_product giữ đồng bộ bằng phần tử đầu. Chưa phân loại =
-  -- ['unknown'], và Unknown luôn đứng một mình. Default VẪN là mảng rỗng: đó là
-  -- tín hiệu cho trigger "insert này chỉ set `product`, suy mảng từ nó" — đặt
-  -- default ['unknown'] thì insert kiểu cũ `product = 'pc'` sẽ thành Unknown.
-  products text[] not null default '{}'::text[],
-  constraint leads_products_valid check (
-    products <@ array['pc', 'health', 'life', 'unknown']::text[]
-    and cardinality(products) > 0
-    and (cardinality(products) = 1 or not ('unknown' = any (products)))
-  ),
   event_id uuid references lead_events(id) on delete set null,
   full_name text,
   phone text,
@@ -6517,7 +6502,9 @@ create table if not exists leads (
   updated_at timestamptz not null default now(),
   custom_values jsonb not null default '{}'::jsonb,
   archived_at timestamptz,
-  client_request_id uuid
+  client_request_id uuid,
+  -- An active lead without an Event is a Personal lead and must name an Agent.
+  check (archived_at is not null or event_id is not null or assigned_to_email is not null)
 );
 
 create index if not exists leads_collaborator_emails_gin_idx
@@ -6585,31 +6572,170 @@ create table if not exists lead_assignment_history (
   created_at timestamptz not null default now()
 );
 
+-- Personal lead = event_id is null. Active Personal leads must have a current
+-- Account Management Agent, and their initial ownership is audit logged.
+create or replace function lead_require_personal_agent()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  agent_email text := lead_norm_email(new.assigned_to_email);
+begin
+  if new.event_id is null and new.archived_at is null then
+    if agent_email is null then
+      raise exception using message = 'LEAD_PERSONAL_AGENT_REQUIRED';
+    end if;
+    if not exists (
+      select 1
+      from task_agents agent
+      join portal_account account
+        on lower(btrim(account.email)) = lower(btrim(agent.email))
+       and account.is_active
+      where lower(btrim(agent.email)) = agent_email
+    ) then
+      raise exception using message = 'LEAD_PERSONAL_AGENT_INVALID';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists lead_require_personal_agent_trg on leads;
+create trigger lead_require_personal_agent_trg
+  before insert or update of event_id, assigned_to_email, archived_at on leads
+  for each row execute function lead_require_personal_agent();
+
+create or replace function lead_log_personal_assignment_on_create()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.event_id is null
+    and new.archived_at is null
+    and lead_norm_email(new.assigned_to_email) is not null then
+    insert into lead_assignment_history
+      (lead_id, from_email, to_email, reason, actor_email)
+    values (
+      new.id,
+      null,
+      lead_norm_email(new.assigned_to_email),
+      'Personal lead assigned when created',
+      coalesce(
+        lead_norm_email(new.assigned_by_email),
+        lead_norm_email(new.created_by_email),
+        lead_norm_email(new.assigned_to_email)
+      )
+    );
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists lead_log_personal_assignment_on_create_trg on leads;
+create trigger lead_log_personal_assignment_on_create_trg
+  after insert on leads
+  for each row execute function lead_log_personal_assignment_on_create();
+
+create or replace function prevent_personal_lead_agent_removal()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if exists (
+    select 1
+    from leads lead_row
+    where lead_row.event_id is null
+      and lead_row.archived_at is null
+      and lead_norm_email(lead_row.assigned_to_email) = lead_norm_email(old.email)
+  ) then
+    raise exception using message = 'AGENT_HAS_PERSONAL_LEADS';
+  end if;
+  return old;
+end;
+$$;
+
+drop trigger if exists task_agent_personal_lead_guard_trg on task_agents;
+create trigger task_agent_personal_lead_guard_trg
+  before delete on task_agents
+  for each row execute function prevent_personal_lead_agent_removal();
+
+create or replace function prevent_personal_lead_account_deactivation()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'DELETE' or (old.is_active and not new.is_active) then
+    if exists (
+      select 1
+      from task_agents agent
+      join leads lead_row
+        on lead_norm_email(lead_row.assigned_to_email) = lead_norm_email(agent.email)
+      where lead_norm_email(agent.email) = lead_norm_email(old.email)
+        and lead_row.event_id is null
+        and lead_row.archived_at is null
+    ) then
+      raise exception using message = 'AGENT_HAS_PERSONAL_LEADS';
+    end if;
+  end if;
+  if tg_op = 'DELETE' then return old; end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists portal_account_personal_lead_guard_trg on portal_account;
+create trigger portal_account_personal_lead_guard_trg
+  before delete or update of is_active on portal_account
+  for each row execute function prevent_personal_lead_account_deactivation();
+
 create table if not exists lead_alert_settings (
-  product text primary key
-    constraint lead_alert_settings_product_valid
-    check (product in ('pc', 'health', 'life', 'unknown')),
+  id boolean primary key default true check (id),
   no_contact_hours integer not null default 24 check (no_contact_hours > 0),
   stale_days integer not null default 3 check (stale_days > 0),
   max_attempts integer not null default 4 check (max_attempts > 0),
-  -- Bật/tắt tự chia lead khi import, theo từng product; mặc định TẮT. Đặt sai tỉ
-  -- lệ rồi import 2.000 lead là một mớ phải gỡ tay (2026-09-02-lead-auto-assign.sql).
+  updated_by_email text,
+  updated_at timestamptz not null default now()
+);
+
+insert into lead_alert_settings (id) values (true)
+on conflict (id) do nothing;
+
+-- Each Event owns its Agent roster, ratios, and smooth weighted round-robin cursor.
+create table if not exists lead_event_assignment_settings (
+  event_id uuid primary key references lead_events(id) on delete cascade,
   auto_assign_enabled boolean not null default false,
   updated_by_email text,
   updated_at timestamptz not null default now()
 );
 
-insert into lead_alert_settings (product)
-values ('pc'), ('health'), ('life'), ('unknown')
-on conflict (product) do nothing;
+insert into lead_event_assignment_settings (event_id)
+select id from lead_events
+on conflict (event_id) do nothing;
 
--- Trọng số chia pool + con trỏ smooth weighted round-robin, theo từng product
--- (2026-09-02-lead-auto-assign.sql). `current_weight` PHẢI lưu ở đây: tính lại
--- mỗi lượt import thì mười lần import mỗi lần một lead sẽ cùng rơi vào người đầu.
-create table if not exists lead_assignment_weights (
-  product text not null
-    constraint lead_assignment_weights_product_valid
-    check (product in ('pc', 'health', 'life', 'unknown')),
+create or replace function create_lead_event_assignment_settings()
+returns trigger
+language plpgsql as $$
+begin
+  insert into lead_event_assignment_settings (event_id)
+  values (new.id)
+  on conflict (event_id) do nothing;
+  return new;
+end $$;
+
+drop trigger if exists lead_event_assignment_settings_trg on lead_events;
+create trigger lead_event_assignment_settings_trg
+  after insert on lead_events
+  for each row execute function create_lead_event_assignment_settings();
+
+create table if not exists lead_event_assignment_weights (
+  event_id uuid not null references lead_events(id) on delete cascade,
   agent_email text not null,
   weight integer not null default 1 check (weight >= 0),
   current_weight integer not null default 0,
@@ -6617,13 +6743,43 @@ create table if not exists lead_assignment_weights (
   is_active boolean not null default true,
   updated_by_email text,
   updated_at timestamptz not null default now(),
-  primary key (product, agent_email)
+  primary key (event_id, agent_email)
 );
+
+-- "Personal Lead" is a retired legacy label, not an Event. These guards also
+-- cover direct database/RPC writes that bypass the UI and API filters.
+create or replace function reject_personal_lead_event_pool()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  event_name text;
+begin
+  select name into event_name from lead_events where id = new.event_id;
+  if lower(regexp_replace(btrim(coalesce(event_name, '')), '\s+', ' ', 'g'))
+      in ('personal', 'personal lead', 'personal leads') then
+    raise exception using message = 'LEAD_PERSONAL_EVENT_POOL_FORBIDDEN';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists lead_personal_event_settings_guard_trg on lead_event_assignment_settings;
+create trigger lead_personal_event_settings_guard_trg
+  before insert or update of event_id on lead_event_assignment_settings
+  for each row execute function reject_personal_lead_event_pool();
+
+drop trigger if exists lead_personal_event_weights_guard_trg on lead_event_assignment_weights;
+create trigger lead_personal_event_weights_guard_trg
+  before insert or update of event_id on lead_event_assignment_weights
+  for each row execute function reject_personal_lead_event_pool();
 
 
 
 -- Index bám đúng cách bảng được đọc: luôn lọc archived_at is null, rồi lọc
--- theo product, rồi sắp theo created_at.
+-- theo Agent và sắp theo created_at.
 -- Bắt buộc phải có trước phần seed bên trên: `on conflict do nothing` không có
 -- unique index nào để bấu vào thì nó im lặng không làm gì cả, và chạy lại
 -- rollout lần hai sẽ nhân đôi toàn bộ từ vựng.
@@ -6651,10 +6807,8 @@ create unique index if not exists lead_interaction_types_label_unique_idx
 create unique index if not exists lead_statuses_label_unique_idx
   on lead_statuses (label) where archived_at is null;
 
-create index if not exists leads_product_active_idx
-  on leads (product, created_at desc) where archived_at is null;
 create index if not exists leads_assigned_idx
-  on leads (assigned_to_email, product) where archived_at is null;
+  on leads (assigned_to_email, created_at desc) where archived_at is null;
 create index if not exists leads_event_idx on leads (event_id);
 create index if not exists lead_interactions_lead_idx
   on lead_interactions (lead_id, occurred_at desc);
@@ -6677,14 +6831,9 @@ create unique index if not exists leads_phone_no_event_unique_idx
   on leads (phone)
   where phone is not null and event_id is null and archived_at is null;
 
--- `products @> array[...]` cho bộ lọc product và pool theo product
--- (2026-09-03-lead-multi-product.sql).
-create index if not exists leads_products_idx on leads using gin (products);
-
--- Vòng lặp chia pool đọc trọng số theo product rồi position
--- (2026-09-02-lead-auto-assign.sql).
-create index if not exists lead_assignment_weights_active_idx
-  on lead_assignment_weights (product, position, agent_email)
+-- Event pool reads and weighted assignment follow this order.
+create index if not exists lead_event_assignment_weights_active_idx
+  on lead_event_assignment_weights (event_id, position, agent_email)
   where is_active and weight > 0;
 
 -- Danh sách mặc định: archived_at is null, sắp created_at desc
@@ -6731,7 +6880,8 @@ alter table lead_comments enable row level security;
 alter table lead_attachments enable row level security;
 alter table lead_assignment_history enable row level security;
 alter table lead_alert_settings enable row level security;
-alter table lead_assignment_weights enable row level security;
+alter table lead_event_assignment_settings enable row level security;
+alter table lead_event_assignment_weights enable row level security;
 
 -- ---------------------------------------------------------------------------
 -- Lead Management: ghi interaction và cập nhật thống kê atomically.
@@ -6923,65 +7073,6 @@ revoke all on function create_lead_comment_atomic(uuid, text, text, uuid, uuid)
 grant execute on function create_lead_comment_atomic(uuid, text, text, uuid, uuid)
   to service_role;
 
--- ---------------------------------------------------------------------------
--- Lead Management: một lead có thể mang nhiều product; cột scalar `product` là
--- phái sinh, do trigger giữ = products[1] (2026-09-03-lead-multi-product.sql).
--- Rỗng = Unknown, Unknown đứng một mình (2026-09-29-lead-life-unknown-products.sql).
--- Bản TS của luật này là normalizeLeadProducts() trong src/lib/leads/types.ts.
-create or replace function lead_sync_primary_product()
-returns trigger
-language plpgsql as $$
-declare
-  requested text[];
-begin
-  if tg_op = 'UPDATE'
-    and new.products is distinct from old.products then
-    -- `products` is authoritative when it was edited — including an empty
-    -- array, which now means "back to Unknown".
-    requested := coalesce(new.products, '{}'::text[]);
-  elsif tg_op = 'UPDATE'
-    and new.product is distinct from old.product then
-    -- Inline edit vẫn gửi cột `product` riêng. Một lần chọn product mới phải
-    -- bỏ trạng thái multi-product cũ thay vì để trigger giữ giá trị cũ.
-    requested := case
-      when new.product is null then '{}'::text[]
-      else array[new.product]
-    end;
-  elsif new.products is null or cardinality(new.products) = 0 then
-    -- Insert kiểu cũ (chỉ set `product`, hoặc không set gì) vẫn hợp lệ.
-    requested := case
-      when new.product is null then '{}'::text[]
-      else array[new.product]
-    end;
-  else
-    requested := new.products;
-  end if;
-
-  -- Giá trị lạ phải bị chặn chứ không được lặng lẽ biến thành Unknown.
-  if exists (
-    select 1 from unnest(requested) as r
-    where r not in ('pc', 'health', 'life', 'unknown')
-  ) then
-    raise exception 'LEAD_PRODUCT_INVALID';
-  end if;
-
-  -- Thứ tự cố định để `product` không đổi chỉ vì mảng được ghi khác thứ tự.
-  -- Có product thật thì bỏ Unknown; không còn gì thì là Unknown.
-  new.products := array(
-    select p from unnest(array['pc', 'health', 'life']) as p where p = any (requested)
-  );
-  if cardinality(new.products) = 0 then
-    new.products := array['unknown'];
-  end if;
-  new.product := new.products[1];
-  return new;
-end $$;
-
-drop trigger if exists lead_sync_primary_product_trg on leads;
-create trigger lead_sync_primary_product_trg
-  before insert or update of products, product on leads
-  for each row execute function lead_sync_primary_product();
-
 -- Gán lead nguyên tử: update + ghi lịch sử trong một giao dịch, chủ cũ đọc dưới
 -- khoá (2026-09-02-lead-write-integrity.sql).
 create or replace function assign_leads_manual(
@@ -7000,17 +7091,21 @@ begin
   if actor_value is null then
     raise exception 'LEAD_ACTOR_REQUIRED';
   end if;
-  -- null = bỏ gán, đưa lead về pool. Thao tác hợp lệ, không phải lỗi.
+  -- null = đưa Event lead về pool. Personal lead luôn phải có Agent.
   target_value := lead_norm_email(p_to_email);
 
   for r in
-    select l.id, l.assigned_to_email
+    select l.id, l.event_id, l.assigned_to_email
     from leads l
     where l.id = any (coalesce(p_lead_ids, array[]::uuid[]))
       and l.archived_at is null
     order by l.id
     for update
   loop
+    if r.event_id is null and target_value is null then
+      raise exception 'LEAD_PERSONAL_AGENT_REQUIRED';
+    end if;
+
     update leads
     set assigned_to_email = target_value,
         assigned_at = case when target_value is null then null else now() end,
@@ -7034,13 +7129,11 @@ revoke all on function assign_leads_manual(uuid[], text, text, text)
 grant execute on function assign_leads_manual(uuid[], text, text, text)
   to service_role;
 
--- Chia pool theo smooth weighted round-robin: giữ TRẠNG THÁI + KHOÁ, hai thứ
--- không thể nằm ở Node. Thuật toán ở src/lib/leads/round-robin.ts. Khớp lead
--- theo THÀNH VIÊN mảng products (2026-09-02-lead-auto-assign.sql, cập nhật
--- multi-product 2026-09-03-lead-multi-product.sql).
+-- Chia lead theo smooth weighted round-robin trong đúng Event. Khoá dòng Event
+-- để các lượt chia và lượt sửa pool cùng Event không chạy xen kẽ.
 create or replace function assign_leads_round_robin(
   p_lead_ids uuid[],
-  p_product text,
+  p_event_id uuid,
   p_eligible_emails text[],
   p_actor_email text,
   p_reason text default 'auto: weighted round-robin'
@@ -7057,8 +7150,15 @@ begin
   if actor_value is null then
     raise exception 'LEAD_ACTOR_REQUIRED';
   end if;
-  if p_product is null or p_product not in ('pc', 'health', 'life', 'unknown') then
-    raise exception 'LEAD_PRODUCT_INVALID';
+  if p_event_id is null then
+    raise exception 'LEAD_EVENT_REQUIRED';
+  end if;
+
+  perform 1 from lead_events e
+  where e.id = p_event_id and e.archived_at is null
+  for update;
+  if not found then
+    raise exception 'LEAD_EVENT_INVALID';
   end if;
 
   select coalesce(array_agg(lower(btrim(value))), array[]::text[])
@@ -7066,14 +7166,15 @@ begin
   from unnest(coalesce(p_eligible_emails, array[]::text[])) as value
   where btrim(value) <> '';
 
-  perform 1
-  from lead_assignment_weights w
-  where w.product = p_product
+  perform w.agent_email
+  from lead_event_assignment_weights w
+  where w.event_id = p_event_id
+  order by w.agent_email
   for update;
 
   select coalesce(sum(w.weight), 0) into total_weight
-  from lead_assignment_weights w
-  where w.product = p_product
+  from lead_event_assignment_weights w
+  where w.event_id = p_event_id
     and w.is_active
     and w.weight > 0
     and lower(w.agent_email) = any (eligible);
@@ -7082,27 +7183,36 @@ begin
     return;
   end if;
 
-  foreach target_lead in array coalesce(p_lead_ids, array[]::uuid[]) loop
-    update lead_assignment_weights w
+  for target_lead in
+    select l.id
+    from leads l
+    where l.id = any (coalesce(p_lead_ids, array[]::uuid[]))
+      and l.event_id = p_event_id
+      and l.archived_at is null
+      and l.assigned_to_email is null
+    order by l.created_at, l.id
+    for update
+  loop
+    update lead_event_assignment_weights w
     set current_weight = w.current_weight + w.weight
-    where w.product = p_product
+    where w.event_id = p_event_id
       and w.is_active
       and w.weight > 0
       and lower(w.agent_email) = any (eligible);
 
     select w.agent_email into best_email
-    from lead_assignment_weights w
-    where w.product = p_product
+    from lead_event_assignment_weights w
+    where w.event_id = p_event_id
       and w.is_active
       and w.weight > 0
       and lower(w.agent_email) = any (eligible)
     order by w.current_weight desc, w.position asc, w.agent_email asc
     limit 1;
 
-    update lead_assignment_weights w
+    update lead_event_assignment_weights w
     set current_weight = w.current_weight - total_weight,
         updated_at = now()
-    where w.product = p_product and w.agent_email = best_email;
+    where w.event_id = p_event_id and w.agent_email = best_email;
 
     update leads l
     set assigned_to_email = best_email,
@@ -7113,8 +7223,7 @@ begin
     where l.id = target_lead
       and l.archived_at is null
       and l.assigned_to_email is null
-      -- Lead mang product này là đủ; nó có thể mang cả product kia nữa.
-      and p_product = any (l.products);
+      and l.event_id = p_event_id;
 
     if found then
       insert into lead_assignment_history
@@ -7127,17 +7236,14 @@ begin
   end loop;
 end $$;
 
-revoke all on function assign_leads_round_robin(uuid[], text, text[], text, text)
+revoke all on function assign_leads_round_robin(uuid[], uuid, text[], text, text)
   from public, anon, authenticated;
-grant execute on function assign_leads_round_robin(uuid[], text, text[], text, text)
+grant execute on function assign_leads_round_robin(uuid[], uuid, text[], text, text)
   to service_role;
 
--- Lưu toàn bộ cấu hình chia pool của MỘT product trong một giao dịch, khoá mọi
--- dòng của product đó trước khi ghi (2026-09-03-lead-weights-atomic.sql).
--- `current_weight` KHÔNG nằm trong payload: đặt lại con trỏ khi admin chỉ sửa tỉ
--- lệ sẽ trao mấy lead kế tiếp cho người đang tụt xa nhất.
-create or replace function save_lead_assignment_weights(
-  p_product text,
+-- Lưu cấu hình pool của một Event nguyên tử; con trỏ không bị reset khi sửa tỉ lệ.
+create or replace function save_lead_event_assignment_weights(
+  p_event_id uuid,
   p_rows jsonb,
   p_enabled boolean,
   p_actor_email text
@@ -7151,25 +7257,30 @@ begin
   if actor_value is null then
     raise exception 'LEAD_ACTOR_REQUIRED';
   end if;
-  if p_product is null or p_product not in ('pc', 'health', 'life', 'unknown') then
-    raise exception 'LEAD_PRODUCT_INVALID';
+  if p_event_id is null then
+    raise exception 'LEAD_EVENT_REQUIRED';
   end if;
 
-  perform 1 from lead_assignment_weights w where w.product = p_product for update;
+  perform 1 from lead_events e
+  where e.id = p_event_id and e.archived_at is null
+  for update;
+  if not found then
+    raise exception 'LEAD_EVENT_INVALID';
+  end if;
 
   select coalesce(array_agg(lower(btrim(value ->> 'agent_email'))), array[]::text[])
   into keep
   from jsonb_array_elements(coalesce(p_rows, '[]'::jsonb)) as value
   where btrim(coalesce(value ->> 'agent_email', '')) <> '';
 
-  delete from lead_assignment_weights w
-  where w.product = p_product
+  delete from lead_event_assignment_weights w
+  where w.event_id = p_event_id
     and lower(w.agent_email) <> all (keep);
 
-  insert into lead_assignment_weights
-    (product, agent_email, weight, position, is_active, updated_by_email, updated_at)
+  insert into lead_event_assignment_weights
+    (event_id, agent_email, weight, position, is_active, updated_by_email, updated_at)
   select
-    p_product,
+    p_event_id,
     lower(btrim(value ->> 'agent_email')),
     greatest(coalesce((value ->> 'weight')::int, 0), 0),
     coalesce((value ->> 'position')::int, 0),
@@ -7178,23 +7289,25 @@ begin
     now()
   from jsonb_array_elements(coalesce(p_rows, '[]'::jsonb)) as value
   where btrim(coalesce(value ->> 'agent_email', '')) <> ''
-  on conflict (product, agent_email) do update
+  on conflict (event_id, agent_email) do update
   set weight = excluded.weight,
       position = excluded.position,
       is_active = excluded.is_active,
       updated_by_email = excluded.updated_by_email,
       updated_at = excluded.updated_at;
 
-  if p_enabled is not null then
-    update lead_alert_settings
-    set auto_assign_enabled = p_enabled
-    where product = p_product;
-  end if;
+  insert into lead_event_assignment_settings
+    (event_id, auto_assign_enabled, updated_by_email, updated_at)
+  values (p_event_id, coalesce(p_enabled, false), actor_value, now())
+  on conflict (event_id) do update
+  set auto_assign_enabled = coalesce(p_enabled, lead_event_assignment_settings.auto_assign_enabled),
+      updated_by_email = actor_value,
+      updated_at = now();
 end $$;
 
-revoke all on function save_lead_assignment_weights(text, jsonb, boolean, text)
+revoke all on function save_lead_event_assignment_weights(uuid, jsonb, boolean, text)
   from public, anon, authenticated;
-grant execute on function save_lead_assignment_weights(text, jsonb, boolean, text)
+grant execute on function save_lead_event_assignment_weights(uuid, jsonb, boolean, text)
   to service_role;
 
 -- ===========================================================================

@@ -157,8 +157,8 @@ export default async function ConfigPage() {
       if (!needsLeadData) return [] as LeadAlertSettings[];
       const result = await supabase
         .from("lead_alert_settings")
-        .select("product,no_contact_hours,stale_days,max_attempts")
-        .order("product");
+        .select("no_contact_hours,stale_days,max_attempts")
+        .limit(1);
       if (result.error) throw new Error(result.error.message);
       return (result.data ?? []) as LeadAlertSettings[];
     }),
