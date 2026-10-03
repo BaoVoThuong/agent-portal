@@ -5089,9 +5089,12 @@ function NewEnrollmentDialog({
             </button>
           </div>
         </header>
-        <div className="flex-1 overflow-y-auto">
-          <div className="grid min-h-full lg:grid-cols-[minmax(0,1fr)_320px]">
-            <main className="min-w-0 space-y-3 px-6 py-5">
+        {/* Màn hình rộng: hai cột cuộn RIÊNG — kéo cột phải (thuộc tính) thì cột
+            trái (tên, mô tả) đứng yên. Cột trái hầu như không phải cuộn nên ẩn
+            thanh cuộn (vẫn cuộn được). Màn hẹp xếp dọc nên cả thân cuộn chung. */}
+        <div className="min-h-0 flex-1 overflow-y-auto lg:flex lg:flex-col lg:overflow-hidden">
+          <div className="grid min-h-full lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-[minmax(0,1fr)]">
+            <main className="min-w-0 space-y-3 px-6 py-5 lg:min-h-0 lg:overflow-y-auto lg:[scrollbar-width:none] lg:[&::-webkit-scrollbar]:hidden">
               <label className={COMPACT_DETAIL_FIELD_CLASS}>
                 <span className="block text-xs font-bold uppercase text-[#6b778c]">
                   {columnByKey.get("client")?.label ?? "Client Name"}
@@ -5203,7 +5206,7 @@ function NewEnrollmentDialog({
               ) : null}
             </main>
 
-            <aside className="min-w-0 flex flex-col gap-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0">
+            <aside className="min-w-0 flex flex-col gap-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:min-h-0 lg:overflow-y-auto lg:border-l lg:border-t-0">
               {showPipelineSection ? (
                 <CreatePropertySection className="order-2 !border-t !pt-4">
                   {showStage ? (

@@ -1,7 +1,18 @@
 import { validateCustomValues } from "@/lib/table-config/custom-values";
 import type { WriteValidationContext } from "@/lib/table-config/custom-values";
 import { findMissingRequiredFieldsFromContext } from "@/lib/table-config/required";
-import type { ParsedLead } from "./import-parse";
+import { storesInCustomValues } from "@/lib/table-config/system-option-columns";
+
+/** Hình dạng tối thiểu của một dòng import cần kiểm. */
+export type ImportValidationRow = {
+  row: number;
+  full_name: string | null;
+  /** Import theo mẫu cho phép trống — xem `optionalSystemKeys`. */
+  phone: string | null;
+  email: string | null;
+  fub_link?: string | null;
+  custom_values: Record<string, unknown>;
+};
 
 /**
  * Tách hàng import thành hợp lệ / bị bỏ, và nói rõ header nào đã bị bỏ qua.
@@ -9,7 +20,7 @@ import type { ParsedLead } from "./import-parse";
  * Ba điều phải đúng cùng lúc, và điều thứ nhất là điều dễ làm sai nhất:
  *
  * 1. **Header không có trong cấu hình thì BỎ QUA, không loại cả dòng.**
- *    `parseLeadRows` nhét MỌI header Excel không được map vào `custom_values`,
+ *    Dòng import có thể mang key mà Table Config không có (cột chưa tạo),
  *    còn `validateCustomValues` từ chối key lạ bằng `unknown-column`. Nối thẳng
  *    hai thứ đó lại là một file bình thường có cột "Notes" sẽ mất sạch dòng.
  *    Người dùng dán file xuất từ hệ thống khác với hàng chục cột không liên
@@ -22,18 +33,26 @@ import type { ParsedLead } from "./import-parse";
  *    một dòng là mất việc lớn vì việc nhỏ — và đó đúng là cách import đang xử
  *    lý "thiếu số điện thoại" với "trùng số trong file".
  */
-export function partitionImportRows(
-  rows: readonly ParsedLead[],
-  context: WriteValidationContext
+export function partitionImportRows<Row extends ImportValidationRow>(
+  rows: readonly Row[],
+  context: WriteValidationContext,
+  options: {
+    /**
+     * Cột hệ thống mà cờ Required KHÔNG áp cho lượt import này. Import theo mẫu
+     * truyền `["phone"]`: user chốt "có gì ghi nấy" — dòng không có số vẫn vào.
+     */
+    optionalSystemKeys?: readonly string[];
+  } = {}
 ): {
-  valid: ParsedLead[];
+  valid: Row[];
   skipped: { row: number; reason: string }[];
   ignoredHeaders: string[];
 } {
   const configuredKeys = new Set(
-    context.columns.filter((column) => !column.is_system).map((column) => column.key)
+    context.columns.filter(storesInCustomValues).map((column) => column.key)
   );
-  const valid: ParsedLead[] = [];
+  const valid: Row[] = [];
+  const optionalSystemKeys = new Set(options.optionalSystemKeys ?? []);
   const skipped: { row: number; reason: string }[] = [];
   const ignored = new Set<string>();
 
@@ -61,10 +80,11 @@ export function partitionImportRows(
         name: row.full_name,
         phone: row.phone,
         email: row.email,
+        fub: row.fub_link ?? null,
       },
       customValues: validated.values,
       partial: false,
-    });
+    }).filter((field) => !optionalSystemKeys.has(field.key));
     if (missing.length > 0) {
       skipped.push({
         row: row.row,

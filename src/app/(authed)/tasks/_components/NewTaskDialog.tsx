@@ -323,9 +323,12 @@ export function NewTaskDialog({
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto">
-          <div className="grid min-h-full lg:grid-cols-[minmax(0,1fr)_20rem]">
-            <section className="min-w-0 space-y-3 px-6 py-5">
+        {/* Màn hình rộng: hai cột cuộn RIÊNG — kéo cột phải (thuộc tính) thì cột
+            trái (tên, mô tả) đứng yên. Cột trái hầu như không phải cuộn nên ẩn
+            thanh cuộn (vẫn cuộn được). Màn hẹp xếp dọc nên cả thân cuộn chung. */}
+        <div className="min-h-0 flex-1 overflow-y-auto lg:flex lg:flex-col lg:overflow-hidden">
+          <div className="grid min-h-full lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_20rem] lg:grid-rows-[minmax(0,1fr)]">
+            <section className="min-w-0 space-y-3 px-6 py-5 lg:min-h-0 lg:overflow-y-auto lg:[scrollbar-width:none] lg:[&::-webkit-scrollbar]:hidden">
               <label className={PRIMARY_FIELD_CLASS}>
                 <span className={PRIMARY_LABEL_CLASS}>
                   {columnByKey.get("summary")?.label ?? "Client Name"}
@@ -424,15 +427,7 @@ export function NewTaskDialog({
               </div>
             </section>
 
-            <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0">
-              <div className="flex items-center justify-between border-b border-[#dfe1e6] pb-3">
-                <span className="text-xs font-bold uppercase text-[#6b778c]">
-                  Properties
-                </span>
-                <span className="rounded bg-[#e9f2ff] px-2 py-0.5 text-xs font-bold text-[#0c66e4]">
-                  Task
-                </span>
-              </div>
+            <aside className="space-y-4 border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:min-h-0 lg:overflow-y-auto lg:border-l lg:border-t-0">
               {showCategory ? (
                 <MetaField
                   label={columnByKey.get("category")?.label ?? "Category"}
@@ -534,29 +529,23 @@ export function NewTaskDialog({
                 </MetaField>
               ) : null}
 
-              {visibleDetailColumns.length > 0 ? (
-                <div className="space-y-3 border-t border-[#dfe1e6] pt-3">
-                  <span className="block text-xs font-bold uppercase text-[#6b778c]">
-                    Custom fields
-                  </span>
-                  {visibleDetailColumns.map((column) => (
-                    <MetaField
-                      key={column.id}
-                      label={column.label}
-                      required={column.required}
-                    >
-                      <NewTaskCustomField
-                        column={column}
-                        value={customValues[column.key]}
-                        options={optionsByColumnId.get(column.id) ?? []}
-                        peopleOptions={assigneeOptions}
-                        invalid={isInvalid(column.key)}
-                        onChange={(value) => setCustomValue(column.key, value)}
-                      />
-                    </MetaField>
-                  ))}
-                </div>
-              ) : null}
+              {/* Cột tự thêm hiện như mọi trường khác, không tách nhóm riêng. */}
+              {visibleDetailColumns.map((column) => (
+                <MetaField
+                  key={column.id}
+                  label={column.label}
+                  required={column.required}
+                >
+                  <NewTaskCustomField
+                    column={column}
+                    value={customValues[column.key]}
+                    options={optionsByColumnId.get(column.id) ?? []}
+                    peopleOptions={assigneeOptions}
+                    invalid={isInvalid(column.key)}
+                    onChange={(value) => setCustomValue(column.key, value)}
+                  />
+                </MetaField>
+              ))}
             </aside>
           </div>
         </div>

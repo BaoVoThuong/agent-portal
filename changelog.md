@@ -6,6 +6,82 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-03 — Lead: Agent và Collaborators lấy từ danh sách Agent
+
+- Bộ lọc Assignee, ô Agent (bảng, drawer, gán hàng loạt), Assign to của
+  Personal lead và ô Collaborators giờ liệt kê **các Agent ở Account Management
+  → Agent membership** (`task_agents`), thay cho danh sách người có quyền Lead
+  (vốn toàn admin). Agent không cần tự có quyền Lead: Assistant của họ xem và xử
+  lý lead.
+- Server nhận người được gán / Collaborator là Agent HOẶC người có quyền Lead
+  (`fetchLeadMemberEmails`, `/api/leads/assign`) — lead cũ đang giao cho admin
+  không bị chặn sửa.
+- Bộ lọc Assignee giữ thêm những người đang giữ lead mà không phải Agent, để vẫn
+  lọc được lead cũ của họ. Tên hiển thị lấy từ Agent + người có quyền Lead.
+
+## 2026-10-03 — Agents + Assistant membership chuyển sang Account Management
+
+- Danh sách Agent (`task_agents`) và quan hệ Agent → Assistant (`agent_members`)
+  giờ sửa ở **Account Management → tab Agent membership**; Table Configuration
+  bỏ tab "Assistant Membership" và không còn nạp danh bạ công ty / quan hệ
+  agent-assistant.
+- Không đổi dữ liệu, API hay quyền: vẫn `/api/config/agents` và
+  `/api/config/assistants`, vẫn cổng `loadConfigAdmin` (task.manage + admin).
+  Tab chỉ hiện (và dữ liệu chỉ nạp) cho người qua cổng đó; trang Account
+  Management vẫn đòi `management.account_manager`. Kiểm production 2026-10-03:
+  3 người có quyền sửa Agent đều có `management.account_manager` — không ai mất
+  quyền.
+- Mọi nơi đọc hai bảng (Task board, Lead, Enrollment, thông báo, Import lead)
+  đọc thẳng DB nên không bị ảnh hưởng. Các câu hướng dẫn trong Lead
+  (Distribute pool, Import) trỏ sang chỗ mới.
+- `DropdownSelect` tách khỏi ConfigClient thành `_shared/DropdownSelect.tsx`.
+
+## 2026-10-03 — Lead Import theo mẫu cột cố định
+
+- Import đọc thẳng 13 cột của mẫu (Full Name, Age, Gender, Phone Number, Email,
+  Ticket #, Contact Method, Best Time to Contact, Insurance Needs, Client's
+  Note, Agent, FUB link, Note). Bỏ bảng map cột và gợi ý map bằng AI
+  (`/api/leads/import/suggest-mapping`, `lib/ai/import-mapping-agent.ts`).
+  Dialog có nút "Download template".
+- Ghi vào: name/phone/email/FUB link vào cột thật; Client's Note + Note gộp vào
+  Description (mỗi phần có nhãn); 6 cột còn lại vào cột custom key cố định
+  (`age`, `gender`, `ticket_number`, `contact_method`, `best_time_to_contact`,
+  `insurance_needs`) — rollout `2026-10-03-lead-import-template-columns.sql`.
+  Insurance Needs giữ đúng dữ liệu, KHÔNG suy ra Product.
+- "Có gì ghi nấy": dòng không có số điện thoại vẫn import (cờ Required của
+  Phone không áp cho import); giá trị lựa chọn chưa có thì Import tự thêm lựa
+  chọn mới; `No ticket #` ghi nguyên.
+- Agent theo tên → danh sách Agent ở Config → Assistant membership (bảng
+  `task_agents`, cùng nguồn Task CS); bỏ dấu, cho phép khác tên đệm nếu chỉ một
+  người khớp; gán ngay qua `assign_leads_manual`. Agent không cần tự có quyền
+  Lead — Assistant của họ xử lý lead. Không phải Agent, không có tài khoản hay
+  trùng tên → để trống, preview liệt kê kèm số dòng. Chia tự động chỉ áp cho
+  lead chưa có Agent.
+- Trang Lead lấy thêm tên Agent ở Config để hiện tên (không phải email) cho lead
+  giao cho Agent không có quyền Lead; danh sách chọn Agent không đổi.
+- 6 trường của mẫu (Age, Gender, Ticket #, Contact Method, Best Time to
+  Contact, Insurance Needs) là TRƯỜNG CỐ ĐỊNH: `is_system = true`, Config không
+  archive được, admin vẫn sửa lựa chọn (`is_admin_managed_system_column`). Giá
+  trị vẫn ở `custom_values` dưới key cũ; `storesInCustomValues` cho chúng đi
+  đường cột custom ở validate, Required, ô sửa bảng/drawer, Import. Rollout
+  `2026-10-03-lead-import-fields-system.sql` (chạy sau rollout tạo cột).
+- Form Add lead: 6 trường cố định nằm cùng các trường chính (sau Email), không
+  còn ở mục "Custom fields"; cột chọn nhiều có ô chọn nhiều, lưu mảng option id
+  (route nhận mảng chuỗi); Age lưu số. 6 cột không ẩn mặc định vì drawer Lead
+  không hiện cột ẩn mặc định.
+- Product chọn NHIỀU ở form Add lead và Import (cùng luật ô Product trên bảng:
+  Unknown đứng một mình). Route nhận `products`; client cũ gửi `product` vẫn
+  chạy. Chọn người nhận: người nằm trong Distribute pool của MỘT trong các
+  product đã chọn. Import chia tự động theo product chính (phần tử đầu).
+- Preview là route Import chạy `dry_run` (không ghi). Khách cũ — trùng tên,
+  phone, email hoặc FUB link (so theo id người) với lead đang có — hiện đỏ trên
+  đầu; tick "Remove" để bỏ dòng, không tick thì vẫn import. Trùng số trong cùng
+  event thì khoá ở trạng thái bỏ (DB không cho ghi).
+- Chặn trùng trong file: phone, không có thì FUB link, không có nữa thì email.
+- Sửa: CSV UTF-8 không còn vỡ tiếng Việt (`codepage: 65001`); cột
+  dropdown/multiselect import được (nhãn → option id; trước đây cả dòng bị loại
+  vì "invalid option"). Trần file 5 MB → 4 MB (Vercel chặn body > 4.5 MB).
+
 ## 2026-10-03 — Lead: Lead type, Collaborators kiểu ô người, trả lời comment
 
 - **Lead type** (Event lead / Personal lead) suy ra từ ô Event, KHÔNG có cột

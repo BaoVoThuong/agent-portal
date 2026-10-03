@@ -2,11 +2,6 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import {
-  fetchTaskAgentCandidates,
-  fetchTaskAgents,
-  fetchTaskAssignees,
-} from "@/lib/tasks/assignees";
 import { buildLeadActor, canManageLeads, isLeadViewAdmin } from "@/lib/leads/access";
 import { fetchLeadVocabulary } from "@/lib/leads/queries";
 import { loadConfigAdmin } from "@/lib/table-config/access";
@@ -111,10 +106,6 @@ export default async function ConfigPage() {
   const [
     columnsResult,
     optionsResult,
-    agentsResult,
-    candidatesResult,
-    assigneesResult,
-    membersResult,
     categoriesResult,
     slaRulesResult,
     enrollmentOptionResults,
@@ -123,20 +114,8 @@ export default async function ConfigPage() {
   ] = await Promise.all([
     loadOptional("Table columns", () => fetchAllTableColumns(supabase)),
     loadOptional("Custom dropdown values", () => fetchAllTableColumnOptions(supabase)),
-    loadOptional("Agents", async () => (needsTaskData ? fetchTaskAgents() : [])),
-    loadOptional("Agent candidates", async () =>
-      needsTaskData ? fetchTaskAgentCandidates() : []
-    ),
-    loadOptional("Task assignees", async () => (needsTaskData ? fetchTaskAssignees() : [])),
-    loadOptional("Assistant memberships", async () => {
-      if (!needsTaskData) return [];
-      const result = await supabase
-        .from("agent_members")
-        .select("agent_email,cs_email,is_assistant")
-        .eq("is_assistant", true);
-      if (result.error) throw new Error(result.error.message);
-      return result.data ?? [];
-    }),
+    // Agents + Assistant membership chuyển sang Account Management (2026-10-03):
+    // trang này không còn nạp danh bạ công ty hay quan hệ agent→assistant.
     loadOptional("Categories", async () => {
       if (!needsTaskData) return [];
       const result = await supabase
@@ -204,11 +183,6 @@ export default async function ConfigPage() {
   // Cắt sạch options vì MỘT scope chưa sẵn sàng là làm các scope kia mất luôn
   // giá trị dropdown — đúng lỗi cũ ở một dạng khác.
   const options = optionsResult.ok ? optionsResult.data : emptyOptions;
-  const emptyPeople: never[] = [];
-  const agents = agentsResult.ok ? agentsResult.data : emptyPeople;
-  const candidates = candidatesResult.ok ? candidatesResult.data : emptyPeople;
-  const assignees = assigneesResult.ok ? assigneesResult.data : emptyPeople;
-  const memberRows = membersResult.ok ? membersResult.data : [];
   const categoryRows = categoriesResult.ok ? categoriesResult.data : [];
   const slaRows = slaRulesResult.ok ? slaRulesResult.data : [];
   const optionDataByProgram = Object.fromEntries(
@@ -227,17 +201,6 @@ export default async function ConfigPage() {
       columnsReadyByScope={columnsReadyByScope}
       initialColumns={columns}
       initialOptions={options}
-      initialAgents={agents}
-      candidates={candidates}
-      assignees={assignees}
-      initialMembers={memberRows.map((row) => {
-        const member = row as {
-          agent_email: string;
-          cs_email: string;
-          is_assistant: boolean;
-        };
-        return member;
-      })}
       initialCategories={categoryRows as TaskCategory[]}
       initialSlaRules={slaRows as TaskSlaRule[]}
       initialLeadVocabulary={leadVocabulary}
@@ -260,11 +223,6 @@ export default async function ConfigPage() {
         categories: {
           available: categoriesResult.ok,
           error: categoriesResult.ok ? undefined : categoriesResult.error,
-        },
-        assistants: {
-          available: agentsResult.ok && candidatesResult.ok && assigneesResult.ok && membersResult.ok,
-          error: [agentsResult, candidatesResult, assigneesResult, membersResult]
-            .find((result) => !result.ok)?.error,
         },
         sla: {
           available: slaRulesResult.ok,

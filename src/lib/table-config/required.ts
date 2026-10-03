@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchTableColumns } from "./queries";
 import type { ColumnType, TableScope, TableColumn } from "./types";
 import type { CustomValueRecord, WriteValidationContext } from "./custom-values";
+import { storesInCustomValues } from "./system-option-columns";
 
 export function isRequiredValueFilled(type: ColumnType, value: unknown): boolean {
   // A checkbox's `false` value is a deliberate answer and therefore counts as
@@ -33,7 +34,8 @@ export function findMissingRequiredFieldsFromContext(
   const missing: MissingRequiredField[] = [];
   for (const column of context.columns as TableColumn[]) {
     if (!column.required || column.archived_at) continue;
-    if (column.is_system) {
+    // Cột hệ thống lưu trong custom_values thì kiểm như cột custom.
+    if (!storesInCustomValues(column)) {
       if (options.partial && !(column.key in options.fieldValues)) continue;
       if (!isRequiredValueFilled(column.type, options.fieldValues[column.key])) {
         missing.push({ key: column.key, label: column.label });

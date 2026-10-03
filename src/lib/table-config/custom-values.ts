@@ -1,3 +1,4 @@
+import { storesInCustomValues } from "./system-option-columns";
 import type { ColumnType, TableColumn, TableColumnOption } from "./types";
 
 export type CustomValueRecord = Record<string, unknown>;
@@ -82,7 +83,7 @@ export function validateCustomValues(
       issues.push({ key, reason: "unknown-column" });
       continue;
     }
-    if (column.is_system) {
+    if (!storesInCustomValues(column)) {
       issues.push({ key, label: column.label, reason: "system-column" });
       continue;
     }

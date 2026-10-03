@@ -3,7 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Paperclip, X } from "lucide-react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
-import { resolveDialogProduct } from "@/lib/leads/create";
+import { storesInCustomValues } from "@/lib/table-config/system-option-columns";
+import {
+  LEAD_CLIENT_FIELD_KEYS,
+  LEAD_NEED_FIELD_KEYS,
+  LEAD_PROPERTY_FIELD_KEYS,
+  pickColumnsInOrder,
+} from "@/lib/leads/field-layout";
 import {
   isPersonalLeadEventName,
   LEAD_TYPE_LABEL,
@@ -14,6 +20,8 @@ import {
   isLeadProduct,
   LEAD_PRODUCT_LABEL,
   LEAD_PRODUCTS,
+  toggleLeadProduct,
+  UNKNOWN_LEAD_PRODUCT,
   type LeadProduct,
   type LeadRow,
   type LeadStatus,
@@ -43,7 +51,10 @@ type LeadAddDialogProps = {
   columns: TableColumn[];
   columnOptions: TableColumnOption[];
   statuses: LeadStatus[];
+  /** Agent ở Account Management — người nhận Personal lead. */
   assignees: { email: string; name: string | null }[];
+  /** Agent ở Account Management — danh sách chọn Collaborators. */
+  collaboratorRoster: { email: string; name: string | null }[];
   /** Personal lead mặc định thuộc về người tạo. */
   currentUserEmail: string;
   onClose: () => void;
@@ -64,11 +75,15 @@ const INPUT_CLASS =
   "h-10 w-full rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm text-[#172b4d] outline-none transition placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4]";
 const SELECT_BUTTON_CLASS =
   "!h-10 !rounded !border-2 !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
-const PROPERTY_SELECT_BUTTON_CLASS =
-  "!h-10 !border-[#dfe1e6] !bg-white !shadow-none";
+// Ô chọn nhiều hiện từng giá trị thành nhãn nên phải cao ra được — không cố
+// định !h-10 như ô chọn một.
+const MULTI_SELECT_BUTTON_CLASS =
+  "!rounded !border-2 !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
+const PROPERTY_MULTI_SELECT_BUTTON_CLASS = "!border-[#dfe1e6] !bg-white !shadow-none";
 const LABEL_CLASS = "block text-xs font-bold uppercase text-[#6b778c]";
+// Thấp vừa đủ để cột trái không phải cuộn; kéo góc để mở rộng khi cần.
 const TEXTAREA_CLASS =
-  "min-h-[18rem] w-full resize-y rounded border-2 border-[#dfe1e6] bg-white px-3 py-3 text-sm leading-6 text-[#172b4d] outline-none transition placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4]";
+  "min-h-[9rem] w-full resize-y rounded border-2 border-[#dfe1e6] bg-white px-3 py-3 text-sm leading-6 text-[#172b4d] outline-none transition placeholder:text-[#97a0af] hover:border-[#c1c7d0] focus:border-[#0c66e4]";
 const PRODUCT_OPTIONS = LEAD_PRODUCTS.map((value) => ({
   value,
   label: LEAD_PRODUCT_LABEL[value],
@@ -90,6 +105,7 @@ function isFilled(value: unknown, type?: TableColumn["type"]): boolean {
   if (type === "checkbox")
     return value !== null && value !== undefined && value !== "";
   if (value === null || value === undefined) return false;
+  if (Array.isArray(value)) return value.length > 0;
   return String(value).trim() !== "";
 }
 
@@ -98,6 +114,23 @@ function requiredSystemValue(
   values: Record<string, unknown>,
 ): unknown {
   return values[key];
+}
+
+/**
+ * Một lựa chọn vẽ thành nhãn màu — cùng kiểu nhãn Product, màu theo màu admin
+ * đặt ở Config (chưa đặt thì bảng màu mặc định theo id).
+ */
+function OptionBadge({ option }: { option: { id: string; label: string; color: string | null } }) {
+  const palette = tableColumnOptionBadgePalette(option);
+  return (
+    <span
+      className="inline-flex max-w-full min-w-0 items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]"
+      style={{ backgroundColor: palette.background, color: palette.foreground }}
+      title={option.label}
+    >
+      {option.label}
+    </span>
+  );
 }
 
 function CustomLeadField({
@@ -125,11 +158,25 @@ function CustomLeadField({
     );
   }
 
+  const optionById = new Map(options.map((option) => [option.id, option]));
+  const renderBadge = (choice: { value: string; label: string }) => (
+    <OptionBadge
+      option={{
+        id: choice.value,
+        label: choice.label,
+        color: optionById.get(choice.value)?.color ?? null,
+      }}
+    />
+  );
+
   if (column.type === "dropdown") {
     return (
       <TaskSelect
         label={column.label}
         value={typeof value === "string" ? value : ""}
+        renderOption={renderBadge}
+        // Cùng kiểu menu với ô chọn nhiều (panel có ô tìm, ✓ sát phải).
+        searchable
         options={options
           .filter((option) => !option.archived_at)
           .map((option) => ({
@@ -147,6 +194,29 @@ function CustomLeadField({
     );
   }
 
+  if (column.type === "multiselect") {
+    // Chọn nhiều (vd. Insurance Needs, Contact Method): lưu mảng option id,
+    // cùng dạng Import và ô sửa trong bảng/drawer.
+    return (
+      <TaskSelect
+        label={column.label}
+        values={Array.isArray(value) ? (value as string[]) : []}
+        multi
+        summaryLabel={column.label.toLowerCase()}
+        showSelectedValues
+        renderOption={renderBadge}
+        options={options
+          .filter((option) => !option.archived_at)
+          .map((option) => ({ value: option.id, label: option.label }))}
+        placeholder={`Choose ${column.label.toLowerCase()}`}
+        className="w-full"
+        buttonClassName={MULTI_SELECT_BUTTON_CLASS}
+        menuClassName="max-h-64 min-w-full"
+        onValuesChange={(next) => onChange(next.length > 0 ? next : null)}
+      />
+    );
+  }
+
   return (
     <input
       className={INPUT_CLASS}
@@ -160,7 +230,12 @@ function CustomLeadField({
       value={value === null || value === undefined ? "" : String(value)}
       onChange={(event) =>
         onChange(
-          column.type === "number" ? event.target.value : event.target.value,
+          // Cột số lưu số (vd. Age), không lưu chuỗi "71".
+          column.type === "number"
+            ? event.target.value === ""
+              ? null
+              : Number(event.target.value)
+            : event.target.value,
         )
       }
       placeholder={
@@ -180,6 +255,7 @@ export function LeadAddDialog({
   columnOptions,
   statuses,
   assignees,
+  collaboratorRoster,
   currentUserEmail,
   onClose,
   onCreated,
@@ -210,11 +286,16 @@ export function LeadAddDialog({
   const [fileError, setFileError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const createRequestIdRef = useRef<string | null>(null);
-  // Only asked for when the screen is not already scoped to one product.
-  const [chosenProduct, setChosenProduct] = useState<LeadProduct | null>("unknown");
-  const product = resolveDialogProduct(productFilter, chosenProduct);
+  // Chọn nhiều product, cùng luật ô Product trên bảng (Unknown đứng một mình).
+  // null = chưa đụng: mặc định product của bộ lọc đang xem, không thì Unknown.
+  const [chosenProducts, setChosenProducts] = useState<LeadProduct[] | null>(null);
+  const products =
+    chosenProducts ?? (productFilter ? [productFilter] : [UNKNOWN_LEAD_PRODUCT]);
+  /** Product chính — phần tử đầu, như trigger DB suy ra. */
+  const product: LeadProduct | null = products[0] ?? null;
+  // Người nhận nằm trong pool của MỘT trong các product đã chọn (route kiểm y vậy).
   const productAgents = distributionAgents?.filter((agent) =>
-    product ? agent.products.includes(product) : false,
+    agent.products.some((candidate) => products.includes(candidate)),
   ) ?? [];
   const isPersonalLead = leadType === "personal";
   const actorEmail = currentUserEmail.trim().toLowerCase();
@@ -238,6 +319,24 @@ export function LeadAddDialog({
       ),
     [columns],
   );
+  // Trường cố định của mẫu Import (Age, Gender, Ticket #…): cột hệ thống lưu
+  // trong custom_values. Luôn có trên form, nằm cùng các trường chính.
+  const fixedFieldColumns = useMemo(
+    () =>
+      columns
+        .filter(
+          (column) =>
+            column.is_system && storesInCustomValues(column) && !column.archived_at,
+        )
+        .sort((left, right) => left.position - right.position),
+    [columns],
+  );
+  // Thông tin về khách (Age, Gender) ở cột trái cạnh tên; thuộc tính lead
+  // (Insurance Needs, Contact Method, Best Time, Ticket #) ở cột phải, sau
+  // Product — cùng chỗ với drawer (lib/leads/field-layout.ts).
+  const demographicColumns = pickColumnsInOrder(fixedFieldColumns, LEAD_CLIENT_FIELD_KEYS);
+  const needFieldColumns = pickColumnsInOrder(fixedFieldColumns, LEAD_NEED_FIELD_KEYS);
+  const propertyFieldColumns = pickColumnsInOrder(fixedFieldColumns, LEAD_PROPERTY_FIELD_KEYS);
   const optionsByColumnId = useMemo(() => {
     const result = new Map<string, TableColumnOption[]>();
     for (const option of columnOptions) {
@@ -318,16 +417,21 @@ export function LeadAddDialog({
     setCustomValues((current) => ({ ...current, [key]: value }));
   }
 
-  function chooseProduct(value: string) {
-    const nextProduct = isLeadProduct(value) ? value : null;
-    setChosenProduct(nextProduct);
+  function chooseProducts(nextValues: string[]) {
+    // TaskSelect trả cả danh sách; lấy đúng product vừa bấm rồi áp luật chung
+    // (chọn Unknown là bỏ hết; chọn product thật là bỏ Unknown).
+    const toggled =
+      nextValues.find((value) => !products.includes(value as LeadProduct)) ??
+      products.find((current) => !nextValues.includes(current));
+    if (!toggled || !isLeadProduct(toggled)) return;
+    const next = toggleLeadProduct(products, toggled);
+    setChosenProducts(next);
     if (
       assignedToEmail &&
       !distributionAgents?.some(
         (agent) =>
           agent.email === assignedToEmail &&
-          nextProduct !== null &&
-          agent.products.includes(nextProduct),
+          agent.products.some((candidate) => next.includes(candidate)),
       )
     ) {
       setAssignedToEmail("");
@@ -346,7 +450,7 @@ export function LeadAddDialog({
     setCollaboratorEmails([]);
     setDistributionAgents(null);
     setDistributionAgentsError(false);
-    setChosenProduct("unknown");
+    setChosenProducts(null);
     setCustomValues({});
     setPendingFiles([]);
     setFileError(null);
@@ -376,9 +480,9 @@ export function LeadAddDialog({
     const missing = columns
       .filter((column) => column.required && !column.archived_at)
       .filter((column) => {
-        const value = column.is_system
-          ? requiredSystemValue(column.key, fieldValues)
-          : customValues[column.key];
+        const value = storesInCustomValues(column)
+          ? customValues[column.key]
+          : requiredSystemValue(column.key, fieldValues);
         return !isFilled(value, column.type);
       });
     // Không có event thì lead là Personal — Event lead trống event là mâu thuẫn.
@@ -408,6 +512,7 @@ export function LeadAddDialog({
         },
         body: JSON.stringify({
           product,
+          products,
           full_name: fullName,
           phone,
           email,
@@ -455,7 +560,7 @@ export function LeadAddDialog({
         <header className="flex shrink-0 items-center justify-between gap-4 border-b border-[#dfe1e6] px-6 py-4">
           <div className="min-w-0">
             <h2 className="text-xl font-semibold text-[#172b4d]">
-              New {product ? `${LEAD_PRODUCT_LABEL[product]} ` : ""}lead
+              New {products.map((value) => LEAD_PRODUCT_LABEL[value]).join(" + ")} lead
             </h2>
             <p className="mt-1 text-sm text-[#626f86]">
               Capture the lead details, then set ownership on the right.
@@ -472,9 +577,12 @@ export function LeadAddDialog({
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="grid min-h-full lg:grid-cols-[minmax(0,1fr)_20rem]">
-            <section className="min-w-0 space-y-4 px-6 py-5">
+        {/* Màn hình rộng: hai cột cuộn RIÊNG — kéo cột phải (thuộc tính) thì cột
+            trái (tên, mô tả) đứng yên. Cột trái hầu như không phải cuộn nên ẩn
+            thanh cuộn (vẫn cuộn được). Màn hẹp xếp dọc nên cả thân cuộn chung. */}
+        <div className="min-h-0 flex-1 overflow-y-auto lg:flex lg:flex-col lg:overflow-hidden">
+          <div className="grid min-h-full lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_20rem] lg:grid-rows-[minmax(0,1fr)]">
+            <section className="min-w-0 space-y-4 px-6 py-5 lg:min-h-0 lg:overflow-y-auto lg:[scrollbar-width:none] lg:[&::-webkit-scrollbar]:hidden">
               <fieldset disabled={saving} className="space-y-4">
               <label className="block space-y-1">
                 <span className={LABEL_CLASS}>
@@ -489,6 +597,48 @@ export function LeadAddDialog({
                   autoFocus
                 />
               </label>
+              {/* Thông tin về khách ở cột trái: liên hệ, rồi Age/Gender. */}
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block space-y-1">
+                  <span className={LABEL_CLASS}>Phone <span className="text-[#bf2600]">*</span></span>
+                  <input
+                    className={INPUT_CLASS}
+                    value={phone}
+                    onChange={(event) => setPhone(event.target.value)}
+                    placeholder="Phone number"
+                    inputMode="tel"
+                    required
+                  />
+                </label>
+                <label className="block space-y-1">
+                  <span className={LABEL_CLASS}>{fieldLabel(columns, "email", "Email")}</span>
+                  <input
+                    className={INPUT_CLASS}
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="client@example.com"
+                  />
+                </label>
+              </div>
+              {demographicColumns.length > 0 ? (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {demographicColumns.map((column) => (
+                    <label key={column.id} className="block space-y-1">
+                      <span className={LABEL_CLASS}>
+                        {column.label}
+                        {column.required ? <span className="text-[#bf2600]"> *</span> : null}
+                      </span>
+                      <CustomLeadField
+                        column={column}
+                        options={optionsByColumnId.get(column.id) ?? []}
+                        value={customValues[column.key]}
+                        onChange={(value) => setCustomValue(column.key, value)}
+                      />
+                    </label>
+                  ))}
+                </div>
+              ) : null}
               <label className="block space-y-1">
                 <span className={LABEL_CLASS}>{fieldLabel(columns, "fub", "FUB link")}</span>
                 <input
@@ -507,7 +657,7 @@ export function LeadAddDialog({
                   onChange={(event) => setDescription(event.target.value)}
                   placeholder="Add context, notes, links, or customer details..."
                   maxLength={10_000}
-                  rows={12}
+                  rows={5}
                 />
               </label>
               </fieldset>
@@ -565,16 +715,8 @@ export function LeadAddDialog({
               </div>
             </section>
 
-            <aside className="border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:border-l lg:border-t-0">
+            <aside className="border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:min-h-0 lg:overflow-y-auto lg:border-l lg:border-t-0">
               <fieldset disabled={saving} className="space-y-4">
-              <div className="flex items-center justify-between border-b border-[#dfe1e6] pb-3">
-                <span className="text-xs font-bold uppercase tracking-[0.08em] text-[#667085]">
-                  Lead properties
-                </span>
-                <span className="rounded bg-[#e9f2ff] px-2 py-0.5 text-xs font-bold text-[#0c66e4]">
-                  Lead
-                </span>
-              </div>
               <div>
                 <span className="mb-1.5 block text-xs font-bold uppercase text-[#6b778c]">
                   Lead type
@@ -605,67 +747,6 @@ export function LeadAddDialog({
                   })}
                 </div>
               </div>
-              <div>
-                <span className="mb-1.5 block text-xs font-bold uppercase text-[#6b778c]">
-                  {fieldLabel(columns, "product", "Product")}
-                  {!productFilter ? <span className="text-[#bf2600]"> *</span> : null}
-                </span>
-                <TaskSelect
-                  label="Product"
-                  value={productFilter ?? chosenProduct ?? ""}
-                  options={PRODUCT_OPTIONS}
-                  placeholder="Select product"
-                  disabled={Boolean(productFilter)}
-                  buttonClassName={PROPERTY_SELECT_BUTTON_CLASS}
-                  menuClassName="min-w-full"
-                  renderOption={(option) => {
-                    const configured = productColorOptions.find(
-                      (candidate) => candidate.label === option.label,
-                    );
-                    const palette = tableColumnOptionBadgePalette(
-                      configured ?? {
-                        id: option.label,
-                        label: option.label,
-                        color: null,
-                      },
-                    );
-                    return (
-                      <span
-                        className="inline-flex max-w-full min-w-0 items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]"
-                        style={{
-                          backgroundColor: palette.background,
-                          color: palette.foreground,
-                        }}
-                        title={option.label}
-                      >
-                        {option.label}
-                      </span>
-                    );
-                  }}
-                  onChange={chooseProduct}
-                />
-              </div>
-              <label className="block space-y-1">
-                <span className={LABEL_CLASS}>Phone <span className="text-[#bf2600]">*</span></span>
-                <input
-                  className={INPUT_CLASS}
-                  value={phone}
-                  onChange={(event) => setPhone(event.target.value)}
-                  placeholder="Phone number"
-                  inputMode="tel"
-                  required
-                />
-              </label>
-              <label className="block space-y-1">
-                <span className={LABEL_CLASS}>{fieldLabel(columns, "email", "Email")}</span>
-                <input
-                  className={INPUT_CLASS}
-                  type="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="client@example.com"
-                />
-              </label>
               {isPersonalLead ? (
                 <div className="block space-y-1">
                   <span className={LABEL_CLASS}>
@@ -674,9 +755,6 @@ export function LeadAddDialog({
                   <p className={`${INPUT_CLASS} flex items-center bg-[#f4f5f7] text-[#42526e]`}>
                     {LEAD_TYPE_LABEL.personal}
                   </p>
-                  <span className="text-xs text-[#667085]">
-                    Personal leads are not tied to an event.
-                  </span>
                 </div>
               ) : (
               <label className="block space-y-1">
@@ -710,19 +788,62 @@ export function LeadAddDialog({
                 ) : null}
               </label>
               )}
-              <div className="block space-y-1">
-                <span className={LABEL_CLASS}>
-                  {fieldLabel(columns, "status", "Status")}
+              <div>
+                <span className="mb-1.5 block text-xs font-bold uppercase text-[#6b778c]">
+                  {fieldLabel(columns, "product", "Product")}
+                  {!productFilter ? <span className="text-[#bf2600]"> *</span> : null}
                 </span>
-                <p
-                  className={`${INPUT_CLASS} flex items-center bg-[#f4f5f7] text-[#42526e]`}
-                >
-                  {selectedStatusLabel}
-                </p>
-                <span className="text-xs text-[#667085]">
-                  Set automatically; it moves when an interaction is logged.
-                </span>
+                <TaskSelect
+                  label="Product"
+                  values={products}
+                  multi
+                  summaryLabel="products"
+                  showSelectedValues
+                  options={PRODUCT_OPTIONS}
+                  placeholder="Select product"
+                  buttonClassName={PROPERTY_MULTI_SELECT_BUTTON_CLASS}
+                  menuClassName="min-w-full"
+                  renderOption={(option) => {
+                    const configured = productColorOptions.find(
+                      (candidate) => candidate.label === option.label,
+                    );
+                    const palette = tableColumnOptionBadgePalette(
+                      configured ?? {
+                        id: option.label,
+                        label: option.label,
+                        color: null,
+                      },
+                    );
+                    return (
+                      <span
+                        className="inline-flex max-w-full min-w-0 items-center truncate rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.025em]"
+                        style={{
+                          backgroundColor: palette.background,
+                          color: palette.foreground,
+                        }}
+                        title={option.label}
+                      >
+                        {option.label}
+                      </span>
+                    );
+                  }}
+                  onValuesChange={chooseProducts}
+                />
               </div>
+              {needFieldColumns.map((column) => (
+                <label key={column.id} className="block space-y-1">
+                  <span className={LABEL_CLASS}>
+                    {column.label}
+                    {column.required ? <span className="text-[#bf2600]"> *</span> : null}
+                  </span>
+                  <CustomLeadField
+                    column={column}
+                    options={optionsByColumnId.get(column.id) ?? []}
+                    value={customValues[column.key]}
+                    onChange={(value) => setCustomValue(column.key, value)}
+                  />
+                </label>
+              ))}
               <label className="block space-y-1">
                 <span className={LABEL_CLASS}>
                   {fieldLabel(columns, "assignee", "Assign to")}
@@ -736,16 +857,14 @@ export function LeadAddDialog({
                     value={effectiveAssignee}
                     options={personalAgents.map((person) => ({
                       value: person.email,
-                      label:
-                        person.email === actorEmail
-                          ? `${person.name?.trim() || person.email} (you)`
-                          : person.name?.trim() || person.email,
+                      label: person.name?.trim() || person.email,
                       keywords: [person.email],
                     }))}
                     placeholder="You"
-                    searchable={personalAgents.length > 8}
+                    searchable
+                    // Ô người giống Agent ở form tạo Task: avatar + tên.
+                    personValue
                     className="w-full"
-                    buttonClassName={SELECT_BUTTON_CLASS}
                     menuClassName="max-h-64 min-w-full"
                     onChange={setAssignedToEmail}
                   />
@@ -775,16 +894,23 @@ export function LeadAddDialog({
                     distributionAgentsError ||
                     productAgents.length === 0
                   }
-                  searchable={productAgents.length > 8}
+                  searchable
+                  personValue
                   className="w-full"
-                  buttonClassName={SELECT_BUTTON_CLASS}
                   menuClassName="max-h-64 min-w-full"
                   onChange={setAssignedToEmail}
                 />
                 )}
+                {/* Ô người chỉ hiện "Unassigned" khi bị khoá, nên nói lý do ở dưới. */}
                 {!isPersonalLead && distributionAgentsError ? (
                   <span className="text-xs font-semibold text-rose-700">
                     Could not load Distribute pool agents. Close and reopen this form to retry.
+                  </span>
+                ) : !isPersonalLead && distributionAgents === null ? (
+                  <span className="text-xs text-[#667085]">Loading agents…</span>
+                ) : !isPersonalLead && productAgents.length === 0 ? (
+                  <span className="text-xs font-semibold text-[#974f0c]">
+                    No agents in the Distribute pool for these products.
                   </span>
                 ) : null}
               </label>
@@ -792,29 +918,48 @@ export function LeadAddDialog({
                 <span className={LABEL_CLASS}>Collaborators</span>
                 <LeadCollaboratorsPicker
                   emails={collaboratorEmails}
-                  people={assignees}
+                  people={collaboratorRoster}
                   onChange={setCollaboratorEmails}
-                  buttonClassName="!rounded"
                 />
               </div>
-              {customColumns.length > 0 ? (
-                <div className="space-y-4 border-t border-[#dfe1e6] pt-4">
-                  <h3 className={LABEL_CLASS}>Custom fields</h3>
-                  {customColumns.map((column) => (
-                    <label key={column.id} className="block space-y-1">
-                      <span className={LABEL_CLASS}>
-                        {column.label}{column.required ? <span className="text-[#bf2600]"> *</span> : null}
-                      </span>
-                      <CustomLeadField
-                        column={column}
-                        options={optionsByColumnId.get(column.id) ?? []}
-                        value={customValues[column.key]}
-                        onChange={(value) => setCustomValue(column.key, value)}
-                      />
-                    </label>
-                  ))}
-                </div>
-              ) : null}
+              {propertyFieldColumns.map((column) => (
+                <label key={column.id} className="block space-y-1">
+                  <span className={LABEL_CLASS}>
+                    {column.label}
+                    {column.required ? <span className="text-[#bf2600]"> *</span> : null}
+                  </span>
+                  <CustomLeadField
+                    column={column}
+                    options={optionsByColumnId.get(column.id) ?? []}
+                    value={customValues[column.key]}
+                    onChange={(value) => setCustomValue(column.key, value)}
+                  />
+                </label>
+              ))}
+              <div className="block space-y-1">
+                <span className={LABEL_CLASS}>
+                  {fieldLabel(columns, "status", "Status")}
+                </span>
+                <p
+                  className={`${INPUT_CLASS} flex items-center bg-[#f4f5f7] text-[#42526e]`}
+                >
+                  {selectedStatusLabel}
+                </p>
+              </div>
+              {/* Cột tự thêm hiện như mọi trường khác, không tách nhóm riêng. */}
+              {customColumns.map((column) => (
+                <label key={column.id} className="block space-y-1">
+                  <span className={LABEL_CLASS}>
+                    {column.label}{column.required ? <span className="text-[#bf2600]"> *</span> : null}
+                  </span>
+                  <CustomLeadField
+                    column={column}
+                    options={optionsByColumnId.get(column.id) ?? []}
+                    value={customValues[column.key]}
+                    onChange={(value) => setCustomValue(column.key, value)}
+                  />
+                </label>
+              ))}
               <p className="text-xs leading-5 text-[#667085]">
                 Phone numbers are normalized automatically. Duplicate phone
                 numbers are blocked within the same event, and across personal

@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { fetchTaskAgents } from "@/lib/tasks/assignees";
 
 export type LeadAssignee = { email: string; name: string | null };
 
@@ -57,3 +58,16 @@ export const fetchLeadAssignees = cache(async (): Promise<LeadAssignee[]> => {
       })
     );
 });
+
+/**
+ * Ai được làm Agent hoặc Collaborator của một lead (2026-10-03): các Agent ở
+ * Account Management → Agent membership (`task_agents`) — Agent không cần tự có
+ * quyền Lead, các Assistant của họ xem và xử lý lead (lib/leads/membership.ts)
+ * — cộng người có quyền Lead như trước.
+ */
+export async function fetchLeadMemberEmails(): Promise<Set<string>> {
+  const [agents, leadWorkers] = await Promise.all([fetchTaskAgents(), fetchLeadAssignees()]);
+  return new Set(
+    [...agents, ...leadWorkers].map((person) => person.email.trim().toLowerCase()),
+  );
+}

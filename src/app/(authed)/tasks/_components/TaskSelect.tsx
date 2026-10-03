@@ -23,6 +23,7 @@ export function TaskSelect({
   multi = false,
   allValue = "",
   summaryLabel,
+  showSelectedValues = false,
   options,
   placeholder = "Select",
   disabled = false,
@@ -41,6 +42,11 @@ export function TaskSelect({
   multi?: boolean;
   allValue?: string;
   summaryLabel?: string;
+  /**
+   * Chọn nhiều: hiện TỪNG giá trị đã chọn thành nhãn (xuống dòng khi dài) thay
+   * vì "2 products". Dùng trong form; thanh lọc ở toolbar vẫn tóm tắt cho gọn.
+   */
+  showSelectedValues?: boolean;
   options: TaskSelectOption[];
   placeholder?: string;
   disabled?: boolean;
@@ -86,6 +92,11 @@ export function TaskSelect({
         ? selectedOptions[0].label
         : `${selectedOptions.length} ${summaryLabel ?? placeholder}`
     : selectedOption?.label ?? placeholder;
+  const showsValueChips = isMulti && showSelectedValues && selectedOptions.length > 0;
+  // Ô chọn nhiều trong form dùng đúng menu của Carrier bên ACA: panel có ô tìm,
+  // nhãn bên trái, dấu ✓ sát phải — không ô vuông, không tiêu đề.
+  const formMultiMenu = isMulti && showSelectedValues;
+  const usesSearchPanel = searchable || formMultiMenu;
   const isPlaceholder = personValue
     ? !value
     : isMulti
@@ -156,10 +167,15 @@ export function TaskSelect({
         type="button"
         disabled={disabled || options.length === 0}
         onClick={toggle}
-        className={`${personValue ? TASK_ASSIGNEE_BUTTON_CLASS : "dashboard-filter-button w-full !font-medium !leading-5"} ${buttonClassName}`}
+        className={`${personValue ? TASK_ASSIGNEE_BUTTON_CLASS : "dashboard-filter-button w-full !font-medium !leading-5"} ${
+          // Ô cao ra theo số nhãn; cùng chiều cao tối thiểu với ô thường.
+          // `!py`: .dashboard-filter-button đặt padding dọc = 0 và thắng utility
+          // thường, khiến nhãn dòng thứ hai dính sát mép ô.
+          isMulti && showSelectedValues ? "!h-auto min-h-10 !py-1.5" : ""
+        } ${buttonClassName}`}
         aria-expanded={isOpen}
         aria-haspopup="listbox"
-        aria-controls={isOpen && !searchable ? listboxId : undefined}
+        aria-controls={isOpen && !usesSearchPanel ? listboxId : undefined}
       >
         {personValue ? (
           <>
@@ -178,7 +194,21 @@ export function TaskSelect({
           </>
         ) : (
           <>
-            {selectedOption && renderOption ? (
+            {showsValueChips ? (
+              <span className="flex min-w-0 flex-1 flex-wrap items-center gap-1 text-left">
+                {selectedOptions.map((option) => (
+                  <span key={option.value} className="min-w-0 max-w-full">
+                    {renderOption ? (
+                      renderOption(option, true)
+                    ) : (
+                      <span className="inline-flex max-w-full items-center truncate rounded border border-[#dfe1e6] bg-[#f4f5f7] px-1.5 py-0.5 text-xs font-semibold text-[#42526e]">
+                        {option.label}
+                      </span>
+                    )}
+                  </span>
+                ))}
+              </span>
+            ) : selectedOption && renderOption ? (
               <span className="min-w-0 flex-1 text-left">
                 {renderOption(selectedOption, true)}
               </span>
@@ -202,7 +232,7 @@ export function TaskSelect({
       </button>
 
       {isOpen
-        ? searchable
+        ? usesSearchPanel
           ? createPortal(
               <SearchableListboxPanel
                 menuRef={menuRef}
@@ -248,7 +278,7 @@ export function TaskSelect({
                         </span>
                       );
                     })()}
-                    {isMulti ? (
+                    {isMulti && !formMultiMenu ? (
                       <span
                         className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
                           state.selected
@@ -260,7 +290,8 @@ export function TaskSelect({
                         {state.selected ? <Check className="h-3 w-3" /> : null}
                       </span>
                     ) : state.selected ? (
-                      <Check className="h-4 w-4 shrink-0 text-[#0c66e4]" />
+                      // `ml-auto`: nhãn màu không giãn hết dòng, dấu ✓ vẫn sát phải.
+                      <Check className="ml-auto h-4 w-4 shrink-0 text-[#0c66e4]" />
                     ) : null}
                   </>
                 )}

@@ -23,6 +23,7 @@ describe("parseCreateLeadInput", () => {
       ok: true,
       value: {
         product: "health",
+        products: ["health"],
         fullName: "Jane Doe",
         phone: "5551234567",
         email: "jane@example.com",
@@ -89,6 +90,18 @@ describe("parseCreateLeadInput", () => {
     })).toEqual({
       ok: false,
       error: 'Custom field "nested" has an unsupported value.',
+    });
+  });
+
+  // Cột chọn nhiều (Insurance Needs…) gửi mảng option id từ form Add lead.
+  it("accepts a list of option ids for a multi-select field", () => {
+    const parsed = parseCreateLeadInput({
+      product: "pc",
+      phone: "5551234567",
+      custom_values: { insurance_needs: ["opt-1", "opt-2"] },
+    });
+    expect(parsed.ok && parsed.value.customValues).toEqual({
+      insurance_needs: ["opt-1", "opt-2"],
     });
   });
 

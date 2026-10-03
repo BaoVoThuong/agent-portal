@@ -20,6 +20,7 @@ import {
   resolveVisibleInteractions,
 } from "@/lib/leads/interaction-log-state";
 import { leadDisplayKey } from "@/lib/leads/display";
+import { storesInCustomValues } from "@/lib/table-config/system-option-columns";
 import { LEAD_TYPE_LABEL } from "@/lib/leads/lead-type";
 import { buildStatusById } from "@/lib/leads/status-lookup";
 import { leadIsInScope } from "@/lib/leads/capabilities";
@@ -30,6 +31,12 @@ import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
 import { ProductMenu } from "./LeadTable";
 import { formatAttachmentSize } from "@/lib/tasks/attachments";
 import { LeadCollaboratorsEditor } from "./LeadCollaboratorsPicker";
+import {
+  LEAD_CLIENT_FIELD_KEYS,
+  LEAD_NEED_FIELD_KEYS,
+  LEAD_PROPERTY_FIELD_KEYS,
+  pickColumnsInOrder,
+} from "@/lib/leads/field-layout";
 
 // These mirror the compact field primitives in TaskDetailDrawer. Keeping them
 // local lets Lead retain its domain-specific data while sharing the same UI
@@ -346,7 +353,8 @@ export function LeadDetailDrawer({
       columns.filter(
         (column) =>
           column.show_in_detail &&
-          !column.is_system &&
+          // Cột custom, và trường cố định lưu trong custom_values (Age, Gender…).
+          storesInCustomValues(column) &&
           !column.archived_at &&
           !column.hidden_default,
       ),
@@ -438,10 +446,58 @@ export function LeadDetailDrawer({
   const showCollaborators = showField("collaborators");
   const showFollowUp = showField("followUp");
   const showCreatedAt = Boolean(createdAtColumn?.show_in_detail);
+  // Cùng chỗ đặt với form Add lead (lib/leads/field-layout.ts): Age/Gender cạnh
+  // thông tin liên hệ; Insurance Needs, Contact Method… ở cột phải sau Product.
+  // Cột custom thật (vd. Secondary Phone) giữ chỗ cũ.
+  const clientDetailColumns = pickColumnsInOrder(detailColumns, LEAD_CLIENT_FIELD_KEYS);
+  const needDetailColumns = pickColumnsInOrder(detailColumns, LEAD_NEED_FIELD_KEYS);
+  const propertyDetailColumns = pickColumnsInOrder(detailColumns, LEAD_PROPERTY_FIELD_KEYS);
+  const placedDetailKeys = new Set<string>([
+    ...LEAD_CLIENT_FIELD_KEYS,
+    ...LEAD_NEED_FIELD_KEYS,
+    ...LEAD_PROPERTY_FIELD_KEYS,
+  ]);
+  const otherDetailColumns = detailColumns.filter(
+    (column) => !placedDetailKeys.has(column.key),
+  );
   const hasRecordFields =
-    showPhone || showEmail || showFub || showEvent || detailColumns.length > 0;
+    showPhone ||
+    showEmail ||
+    showFub ||
+    showEvent ||
+    clientDetailColumns.length > 0 ||
+    otherDetailColumns.length > 0;
   const hasRailFields =
-    showProduct || showStatus || showAssignee || showCollaborators || showFollowUp || showCreatedAt;
+    showProduct ||
+    showStatus ||
+    showAssignee ||
+    showCollaborators ||
+    showFollowUp ||
+    showCreatedAt ||
+    needDetailColumns.length > 0 ||
+    propertyDetailColumns.length > 0;
+
+  function detailFieldControl(column: (typeof detailColumns)[number]) {
+    return (
+      <EditableCustomCell
+        column={column}
+        value={currentLead.custom_values?.[column.key]}
+        options={optionsByColumn.get(column.id) ?? []}
+        // Cột Person tự thêm chọn trong cùng danh sách với Collaborators (Agent).
+        people={collaboratorRoster}
+        personLabelByEmail={nameByEmail}
+        canEdit={canEdit}
+        onSave={(next) =>
+          patchCurrentLead({
+            custom_values: { [column.key]: next },
+          })
+        }
+        className={COMPACT_DETAIL_INPUT_CLASS}
+        inputClassName={COMPACT_DETAIL_INPUT_CLASS}
+        emptyLabel={`No ${column.label}`}
+      />
+    );
+  }
 
   async function patchCurrentLead(patch: Record<string, unknown>) {
     setEditError(null);
@@ -603,6 +659,15 @@ export function LeadDetailDrawer({
                       />
                     </div>
                   ) : null}
+                  {clientDetailColumns.map((column) => (
+                    <div key={column.id} className={COMPACT_DETAIL_FIELD_CLASS}>
+                      <span className={LABEL_CLASS}>
+                        {column.label}
+                        {column.required ? REQUIRED_MARK : null}
+                      </span>
+                      {detailFieldControl(column)}
+                    </div>
+                  ))}
                   {showFub ? (
                     <div className={`${COMPACT_DETAIL_FIELD_CLASS} sm:col-span-2`}>
                       <span className={LABEL_CLASS}>FUB</span>
@@ -632,28 +697,13 @@ export function LeadDetailDrawer({
                       />
                     </div>
                   ) : null}
-                  {detailColumns.map((column) => (
+                  {otherDetailColumns.map((column) => (
                     <div key={column.id} className={COMPACT_DETAIL_FIELD_CLASS}>
                       <span className={LABEL_CLASS}>
                         {column.label}
                         {column.required ? REQUIRED_MARK : null}
                       </span>
-                      <EditableCustomCell
-                        column={column}
-                        value={currentLead.custom_values?.[column.key]}
-                        options={optionsByColumn.get(column.id) ?? []}
-                        people={assignees}
-                        personLabelByEmail={nameByEmail}
-                        canEdit={canEdit}
-                        onSave={(next) =>
-                          patchCurrentLead({
-                            custom_values: { [column.key]: next },
-                          })
-                        }
-                        className={COMPACT_DETAIL_INPUT_CLASS}
-                        inputClassName={COMPACT_DETAIL_INPUT_CLASS}
-                        emptyLabel={`No ${column.label}`}
-                      />
+                      {detailFieldControl(column)}
                     </div>
                   ))}
                 </div>
@@ -758,6 +808,31 @@ export function LeadDetailDrawer({
                       </RailField>
                     ) : null}
 
+                    {showProduct ? (
+                      <RailField label="Product" className="sm:col-span-2 xl:col-span-2">
+                        <ProductMenu
+                          selected={currentLead.products ?? []}
+                          options={productOptions}
+                          canEdit={canEdit}
+                          onToggle={(products: LeadProduct[]) =>
+                            patchCurrentLead({ products })
+                          }
+                          showChevron
+                          buttonClassName={RAIL_SELECT_BUTTON_CLASS}
+                        />
+                      </RailField>
+                    ) : null}
+
+                    {needDetailColumns.map((column) => (
+                      <RailField
+                        key={column.id}
+                        label={column.label}
+                        className="sm:col-span-2 xl:col-span-2"
+                      >
+                        {detailFieldControl(column)}
+                      </RailField>
+                    ))}
+
                     {showAssignee ? (
                       <RailField label="Agent">
                         {canAssign ? (
@@ -815,20 +890,18 @@ export function LeadDetailDrawer({
                       </RailField>
                     ) : null}
 
-                    {showProduct ? (
-                      <RailField label="Product" className="sm:col-span-2 xl:col-span-2">
-                        <ProductMenu
-                          selected={currentLead.products ?? []}
-                          options={productOptions}
-                          canEdit={canEdit}
-                          onToggle={(products: LeadProduct[]) =>
-                            patchCurrentLead({ products })
-                          }
-                          showChevron
-                          buttonClassName={RAIL_SELECT_BUTTON_CLASS}
-                        />
+
+
+                    {propertyDetailColumns.map((column) => (
+                      <RailField
+                        key={column.id}
+                        label={column.label}
+                        // Ô chọn nhiều hiện hết nhãn nên cần cả bề ngang.
+                        className={column.type === "multiselect" ? "sm:col-span-2 xl:col-span-2" : ""}
+                      >
+                        {detailFieldControl(column)}
                       </RailField>
-                    ) : null}
+                    ))}
 
                     {showCreatedAt ? (
                       <RailField label={createdAtColumn?.label ?? "Created date"}>

@@ -663,7 +663,7 @@ export function LeadDistributeDialog({
           {tab === "agents" ? (
             <>
           {/* Ai thuộc product nào. Danh sách là roster agent đã đăng ký —
-              chính bảng task_agents mà Config → Assistant membership → Agents
+              chính bảng task_agents mà Account Management → Agent membership → Agents
               hiển thị, đọc qua cùng một hàm fetchTaskAgents(). */}
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[#dfe1e6]">
             <div
@@ -680,7 +680,7 @@ export function LeadDistributeDialog({
                 <p className="px-3 py-8 text-center text-sm text-[#6b778c]">
                   {rosterError
                     ? "Could not load the agent list."
-                    : "No agents found. Add them under Config → Assistant membership → Agents."}
+                    : "No agents found. Add them under Account Management → Agent membership → Agents."}
                 </p>
               ) : (
                 roster.map((agent) => {
@@ -729,7 +729,7 @@ export function LeadDistributeDialog({
           </div>
 
           <p className="shrink-0 text-xs text-[#6b778c]">
-            Agents come from Config → Assistant membership → Agents. Tick a
+            Agents come from Account Management → Agent membership → Agents. Tick a
             product to put someone into that rotation; set how much they get on
             each product&apos;s tab.
           </p>

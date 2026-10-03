@@ -1,5 +1,4 @@
 import { after, NextResponse } from "next/server";
-import * as XLSX from "xlsx";
 import { auth } from "@/auth";
 import { buildLeadActor, canManageLeads, isLeadViewAdmin } from "@/lib/leads/access";
 import {
@@ -8,20 +7,48 @@ import {
   type AutoAssignOutcome,
 } from "@/lib/leads/auto-assign";
 import { buildNewLeadRow } from "@/lib/leads/create";
-import { parseLeadRows, type ParsedLead } from "@/lib/leads/import-parse";
 import {
-  parseMappingPayload,
-  type LeadImportMapping,
-} from "@/lib/leads/import-mapping";
+  activeImportColumns,
+  findMissingChoiceLabels,
+  toImportCustomValues,
+} from "@/lib/leads/import-custom-values";
+import { findExistingLeadMatches } from "@/lib/leads/import-existing";
+import { readFirstSheet } from "@/lib/leads/import-read";
+import {
+  createMissingChoiceOptions,
+  fetchActiveAccounts,
+  fetchImportCandidates,
+} from "@/lib/leads/import-server";
+import {
+  cellText,
+  LEAD_IMPORT_CUSTOM_FIELDS,
+  LEAD_IMPORT_TEMPLATE,
+  matchTemplateHeaders,
+  parseTemplateRows,
+  resolveImportAgent,
+  type ImportAgentResolution,
+  type ImportRowNote,
+  type TemplateLead,
+} from "@/lib/leads/import-template";
+import type {
+  LeadImportPreview,
+  LeadImportPreviewRow,
+  LeadImportResult,
+  UnmatchedImportAgent,
+} from "@/lib/leads/import-types";
 import { partitionImportRows } from "@/lib/leads/import-validate";
+import { fetchDefaultLeadStatusId } from "@/lib/leads/queries";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import {
   isLeadProduct,
+  normalizeLeadProducts,
   UNKNOWN_LEAD_PRODUCT,
   type LeadProduct,
 } from "@/lib/leads/types";
-import { fetchDefaultLeadStatusId } from "@/lib/leads/queries";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { fetchTaskAgents } from "@/lib/tasks/assignees";
+import { broadcastTableConfigInvalidation } from "@/lib/table-config/realtime";
+import type { TableColumnOption } from "@/lib/table-config/types";
 import {
   fetchWriteValidationContext,
   TableConfigUnavailableError,
@@ -29,8 +56,11 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const MAX_BYTES = 5 * 1024 * 1024;
+// Vercel chặn body trên 4.5 MB trước khi request tới route (cùng lý do trần
+// đính kèm là 4 MB). Một file CSV 2.000 dòng chỉ khoảng 300 KB.
+const MAX_BYTES = 4 * 1024 * 1024;
 const MAX_ROWS = 2000;
+const PREVIEW_ROWS = 10;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -46,11 +76,8 @@ async function findExistingPhones(
 ): Promise<Set<string>> {
   if (phones.length === 0) return new Set();
   const found = new Set<string>();
-  // PostgREST đặt bộ lọc trên query string. MAX_ROWS cho phép 2.000 số, tức
-  // khoảng 24 KB — vượt giới hạn URL phổ biến của proxy/gateway (8–16 KB). Một
-  // lượt import đúng giới hạn UI mà hỏng ở tầng mạng thì thông báo lỗi chẳng
-  // nói được gì hữu ích, và đó mới là phần tệ nhất. Hàm này còn được gọi HAI
-  // lần mỗi lượt import (đọc trước, và đọc lại sau khi va chạm).
+  // PostgREST đặt bộ lọc trên query string. 2.000 số là khoảng 24 KB — vượt
+  // giới hạn URL phổ biến của proxy/gateway (8–16 KB), nên hỏi theo lô.
   for (let start = 0; start < phones.length; start += PHONE_LOOKUP_CHUNK) {
     const chunk = phones.slice(start, start + PHONE_LOOKUP_CHUNK);
     let query = supabase
@@ -68,6 +95,32 @@ async function findExistingPhones(
   return found;
 }
 
+function parseExcludedRows(raw: FormDataEntryValue | null): Set<number> {
+  try {
+    const parsed: unknown = JSON.parse(String(raw ?? "[]"));
+    return new Set(
+      Array.isArray(parsed)
+        ? parsed.filter((value): value is number => Number.isSafeInteger(value))
+        : [],
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+function agentLabel(resolution: ImportAgentResolution | null): LeadImportPreviewRow["agent"] {
+  if (!resolution) return { status: "none", label: null };
+  switch (resolution.status) {
+    case "matched":
+    case "not-agent":
+      return { status: resolution.status, label: resolution.name };
+    case "ambiguous":
+      return { status: "ambiguous", label: resolution.candidates.join(" / ") };
+    case "not-found":
+      return { status: "not-found", label: null };
+  }
+}
+
 export async function POST(request: Request) {
   const session = await auth();
   const email = session?.user?.email;
@@ -76,204 +129,363 @@ export async function POST(request: Request) {
     isAdmin: isLeadViewAdmin(session.user),
   });
   if (!canManageLeads(actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const actorEmail = actor.email.trim().toLowerCase();
 
   const form = await request.formData();
   const file = form.get("file");
   if (!(file instanceof File)) return NextResponse.json({ error: "No file uploaded." }, { status: 400 });
-  if (file.size > MAX_BYTES) return NextResponse.json({ error: "That file is larger than 5 MB." }, { status: 400 });
+  if (file.size > MAX_BYTES) return NextResponse.json({ error: "That file is larger than 4 MB." }, { status: 400 });
+  const dryRun = String(form.get("dry_run") ?? "") === "true";
 
-  let mapping: LeadImportMapping;
-  try {
-    // Client là nơi dựng bảng map, nhưng route vẫn phải tự kiểm: một payload
-    // méo phải ra 400 có lời giải thích, không phải một lỗi lạ ở giữa vòng lặp.
-    mapping = parseMappingPayload(JSON.parse(String(form.get("mapping") ?? "")));
-  } catch {
-    return NextResponse.json({ error: "Column mapping is missing." }, { status: 400 });
+  // Product cho cả file, chọn nhiều (`products` = JSON mảng). Không chọn =
+  // chưa biết khách quan tâm gì = Unknown. Insurance Needs là một cột riêng giữ
+  // đúng dữ liệu, KHÔNG suy ra product (user chốt 2026-10-03).
+  let products: LeadProduct[];
+  const rawProducts = form.get("products");
+  if (rawProducts !== null) {
+    let parsedProducts: unknown;
+    try {
+      parsedProducts = JSON.parse(String(rawProducts));
+    } catch {
+      parsedProducts = null;
+    }
+    if (!Array.isArray(parsedProducts) || !parsedProducts.every(isLeadProduct)) {
+      return NextResponse.json({ error: "Invalid product." }, { status: 400 });
+    }
+    products = normalizeLeadProducts(parsedProducts);
+  } else {
+    const rawProduct = String(form.get("product") ?? "").trim();
+    if (rawProduct !== "" && !isLeadProduct(rawProduct)) {
+      return NextResponse.json({ error: "Invalid product." }, { status: 400 });
+    }
+    products = [isLeadProduct(rawProduct) ? rawProduct : UNKNOWN_LEAD_PRODUCT];
   }
-  if (!mapping.phone?.length) {
-    return NextResponse.json(
-      { error: "Choose which column holds the phone number." },
-      { status: 400 }
-    );
-  }
-
-  // Không chọn product = chưa biết khách quan tâm gì = Unknown. Unknown có vòng
-  // xoay riêng, nên lead import kiểu này vẫn chia tự động được.
-  const rawProduct = String(form.get("product") ?? "").trim();
-  if (rawProduct !== "" && !isLeadProduct(rawProduct)) {
-    return NextResponse.json({ error: "Invalid product." }, { status: 400 });
-  }
-  const product: LeadProduct = isLeadProduct(rawProduct) ? rawProduct : UNKNOWN_LEAD_PRODUCT;
+  /** Product chính — dùng cho vòng chia tự động (mỗi product một pool). */
+  const product: LeadProduct = products[0];
   const rawEventId = String(form.get("event_id") ?? "").trim();
   const eventId = rawEventId || null;
   if (eventId && !UUID_RE.test(eventId)) return NextResponse.json({ error: "The event is not valid." }, { status: 400 });
+  const excludedByUser = parseExcludedRows(form.get("exclude_rows"));
 
-  // Dùng chính id vừa chèn, KHÔNG truy vấn lại "lead chưa gán của event này":
-  // truy vấn như thế sẽ nuốt cả lead cũ mà lượt import trước cố ý để lại pool.
-  const insertedIds: string[] = [];
-  let records: Record<string, unknown>[];
+  let sheet;
   try {
-    const workbook = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: false });
-    const sheetName = workbook.SheetNames[0];
-    if (!sheetName) return NextResponse.json({ error: "That file has no sheets." }, { status: 400 });
-    records = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets[sheetName], { defval: null });
-  } catch {
-    return NextResponse.json({ error: "That file could not be read as an Excel workbook." }, { status: 400 });
+    sheet = readFirstSheet(await file.arrayBuffer());
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "That file could not be read." },
+      { status: 400 },
+    );
   }
-  if (records.length > MAX_ROWS) return NextResponse.json({ error: `That file has ${records.length} rows; the limit is ${MAX_ROWS}.` }, { status: 400 });
-
-  const parsed = parseLeadRows(records, mapping);
-  if (parsed.rows.length === 0) {
-    return NextResponse.json({ inserted: 0, skipped: parsed.skipped, duplicates: 0 });
+  if (sheet.records.length > MAX_ROWS) {
+    return NextResponse.json({ error: `That file has ${sheet.records.length} rows; the limit is ${MAX_ROWS}.` }, { status: 400 });
   }
+  const headerMatch = matchTemplateHeaders(sheet.headers);
+  if (Object.keys(headerMatch.headerByField).length === 0) {
+    return NextResponse.json(
+      {
+        error: `This file does not use the lead import template. Expected columns: ${LEAD_IMPORT_TEMPLATE.map((column) => column.header).join(", ")}.`,
+      },
+      { status: 400 },
+    );
+  }
+  const parsed = parseTemplateRows(sheet.records, sheet.rowNumbers, headerMatch.headerByField);
 
   const supabase = getSupabaseAdmin();
-  // Lead import phải có status như lead tạo tay. Trước đây Import không đặt gì,
-  // nên 91/121 lead trong DB không có status: cột Status trống và bộ lọc theo
-  // status không tìm thấy chúng.
+  if (eventId) {
+    const { data: event, error: eventError } = await supabase
+      .from("lead_events")
+      .select("id")
+      .eq("id", eventId)
+      .is("archived_at", null)
+      .maybeSingle();
+    if (eventError) return NextResponse.json({ error: eventError.message }, { status: 500 });
+    if (!event) return NextResponse.json({ error: "That event is no longer available." }, { status: 400 });
+  }
+
+  const loadContext = () =>
+    fetchWriteValidationContext(
+      {
+        scope: "lead",
+        mode: "create",
+        touchedSystemKeys: ["full_name", "phone", "email", "fub", "product", "event"],
+        touchedCustomKeys: LEAD_IMPORT_CUSTOM_FIELDS,
+        submittedCustomValues: {},
+      },
+      supabase,
+    );
+
+  let context;
+  let candidates;
+  let accounts;
+  let agents;
+  try {
+    [context, candidates, accounts, agents] = await Promise.all([
+      loadContext(),
+      fetchImportCandidates(supabase),
+      fetchActiveAccounts(supabase),
+      // Danh sách Agent ở Account Management → Agent membership — cùng nguồn Task CS.
+      fetchTaskAgents(),
+    ]);
+  } catch (error) {
+    if (error instanceof TableConfigUnavailableError) {
+      return NextResponse.json({ error: error.message }, { status: 503 });
+    }
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Could not prepare the import." },
+      { status: 500 },
+    );
+  }
+
+  // Cột của mẫu chưa có trong Table Config thì dữ liệu cột đó không vào — nói ra.
+  const importColumns = activeImportColumns(context.columns);
+  const ignoredColumns = LEAD_IMPORT_CUSTOM_FIELDS.filter(
+    (field) => headerMatch.headerByField[field] && !importColumns.has(field),
+  ).map((field) => headerMatch.headerByField[field] as string);
+
+  // Khách cũ: dò TRƯỚC khi bỏ dòng nào, để preview hiện đủ.
+  const existingClients = findExistingLeadMatches(parsed.rows, candidates.leads, eventId);
+  const blockedRows = new Set(
+    existingClients.filter((match) => match.sameEventBlocked).map((match) => match.row),
+  );
+  // Server chỉ nhận tick bỏ trên dòng THẬT SỰ là khách cũ — một request méo
+  // không được xoá dòng bất kỳ.
+  const existingRows = new Set(existingClients.map((match) => match.row));
+  const excludedRows = new Set(
+    [...excludedByUser].filter((row) => existingRows.has(row) && !blockedRows.has(row)),
+  );
+
+  // Agent: khớp một lần cho mỗi tên.
+  const agentAccounts = agents.map((agent) => ({
+    email: agent.email.trim().toLowerCase(),
+    name: agent.name,
+  }));
+  const resolutionByName = new Map<string, ImportAgentResolution>();
+  for (const row of parsed.rows) {
+    if (row.agentName && !resolutionByName.has(row.agentName)) {
+      resolutionByName.set(row.agentName, resolveImportAgent(row.agentName, agentAccounts, accounts));
+    }
+  }
+  const resolutionOf = (row: TemplateLead) =>
+    row.agentName ? resolutionByName.get(row.agentName) ?? null : null;
+  const unmatchedAgents: UnmatchedImportAgent[] = [];
+  for (const [name, resolution] of resolutionByName) {
+    if (resolution.status === "matched") continue;
+    unmatchedAgents.push({
+      name,
+      status: resolution.status,
+      accountName: resolution.status === "not-agent" ? resolution.name : null,
+      candidates: resolution.status === "ambiguous" ? resolution.candidates : [],
+      rows: parsed.rows.filter((row) => row.agentName === name).map((row) => row.row),
+    });
+  }
+
+  // Lựa chọn chưa có thì TẠO ("có gì ghi nấy"). Dry run chỉ giả lập option để
+  // bước kiểm bên dưới chạy y như import thật.
+  const missingLabels = findMissingChoiceLabels(parsed.rows, context.columns, context.options);
+  const optionsToCreate = missingLabels.flatMap(({ column, labels }) =>
+    labels.map((label) => ({ column: column.label, label })),
+  );
+  let createdOptions: { column: string; label: string }[] = [];
+  if (dryRun) {
+    const synthetic: TableColumnOption[] = missingLabels.flatMap(({ column, labels }) =>
+      labels.map((label, index) => ({
+        id: `preview:${column.id}:${index}`,
+        column_id: column.id,
+        label,
+        color: null,
+        position: 0,
+        archived_at: null,
+      }) as TableColumnOption),
+    );
+    context = { ...context, options: [...context.options, ...synthetic] };
+  } else if (missingLabels.length > 0) {
+    try {
+      createdOptions = await createMissingChoiceOptions(supabase, missingLabels);
+      context = await loadContext();
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Could not add the new options." },
+        { status: 500 },
+      );
+    }
+  }
+
+  const warnings: ImportRowNote[] = [...parsed.warnings];
+  const candidatesForImport = parsed.rows
+    .filter((row) => !blockedRows.has(row.row) && !excludedRows.has(row.row))
+    .map((row) => {
+      const converted = toImportCustomValues(row, context.columns, context.options);
+      for (const reason of converted.warnings) warnings.push({ row: row.row, reason });
+      return { ...row, custom_values: converted.values };
+    });
+  const partitioned = partitionImportRows(candidatesForImport, context, {
+    optionalSystemKeys: ["phone"],
+  });
+  const skipped = [...parsed.skipped, ...partitioned.skipped].sort((a, b) => a.row - b.row);
+  warnings.sort((a, b) => a.row - b.row);
+
+  if (dryRun) {
+    const preview: LeadImportPreview = {
+      dryRun: true,
+      totalRows: parsed.rows.length + parsed.skipped.length,
+      importable: partitioned.valid.length,
+      skipped,
+      warnings,
+      presentHeaders: LEAD_IMPORT_TEMPLATE.filter(
+        (column) => headerMatch.headerByField[column.field],
+      ).map((column) => column.header),
+      missingHeaders: headerMatch.missingExpected,
+      unknownHeaders: headerMatch.unknownHeaders,
+      ignoredColumns,
+      existingClients,
+      existingCheckTruncated: candidates.truncated,
+      unmatchedAgents,
+      optionsToCreate,
+      rowsWithoutPhone: parsed.rows.filter((row) => !row.phone).length,
+      previewRows: parsed.rows.slice(0, PREVIEW_ROWS).map((row) => ({
+        row: row.row,
+        name: row.full_name,
+        phone: row.phone,
+        insuranceNeeds: cellText(row.customRaw.insurance_needs),
+        agent: agentLabel(resolutionOf(row)),
+        description: row.description,
+      })),
+    };
+    return NextResponse.json(preview);
+  }
+
+  const result: LeadImportResult = {
+    inserted: 0,
+    duplicates: blockedRows.size,
+    excluded: excludedRows.size,
+    skipped,
+    warnings,
+    assignedFromFile: 0,
+    unmatchedAgents,
+    createdOptions,
+    ignoredColumns,
+    autoAssign: null,
+  };
+  const sourceId = readLeadMutationSourceId(request);
+  if (createdOptions.length > 0) {
+    after(async () => { await broadcastTableConfigInvalidation(["lead"]); });
+  }
+  if (partitioned.valid.length === 0) return NextResponse.json(result);
+
+  // Lead import phải có status như lead tạo tay.
   const defaultStatusId = await fetchDefaultLeadStatusId(supabase);
-  /** Cùng hàm dựng payload với Add lead: mặc định của hai cửa không được lệch. */
-  const newLeadRow = (row: ParsedLead) =>
+  // Mỗi dòng mang một token riêng để nối id vừa chèn về đúng dòng — cần cho
+  // bước gán theo cột Agent. Không dựa vào thứ tự RETURNING.
+  const rowsWithToken = partitioned.valid.map((row) => ({ row, token: crypto.randomUUID() }));
+  const newLeadRow = ({ row, token }: (typeof rowsWithToken)[number]) =>
     buildNewLeadRow({
       product,
+      products,
       eventId,
       statusId: defaultStatusId,
       fullName: row.full_name,
       phone: row.phone,
       email: row.email,
+      fubLink: row.fub_link,
+      description: row.description,
       customValues: row.custom_values,
-      actorEmail: actor.email,
+      actorEmail,
+      clientRequestId: token,
     });
 
-  // Cùng bộ luật với PATCH. Không có nó, cái admin đánh dấu "Required" chỉ có
-  // tác dụng ở một nửa số cửa vào lead.
-  let writeContext;
-  try {
-    writeContext = await fetchWriteValidationContext(
-      {
-        scope: "lead",
-        mode: "create",
-        touchedSystemKeys: ["full_name", "phone", "email", "product", "event"],
-        touchedCustomKeys: [
-          ...new Set(parsed.rows.flatMap((row) => Object.keys(row.custom_values))),
-        ],
-        submittedCustomValues: Object.assign(
-          {},
-          ...parsed.rows.map((row) => row.custom_values)
-        ),
-      },
-      supabase
-    );
-  } catch (error) {
-    if (error instanceof TableConfigUnavailableError) {
-      return NextResponse.json({ error: error.message }, { status: 503 });
+  const insertedIdByToken = new Map<string, string>();
+  const insert = async (batch: typeof rowsWithToken) => {
+    const { data, error } = await supabase
+      .from("leads")
+      .insert(batch.map(newLeadRow))
+      .select("id,client_request_id");
+    if (!error) {
+      for (const row of (data ?? []) as { id: string; client_request_id: string }[]) {
+        insertedIdByToken.set(row.client_request_id, row.id);
+      }
     }
-    throw error;
-  }
-
-  const partitioned = partitionImportRows(parsed.rows, writeContext);
-  const skipped = [...parsed.skipped, ...partitioned.skipped].sort((a, b) => a.row - b.row);
-  if (partitioned.valid.length === 0) {
-    return NextResponse.json({
-      inserted: 0,
-      skipped,
-      duplicates: 0,
-      ignoredHeaders: partitioned.ignoredHeaders,
-    });
-  }
-
-  let remaining = partitioned.valid;
-  let inserted = 0;
+    return error;
+  };
   try {
-    // The schema uses a partial active-row unique index, which cannot be named
-    // as a PostgREST onConflict target. Pre-reading active phones lets us avoid
-    // the invalid inference target and also reports duplicates honestly.
-    const existingPhones = await findExistingPhones(supabase, eventId, remaining.map((row) => row.phone));
-    remaining = remaining.filter((row) => !existingPhones.has(row.phone));
-    if (remaining.length > 0) {
-      const { data, error } = await supabase
-        .from("leads")
-        .insert(remaining.map((row) => newLeadRow(row)))
-        .select("id");
-      if (error) {
-        // A concurrent import may win the race after the pre-read. Reconcile
-        // once so a harmless race is reported as duplicates, not a false 500.
-        const afterRace = await findExistingPhones(supabase, eventId, remaining.map((row) => row.phone));
-        const retryRows = remaining.filter((row) => !afterRace.has(row.phone));
-        if (retryRows.length === remaining.length) {
-          // Với lead không thuộc event nào, `leads_phone_no_event_unique_idx`
-          // mới là thứ chặn trùng — lượt đọc trước đó không thấy được dòng mà
-          // một lượt import song song vừa chèn. Báo là trùng, không phải 500.
-          if ((error as { code?: string }).code === "23505") {
-            return NextResponse.json({
-              inserted,
-              duplicates: remaining.length,
-              skipped,
-              ignoredHeaders: partitioned.ignoredHeaders,
-              autoAssign: null,
-            });
-          }
-          throw new Error(error.message);
-        }
-        if (retryRows.length > 0) {
-          const retry = await supabase
-            .from("leads")
-            .insert(retryRows.map((row) => newLeadRow(row)))
-            .select("id");
-          if (retry.error) throw new Error(retry.error.message);
-          inserted += retry.data?.length ?? 0;
-          for (const row of retry.data ?? []) insertedIds.push((row as { id: string }).id);
-        }
-      } else {
-        inserted += data?.length ?? 0;
-        for (const row of data ?? []) insertedIds.push((row as { id: string }).id);
+    const error = await insert(rowsWithToken);
+    if (error) {
+      // Một lượt import song song có thể chèn cùng số sau lần dò ở trên. Lọc các
+      // số đã có trong event rồi thử lại MỘT lần, báo phần đó là trùng.
+      if ((error as { code?: string }).code !== "23505") throw new Error(error.message);
+      const taken = await findExistingPhones(
+        supabase,
+        eventId,
+        rowsWithToken.flatMap(({ row }) => (row.phone ? [row.phone] : [])),
+      );
+      const retry = rowsWithToken.filter(({ row }) => !row.phone || !taken.has(row.phone));
+      result.duplicates += rowsWithToken.length - retry.length;
+      if (retry.length > 0) {
+        const retryError = await insert(retry);
+        if (retryError) throw new Error(retryError.message);
       }
     }
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Could not import leads." }, { status: 500 });
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Could not import leads." },
+      { status: 500 },
+    );
+  }
+  result.inserted = insertedIdByToken.size;
+
+  // Gán theo cột Agent — chỉ người nằm trong danh sách Agent ở Config. Hỏng
+  // một người thì các lead đó nằm ở pool; lượt import đã thành công rồi.
+  const idsByAgent = new Map<string, string[]>();
+  const unassignedIds: string[] = [];
+  for (const { row, token } of rowsWithToken) {
+    const id = insertedIdByToken.get(token);
+    if (!id) continue;
+    const resolution = resolutionOf(row);
+    if (resolution?.status === "matched") {
+      idsByAgent.set(resolution.email, [...(idsByAgent.get(resolution.email) ?? []), id]);
+    } else {
+      unassignedIds.push(id);
+    }
+  }
+  for (const [agentEmail, ids] of idsByAgent) {
+    const { error } = await supabase.rpc("assign_leads_manual", {
+      p_lead_ids: ids,
+      p_to_email: agentEmail,
+      p_actor_email: actorEmail,
+      p_reason: "Imported: Agent column",
+    });
+    if (error) {
+      console.error("lead.import.assign_failed", { agentEmail, count: ids.length, error: error.message });
+      unassignedIds.push(...ids);
+      continue;
+    }
+    result.assignedFromFile += ids.length;
   }
 
-  // Chia tự động chỉ chạy khi admin đã bật toàn cục VÀ người bấm import tick ô
-  // trong dialog. Hai lớp vì đây là hành động khó lùi: gán nhầm 2.000 lead phải
-  // gỡ bằng tay.
+  // Chia tự động chỉ cho lead CHƯA có Agent, và chỉ khi admin bật toàn cục VÀ
+  // người import tick ô — gán nhầm 2.000 lead phải gỡ bằng tay.
   const wantsAutoAssign = String(form.get("auto_assign") ?? "") === "true";
-  let autoAssign: AutoAssignOutcome | null = null;
-  if (wantsAutoAssign && insertedIds.length > 0) {
+  if (wantsAutoAssign && unassignedIds.length > 0) {
+    let outcome: AutoAssignOutcome;
     if (await isAutoAssignEnabled(product, supabase)) {
       try {
-        autoAssign = await autoAssignLeads(
-          insertedIds,
-          product,
-          actor.email.trim().toLowerCase(),
-          supabase
-        );
+        outcome = await autoAssignLeads(unassignedIds, product, actorEmail, supabase);
       } catch (error) {
-        // Import đã thành công rồi; lead nằm ở pool là hoàn toàn dùng được.
-        // Làm hỏng cả lượt import vì bước chia là mất việc lớn vì việc nhỏ.
-        autoAssign = {
+        outcome = {
           assigned: 0,
-          unassigned: insertedIds.length,
+          unassigned: unassignedIds.length,
           reason: error instanceof Error ? error.message : "Could not distribute the new leads.",
         };
       }
     } else {
-      autoAssign = {
+      outcome = {
         assigned: 0,
-        unassigned: insertedIds.length,
+        unassigned: unassignedIds.length,
         reason: "Auto-assign is switched off in Lead Table Configuration.",
       };
     }
+    result.autoAssign = outcome;
   }
 
-  const sourceId = readLeadMutationSourceId(request);
   after(async () => { await broadcastLeadsChanged(sourceId); });
-  return NextResponse.json({
-    inserted,
-    // Đếm trên số hàng ĐÃ qua validation: hàng bị bỏ vì sai dữ liệu đã nằm ở
-    // `skipped` kèm lý do rồi, gộp vào "trùng" là nói sai với người import.
-    duplicates: partitioned.valid.length - inserted,
-    skipped,
-    ignoredHeaders: partitioned.ignoredHeaders,
-    autoAssign,
-  });
+  return NextResponse.json(result);
 }

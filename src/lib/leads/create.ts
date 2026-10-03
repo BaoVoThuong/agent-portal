@@ -1,5 +1,10 @@
 import { normalizePhone } from "./import-parse";
-import { isLeadProduct, UNKNOWN_LEAD_PRODUCT, type LeadProduct } from "./types";
+import {
+  isLeadProduct,
+  normalizeLeadProducts,
+  UNKNOWN_LEAD_PRODUCT,
+  type LeadProduct,
+} from "./types";
 import { parseCollaboratorEmails } from "./collaborators";
 import { isLeadType, isPersonalLeadEventName, type LeadType } from "./lead-type";
 
@@ -10,7 +15,10 @@ const MAX_CUSTOM_FIELDS = 100;
 const MAX_CUSTOM_KEY_LENGTH = 120;
 
 export type CreateLeadInput = {
+  /** Product chính = phần tử đầu của `products` (cùng luật trigger DB). */
   product: LeadProduct;
+  /** Một lead có thể mang nhiều product; đã chuẩn hoá bằng normalizeLeadProducts. */
+  products: LeadProduct[];
   fullName: string | null;
   phone: string;
   email: string | null;
@@ -83,8 +91,14 @@ function parseCustomValues(value: unknown):
     if (!trimmedKey || trimmedKey.length > MAX_CUSTOM_KEY_LENGTH) {
       return { ok: false, error: "Custom field names must be between 1 and 120 characters." };
     }
+    // Mảng chuỗi = cột chọn nhiều (option id), vd. Insurance Needs.
+    const isOptionList =
+      Array.isArray(fieldValue) &&
+      fieldValue.length <= MAX_CUSTOM_FIELDS &&
+      fieldValue.every((item) => typeof item === "string" && item.length <= 200);
     if (
       fieldValue !== null &&
+      !isOptionList &&
       typeof fieldValue !== "string" &&
       typeof fieldValue !== "number" &&
       typeof fieldValue !== "boolean"
@@ -104,7 +118,17 @@ export function parseCreateLeadInput(body: unknown): CreateLeadParseResult {
     return { ok: false, error: "Request body must be an object." };
   }
   const input = body as Record<string, unknown>;
-  if (!isLeadProduct(input.product)) return { ok: false, error: "Invalid product." };
+  // `products` (form Add lead chọn nhiều) thắng `product` (client cũ, một product).
+  let products: LeadProduct[];
+  if (input.products !== undefined && input.products !== null) {
+    if (!Array.isArray(input.products) || !input.products.every(isLeadProduct)) {
+      return { ok: false, error: "Invalid product." };
+    }
+    products = normalizeLeadProducts(input.products);
+  } else {
+    if (!isLeadProduct(input.product)) return { ok: false, error: "Invalid product." };
+    products = [input.product];
+  }
 
   const phone = normalizePhone(input.phone);
   if (!phone) return { ok: false, error: "A valid phone number is required." };
@@ -149,7 +173,8 @@ export function parseCreateLeadInput(body: unknown): CreateLeadParseResult {
   return {
     ok: true,
     value: {
-      product: input.product,
+      product: products[0],
+      products,
       fullName,
       phone,
       email,
@@ -185,10 +210,13 @@ export function resolveDialogProduct(
 
 export type NewLeadRowInput = {
   product: LeadProduct | null;
+  /** Có thì thắng `product`; trigger DB đặt `product` = phần tử đầu. */
+  products?: LeadProduct[];
   eventId: string | null;
   statusId: string | null;
   fullName: string | null;
-  phone: string;
+  /** Add lead luôn có số; Import theo mẫu thì có thể trống ("có gì ghi nấy"). */
+  phone: string | null;
   email: string | null;
   /** Optional for imports, which may not provide a FUB URL. */
   fubLink?: string | null;
@@ -221,8 +249,10 @@ export function buildNewLeadRow(input: NewLeadRowInput): Record<string, unknown>
   const actor = input.actorEmail.trim().toLowerCase();
   const nowIso = (input.now ?? new Date()).toISOString();
   return {
-    product: input.product ?? UNKNOWN_LEAD_PRODUCT,
-    products: [input.product ?? UNKNOWN_LEAD_PRODUCT],
+    product: input.products?.[0] ?? input.product ?? UNKNOWN_LEAD_PRODUCT,
+    products: input.products?.length
+      ? normalizeLeadProducts(input.products)
+      : [input.product ?? UNKNOWN_LEAD_PRODUCT],
     event_id: input.eventId,
     status_id: input.statusId,
     full_name: input.fullName,

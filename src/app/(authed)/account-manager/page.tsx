@@ -14,6 +14,13 @@ import {
   SYSTEM_ROLE_NAMES,
 } from "@/lib/rbac/system-roles";
 import AccountManagerClient from "./AccountManagerClient";
+import type { AgentMembershipData, AssistantMember } from "./AgentMembershipSection";
+import { loadConfigAdmin } from "@/lib/table-config/access";
+import {
+  fetchTaskAgentCandidates,
+  fetchTaskAgents,
+  fetchTaskAssignees,
+} from "@/lib/tasks/assignees";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +49,47 @@ export type ManagedAccountUser = AccountUser & {
   alertsUpdatedAt: string | null;
 };
 
+/**
+ * Agents + Assistant membership (chuyển từ Table Configuration 2026-10-03).
+ * Chỉ nạp cho admin cấu hình — đúng cổng của `/api/config/agents|assistants`,
+ * nên ai thấy tab là sửa được, và danh bạ công ty (`candidates`) không bị gửi
+ * xuống cho người không có quyền.
+ */
+async function loadAgentMembership(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+): Promise<AgentMembershipData | null> {
+  const admin = await loadConfigAdmin();
+  if (!admin.ok) return null;
+  try {
+    const [agents, candidates, assignees, membersResult] = await Promise.all([
+      fetchTaskAgents(),
+      fetchTaskAgentCandidates(),
+      fetchTaskAssignees(),
+      supabase
+        .from("agent_members")
+        .select("agent_email,cs_email,is_assistant")
+        .eq("is_assistant", true),
+    ]);
+    if (membersResult.error) throw new Error(membersResult.error.message);
+    return {
+      agents,
+      candidates,
+      assignees,
+      members: (membersResult.data ?? []) as AssistantMember[],
+      available: true,
+    };
+  } catch {
+    return {
+      agents: [],
+      candidates: [],
+      assignees: [],
+      members: [],
+      available: false,
+      error: "Could not load agents. Retry after checking the connection or permissions.",
+    };
+  }
+}
+
 export default async function AccountManagerPage() {
   const session = await requirePermission(PERMISSIONS.ACCOUNT_MANAGER);
 
@@ -54,7 +102,13 @@ export default async function AccountManagerPage() {
     session.user.permissions,
     PERMISSIONS.NOTIFICATION_ALERTS,
   );
-  const [{ data, error }, roles, userRolesResponse, notificationPreferencesResponse] = await Promise.all([
+  const [
+    { data, error },
+    roles,
+    userRolesResponse,
+    notificationPreferencesResponse,
+    agentMembership,
+  ] = await Promise.all([
     supabase
       .from(PORTAL_ACCOUNT_TABLE)
       .select("id,email,name,agent_id,role,is_active,created_at")
@@ -66,6 +120,7 @@ export default async function AccountManagerPage() {
           .from("notification_preferences")
           .select("email,sound_enabled,updated_by_email,updated_at")
       : Promise.resolve({ data: [], error: null }),
+    loadAgentMembership(supabase),
   ]);
 
   if (error) {
@@ -158,6 +213,7 @@ export default async function AccountManagerPage() {
       canManageAlerts={canManageAlerts}
       initialUsers={users}
       availableRoles={availableRoles}
+      agentMembership={agentMembership}
     />
   );
 }

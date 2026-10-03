@@ -1,6 +1,5 @@
 "use client";
 
-import { createPortal } from "react-dom";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { Dispatch, ReactNode, SetStateAction } from "react";
 import {
@@ -21,7 +20,6 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  ChevronDown,
   BellRing,
   Clock,
   GripVertical,
@@ -30,7 +28,6 @@ import {
   Settings2,
   SlidersHorizontal,
   Trash2,
-  UserRoundCog,
 } from "lucide-react";
 import {
   describeArchivedColumnRestore,
@@ -41,9 +38,7 @@ import {
   CONFIG_ARCHIVED_COLUMN_TYPE_MISMATCH,
 } from "@/lib/table-config/mutation-errors";
 import { Toast, type ToastTone } from "../../_shared/Toast";
-import { SearchableListboxPanel } from "../../_shared/SearchableListboxPanel";
-import { useAnchoredMenu } from "../../tasks/_components/use-anchored-menu";
-import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
+import { DropdownSelect, type SelectOption } from "../../_shared/DropdownSelect";
 import type { TaskCategory, TaskSlaRule } from "@/lib/tasks/types";
 import {
   STATUS_KINDS,
@@ -96,14 +91,9 @@ import { isConfigMutationWarning } from "@/lib/table-config/partial-success";
 import { isLatestRefresh, readRefreshResponse } from "@/lib/table-config/refresh-state";
 import { canManageColumnOptions } from "@/lib/table-config/system-option-columns";
 
-type AssistantMember = {
-  agent_email: string;
-  cs_email: string;
-  is_assistant: boolean;
-};
-
-type Tab = "table" | "value" | "assistant" | "sla" | "alert";
-const ALL_TABS: readonly Tab[] = ["table", "value", "assistant", "sla"];
+// Agents + Assistant membership chuyển sang Account Management (2026-10-03).
+type Tab = "table" | "value" | "sla" | "alert";
+const ALL_TABS: readonly Tab[] = ["table", "value", "sla"];
 /**
  * Scope chưa materialise thì cột của nó còn mang id giả `system-<scope>-<key>`
  * và MỌI lượt ghi hỏng với lỗi invalid-uuid. Phải khoá cả tab Columns LẪN tab
@@ -113,7 +103,7 @@ const SCOPE_NOT_READY_ERROR =
   "This table is using a migration fallback. Editing is disabled until the schema is applied.";
 
 /**
- * Lead không có Categories, Assistant membership hay SLA, nhưng có ngưỡng cảnh
+ * Lead không có Categories hay SLA, nhưng có ngưỡng cảnh
  * báo riêng — thứ trước 2026-09-11 nằm lạc trong trang Settings cá nhân.
  */
 const LEAD_TABS: readonly Tab[] = ["table", "value", "alert"];
@@ -125,8 +115,6 @@ const LEAD_TABS: readonly Tab[] = ["table", "value", "alert"];
 function tabsForScope(scope: TableScope): readonly Tab[] {
   return scope === "lead" ? LEAD_TABS : ALL_TABS;
 }
-type AssistantSettingsView = "agents" | "memberships";
-type SelectOption<T extends string> = { value: T; label: string; disabled?: boolean };
 
 const SCOPE_LABEL: Record<TableScope, string> = {
   cs: "Health Customer Service",
@@ -144,10 +132,6 @@ function scopeOptions(scopes: readonly TableScope[]): SelectOption<TableScope>[]
   return scopes.map((scope) => ({ value: scope, label: SCOPE_LABEL[scope] }));
 }
 
-const ASSISTANT_SETTINGS_OPTIONS: SelectOption<AssistantSettingsView>[] = [
-  { value: "agents", label: "Agents" },
-  { value: "memberships", label: "Assistant membership" },
-];
 
 const COLUMN_TYPE_LABEL: Record<ColumnType, string> = {
   text: "Text",
@@ -200,7 +184,6 @@ type ConfigSectionStatuses = {
   columns: ConfigSectionStatus;
   options: ConfigSectionStatus;
   categories: ConfigSectionStatus;
-  assistants: ConfigSectionStatus;
   sla: ConfigSectionStatus;
   leadAlerts: ConfigSectionStatus;
   enrollmentOptions: Record<TableScope, ConfigSectionStatus>;
@@ -212,10 +195,6 @@ export function ConfigClient({
   columnsReadyByScope,
   initialColumns,
   initialOptions,
-  initialAgents,
-  candidates,
-  assignees,
-  initialMembers,
   initialCategories,
   initialSlaRules,
   initialOptionData,
@@ -236,10 +215,6 @@ export function ConfigClient({
   columnsReadyByScope: Record<TableScope, boolean>;
   initialColumns: Record<TableScope, TableColumn[]>;
   initialOptions: Record<TableScope, TableColumnOption[]>;
-  initialAgents: TaskAgent[];
-  candidates: TaskAssignee[];
-  assignees: TaskAssignee[];
-  initialMembers: AssistantMember[];
   initialCategories: TaskCategory[];
   initialSlaRules: TaskSlaRule[];
   initialOptionData: Record<EnrollmentProgram, EnrollmentOptionData>;
@@ -250,8 +225,6 @@ export function ConfigClient({
 }) {
   const [tab, setTab] = useState<Tab>("table");
   const [leadAlertSettings, setLeadAlertSettings] = useState(initialLeadAlertSettings);
-  const [assistantSettingsView, setAssistantSettingsView] =
-    useState<AssistantSettingsView>("agents");
   const [scope, setScope] = useState<TableScope>(scopes[0] ?? "cs");
   const tabs = tabsForScope(scope);
   const columnsReady = columnsReadyByScope[scope];
@@ -269,8 +242,6 @@ export function ConfigClient({
   }
   const [columns, setColumns] = useState(initialColumns);
   const [options, setOptions] = useState(initialOptions);
-  const [agents, setAgents] = useState(initialAgents);
-  const [members, setMembers] = useState(initialMembers);
   const [categories, setCategories] = useState(initialCategories);
   const [slaRules, setSlaRules] = useState(initialSlaRules);
   const [optionData, setOptionData] = useState(initialOptionData);
@@ -441,11 +412,6 @@ export function ConfigClient({
                 <SlidersHorizontal className="h-4 w-4" /> Dropdown Values
               </TabButton>
             ) : null}
-            {tabs.includes("assistant") ? (
-              <TabButton active={tab === "assistant"} onClick={() => setTab("assistant")}>
-                <UserRoundCog className="h-4 w-4" /> Assistant Membership
-              </TabButton>
-            ) : null}
             {tabs.includes("sla") ? (
               <TabButton active={tab === "sla"} onClick={() => setTab("sla")}>
                 <Clock className="h-4 w-4" /> SLA Times
@@ -457,16 +423,6 @@ export function ConfigClient({
               </TabButton>
             ) : null}
           </div>
-          {tab === "assistant" ? (
-            <div className="w-[220px]">
-              <DropdownSelect
-                label="Assistant settings"
-                value={assistantSettingsView}
-                options={ASSISTANT_SETTINGS_OPTIONS}
-                onChange={setAssistantSettingsView}
-              />
-            </div>
-          ) : null}
         </div>
 
         <div className="min-h-0 flex-1 overflow-hidden">
@@ -524,21 +480,6 @@ export function ConfigClient({
               onOptionDataChange={() =>
                 isEnrollmentProgram(scope) ? refreshOptionData(scope) : Promise.resolve()
               }
-            />
-          ) : null}
-          {tab === "assistant" ? (
-            <ConfigAssistantSection
-              agents={agents}
-              candidates={candidates}
-              assignees={assignees}
-              members={members}
-              busy={busy}
-              available={sectionStatus.assistants.available}
-              availabilityError={sectionStatus.assistants.error}
-              run={run}
-              setMembers={setMembers}
-              onAgentsChange={setAgents}
-              settingsView={assistantSettingsView}
             />
           ) : null}
           {tab === "alert" ? (
@@ -613,82 +554,6 @@ function ConfigSectionUnavailable({ message }: { message?: string }) {
       role="status"
     >
       {message ?? "This section is temporarily unavailable. Editing is disabled."}
-    </div>
-  );
-}
-
-function DropdownSelect<T extends string>({
-  label,
-  value,
-  options,
-  onChange,
-  placeholder = "Select",
-  className = "",
-  buttonClassName = "",
-}: {
-  label: string;
-  value: T;
-  options: SelectOption<T>[];
-  onChange: (value: T) => void;
-  placeholder?: string;
-  className?: string;
-  buttonClassName?: string;
-}) {
-  const {
-    isOpen,
-    toggle,
-    triggerRef,
-    menuRef,
-    menuStyle,
-    closeMenu,
-    closeMenuForTab,
-  } = useAnchoredMenu();
-  const selected = options.find((option) => option.value === value);
-
-  return (
-    <div className={`relative ${className}`}>
-      <button
-        ref={triggerRef}
-        type="button"
-        aria-label={label}
-        aria-haspopup="listbox"
-        aria-expanded={isOpen}
-        onClick={toggle}
-        className={`flex h-10 w-full items-center justify-between gap-3 rounded border border-[#dfe1e6] bg-white px-3 text-left text-sm font-semibold text-[#172b4d] shadow-sm outline-none transition hover:border-[#b8c7dc] focus:border-[#0c66e4] focus:ring-2 focus:ring-[#0c66e4]/20 ${buttonClassName}`}
-      >
-        <span className={`truncate ${selected ? "" : "text-[#97a0af]"}`}>
-          {selected?.label ?? placeholder}
-        </span>
-        <ChevronDown
-          className={`h-4 w-4 shrink-0 text-[#6b778c] transition ${isOpen ? "rotate-180" : ""}`}
-          aria-hidden="true"
-        />
-      </button>
-
-      {isOpen
-        ? createPortal(
-            <SearchableListboxPanel
-              menuRef={menuRef}
-              menuStyle={menuStyle}
-              className="min-w-[16rem]"
-              ariaLabel={label}
-              queryPlaceholder={`Search ${label.toLowerCase()}…`}
-              emptyMessage="No matching options."
-              choices={options.map((option) => ({
-                value: option.value,
-                label: option.label,
-                disabled: option.disabled,
-              }))}
-              selectedValue={value}
-              onSelect={(nextValue) => {
-                onChange(nextValue as T);
-                closeMenu({ restoreFocus: true });
-              }}
-              onTabExit={closeMenuForTab}
-            />,
-            document.body
-          )
-        : null}
     </div>
   );
 }
@@ -2507,308 +2372,6 @@ function ConfirmDialog({
   );
 }
 
-function ConfigAssistantSection({
-  agents,
-  candidates,
-  assignees,
-  members,
-  busy,
-  available,
-  availabilityError,
-  run,
-  setMembers,
-  onAgentsChange,
-  settingsView,
-}: {
-  agents: TaskAgent[];
-  candidates: TaskAssignee[];
-  assignees: TaskAssignee[];
-  members: AssistantMember[];
-  busy: boolean;
-  available: boolean;
-  availabilityError?: string;
-  run: (
-    action: () => Promise<unknown>,
-    success: string,
-    options?: { lock?: boolean }
-  ) => Promise<void>;
-  setMembers: Dispatch<SetStateAction<AssistantMember[]>>;
-  onAgentsChange: Dispatch<SetStateAction<TaskAgent[]>>;
-  settingsView: AssistantSettingsView;
-}) {
-  const [agentEmail, setAgentEmail] = useState(agents[0]?.email ?? "");
-  const [assistantEmail, setAssistantEmail] = useState("");
-  const [newAgentEmail, setNewAgentEmail] = useState("");
-  const [agentsRefreshError, setAgentsRefreshError] = useState<string | null>(null);
-  const [membersRefreshError, setMembersRefreshError] = useState<string | null>(null);
-  const agentsRefreshSequenceRef = useRef(0);
-  const membersRefreshSequenceRef = useRef(0);
-  const agentsControlsDisabled = busy || !available || Boolean(agentsRefreshError);
-  const membersControlsDisabled =
-    busy || !available || Boolean(agentsRefreshError) || Boolean(membersRefreshError);
-  const agentEmails = new Set(agents.map((a) => a.email));
-  // Agent picker: MỌI account active (khớp AgentGroupsModal cũ) — Agent không
-  // bắt buộc có quyền task.work, họ có thể chưa từng dùng CS board.
-  const agentCandidateOptions: SelectOption<string>[] = [
-    { value: "", label: "Select person" },
-    ...candidates
-      .filter((person) => !agentEmails.has(person.email))
-      .map((person) => ({ value: person.email, label: person.name?.trim() || person.email })),
-  ];
-
-  async function refreshAgents() {
-    if (!available) return;
-    const requestSequence = agentsRefreshSequenceRef.current + 1;
-    agentsRefreshSequenceRef.current = requestSequence;
-    try {
-      const response = await fetch("/api/config/agents", { cache: "no-store" });
-      const payload = await readRefreshResponse<unknown>(response, "Could not refresh agents.");
-      if (!isLatestRefresh(requestSequence, agentsRefreshSequenceRef.current)) return;
-      if (!payload || typeof payload !== "object" || !Array.isArray((payload as { agents?: unknown }).agents)) {
-        throw new Error("Could not refresh agents.");
-      }
-      onAgentsChange((payload as { agents: TaskAgent[] }).agents);
-      setAgentsRefreshError(null);
-    } catch (error) {
-      if (!isLatestRefresh(requestSequence, agentsRefreshSequenceRef.current)) return;
-      setAgentsRefreshError(error instanceof Error ? error.message : "Could not refresh agents.");
-      throw error;
-    }
-  }
-
-  // Gộp cả 2 nguồn để label luôn resolve được tên — member.agent_email có thể
-  // thuộc `candidates` (mọi account), member.cs_email chỉ thuộc `assignees`
-  // (task-work roster). labelForEmail() fallback về raw email nếu không thấy.
-  const candidateByEmail = useMemo(
-    () => new Map([...candidates, ...assignees].map((person) => [person.email, person])),
-    [candidates, assignees]
-  );
-  const agentOptions: SelectOption<string>[] = agents.map((agent) => ({
-    value: agent.email,
-    label: agent.name?.trim() || agent.email,
-  }));
-  // Assistant picker: CHỈ người có task.work/task.manage (khớp AgentGroupsModal
-  // cũ, prop `cs`) — làm Assistant = được cấp quyền ngang agent-owner trên task
-  // của agent đó, người không có quyền task.work không vào được /tasks nên
-  // gán họ làm Assistant là vô nghĩa.
-  const existingAssistantEmails = new Set(
-    members
-      .filter((member) => member.agent_email === agentEmail && member.is_assistant)
-      .map((member) => member.cs_email)
-  );
-  const assistantOptions: SelectOption<string>[] = [
-    { value: "", label: "Select assistant" },
-    ...assignees.filter(
-      (person) => person.email !== agentEmail && !existingAssistantEmails.has(person.email)
-    ).map((person) => ({
-      value: person.email,
-      label: person.name?.trim() || person.email,
-    })),
-  ];
-  // Hiện TẤT CẢ quan hệ agent→assistant, sắp theo tên agent rồi tên assistant
-  // — dropdown "Agent" bên trên chỉ dùng để tạo mới, không lọc list này, để
-  // admin xem được toàn bộ cấu trúc team trong 1 lần nhìn.
-  const memberRows = [...members].sort((a, b) => {
-    const agentCompare = labelForEmail(a.agent_email, candidateByEmail).localeCompare(
-      labelForEmail(b.agent_email, candidateByEmail)
-    );
-    if (agentCompare !== 0) return agentCompare;
-    return labelForEmail(a.cs_email, candidateByEmail).localeCompare(
-      labelForEmail(b.cs_email, candidateByEmail)
-    );
-  });
-
-  async function refreshMembers() {
-    if (!available) return;
-    const requestSequence = membersRefreshSequenceRef.current + 1;
-    membersRefreshSequenceRef.current = requestSequence;
-    try {
-      const response = await fetch("/api/config/assistants", { cache: "no-store" });
-      const payload = await readRefreshResponse<unknown>(
-        response,
-        "Could not refresh assistant memberships."
-      );
-      if (!isLatestRefresh(requestSequence, membersRefreshSequenceRef.current)) return;
-      if (!payload || typeof payload !== "object" || !Array.isArray((payload as { members?: unknown }).members)) {
-        throw new Error("Could not refresh assistant memberships.");
-      }
-      setMembers((payload as { members: AssistantMember[] }).members);
-      setMembersRefreshError(null);
-    } catch (error) {
-      if (!isLatestRefresh(requestSequence, membersRefreshSequenceRef.current)) return;
-      setMembersRefreshError(
-        error instanceof Error ? error.message : "Could not refresh assistant memberships."
-      );
-      throw error;
-    }
-  }
-
-  return (
-    <>
-      {settingsView === "agents" ? (
-      <section className="flex h-full min-h-0 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[#dfe1e6] px-4 py-3">
-          <h2 className="text-lg font-bold">Agents</h2>
-          <div className="flex flex-wrap items-center gap-2">
-            <form
-              className="flex items-center gap-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                if (!newAgentEmail) return;
-                void run(async () => {
-                  await requestJson("/api/config/agents", {
-                    method: "POST",
-                    body: JSON.stringify({ email: newAgentEmail }),
-                  });
-                  setNewAgentEmail("");
-                  await refreshAgents();
-                }, "Agent added.");
-              }}
-            >
-              <DropdownSelect
-                label="Person"
-                value={newAgentEmail}
-                options={agentCandidateOptions}
-                onChange={setNewAgentEmail}
-                placeholder="Select person"
-                className="w-[260px]"
-              />
-              <button
-                type="submit"
-                disabled={agentsControlsDisabled || !newAgentEmail}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white disabled:opacity-50"
-              >
-                <Plus className="h-4 w-4" /> Add
-              </button>
-            </form>
-          </div>
-        </div>
-        {!available || agentsRefreshError ? (
-          <ConfigSectionUnavailable message={agentsRefreshError ?? availabilityError} />
-        ) : null}
-        <div className="min-h-0 flex-1 overflow-y-auto">
-        {agents.map((agent) => (
-          <div
-            key={agent.email}
-            className="grid grid-cols-[1fr_140px] items-center border-b border-[#ebecf0] px-4 py-2 last:border-b-0"
-          >
-            <div>
-              <p className="text-sm font-bold">{agent.name?.trim() || agent.email}</p>
-              <p className="text-xs font-semibold text-[#6b778c]">{agent.email}</p>
-            </div>
-            <button
-              type="button"
-              disabled={agentsControlsDisabled}
-              onClick={() =>
-                void run(async () => {
-                  await requestJson("/api/config/agents", {
-                    method: "DELETE",
-                    body: JSON.stringify({ email: agent.email }),
-                  });
-                  await refreshAgents();
-                  // Xoá agent cascade-xoá agent_members ở server — refresh
-                  // luôn danh sách assistant để không còn row mồ côi trên UI.
-                  await refreshMembers();
-                }, "Agent removed.")
-              }
-              className="inline-flex w-fit items-center gap-1 rounded px-2 py-1 text-sm font-bold text-[#bf2600] hover:bg-[#ffebe6]"
-            >
-              <Trash2 className="h-4 w-4" /> Remove
-            </button>
-          </div>
-        ))}
-        </div>
-      </section>
-      ) : (
-      <section className="flex h-full min-h-0 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[#dfe1e6] px-4 py-3">
-          <h2 className="text-lg font-bold">Assistant membership</h2>
-          <div className="flex flex-wrap items-center gap-2">
-            <form
-              className="flex flex-wrap items-center gap-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void run(async () => {
-                  await requestJson("/api/config/assistants", {
-                    method: "POST",
-                    body: JSON.stringify({ agent_email: agentEmail, cs_email: assistantEmail }),
-                  });
-                  setAssistantEmail("");
-                  await refreshMembers();
-                }, "Assistant added.");
-              }}
-            >
-              <DropdownSelect
-                label="Agent"
-                value={agentEmail}
-                options={agentOptions}
-                onChange={setAgentEmail}
-                placeholder="Select agent"
-                className="w-[220px]"
-              />
-              <DropdownSelect
-                label="Assistant"
-                value={assistantEmail}
-                options={assistantOptions}
-                onChange={setAssistantEmail}
-                placeholder="Select assistant"
-                className="w-[220px]"
-              />
-              <button
-                type="submit"
-                disabled={membersControlsDisabled || !agentEmail || !assistantEmail}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white disabled:opacity-50"
-              >
-                <Plus className="h-4 w-4" /> Add
-              </button>
-            </form>
-          </div>
-        </div>
-        {!available || agentsRefreshError || membersRefreshError ? (
-          <ConfigSectionUnavailable
-            message={agentsRefreshError ?? membersRefreshError ?? availabilityError}
-          />
-        ) : null}
-      <div className="min-h-0 flex-1 overflow-y-auto">
-      {memberRows.map((member) => (
-        <div
-          key={`${member.agent_email}:${member.cs_email}`}
-          className="grid grid-cols-[1fr_140px] items-center border-b border-[#ebecf0] px-4 py-2 last:border-b-0"
-        >
-          <div>
-            <p className="text-sm font-bold">{labelForEmail(member.cs_email, candidateByEmail)}</p>
-            <p className="text-xs font-semibold text-[#6b778c]">
-              Assistant to {labelForEmail(member.agent_email, candidateByEmail)}
-            </p>
-          </div>
-          <button
-            type="button"
-            disabled={membersControlsDisabled}
-            onClick={() =>
-              void run(async () => {
-                await requestJson("/api/config/assistants", {
-                  method: "DELETE",
-                  body: JSON.stringify({
-                    agent_email: member.agent_email,
-                    cs_email: member.cs_email,
-                  }),
-                });
-                await refreshMembers();
-              }, "Assistant removed.")
-            }
-            className="inline-flex w-fit items-center gap-1 rounded px-2 py-1 text-sm font-bold text-[#bf2600] hover:bg-[#ffebe6]"
-          >
-            <Trash2 className="h-4 w-4" /> Remove
-          </button>
-        </div>
-      ))}
-      </div>
-      </section>
-      )}
-    </>
-  );
-}
-
 async function requestJson(url: string, init: RequestInit = {}) {
   const response = await fetch(url, {
     ...init,
@@ -2843,10 +2406,3 @@ type RequestJsonPayload = {
     layout_count?: unknown;
   };
 };
-
-function labelForEmail(
-  email: string,
-  peopleByEmail: ReadonlyMap<string, { name: string | null }>
-): string {
-  return peopleByEmail.get(email)?.name?.trim() || email;
-}

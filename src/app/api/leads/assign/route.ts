@@ -5,6 +5,7 @@ import { canBeAssignedLead } from "@/lib/leads/assign-target";
 import { validateAssignRequest } from "@/lib/leads/assign";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import { getUserAccessByEmail } from "@/lib/rbac/access";
+import { fetchTaskAgents } from "@/lib/tasks/assignees";
 import type { LeadRow } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
@@ -32,8 +33,17 @@ export async function POST(request: Request) {
   if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
 
   if (parsed.toEmail) {
-    const targetAccess = await getUserAccessByEmail(parsed.toEmail);
-    if (!canBeAssignedLead(targetAccess)) {
+    // "Agent" của lead là danh sách Agent ở Account Management (task_agents,
+    // 2026-10-03) — Agent không cần tự có quyền Lead, Assistant của họ xử lý
+    // lead. Người có quyền Lead vẫn nhận được như trước.
+    const [targetAccess, agents] = await Promise.all([
+      getUserAccessByEmail(parsed.toEmail),
+      fetchTaskAgents(),
+    ]);
+    const isAgent = agents.some(
+      (agent) => agent.email.trim().toLowerCase() === parsed.toEmail,
+    );
+    if (!targetAccess.isActive || (!isAgent && !canBeAssignedLead(targetAccess))) {
       return NextResponse.json({ error: "That person cannot be assigned leads." }, { status: 400 });
     }
   }

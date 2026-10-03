@@ -115,6 +115,11 @@ type LeadsClientProps = {
   /** Empty for non-managers: only they can reassign, so only they get the roster. */
   assignees: { email: string; name: string | null }[];
   collaboratorRoster: { email: string; name: string | null }[];
+  /**
+   * CHỈ để hiện tên: Agent + người có quyền Lead. Người đang giữ lead cũ có thể
+   * không phải Agent (vd. admin); không đưa vào danh sách chọn.
+   */
+  agentNames: { email: string; name: string | null }[];
 };
 
 /**
@@ -174,6 +179,7 @@ export function LeadsClient({
   interactionTypes,
   assignees,
   collaboratorRoster,
+  agentNames,
 }: LeadsClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -236,7 +242,12 @@ export function LeadsClient({
         search: "",
         assignedTo: keepKnownString(
           raw.assignedTo,
-          new Set(assignees.map((person) => person.email))
+          new Set([
+            ...assignees.map((person) => person.email),
+            ...initialLeads.flatMap((lead) =>
+              lead.assigned_to_email ? [lead.assigned_to_email.trim().toLowerCase()] : [],
+            ),
+          ])
         ),
         statusId: keepKnownString(
           raw.statusId,
@@ -329,11 +340,11 @@ export function LeadsClient({
   const nameByEmail = useMemo(
     () =>
       new Map(
-        [...assignees, ...collaboratorRoster]
+        [...agentNames, ...assignees, ...collaboratorRoster]
           .filter((person) => person.name)
           .map((person) => [person.email, person.name as string]),
       ),
-    [assignees, collaboratorRoster],
+    [agentNames, assignees, collaboratorRoster],
   );
   // No "Unassigned" entry here: the toolbar already has a dedicated Unassign
   // button, and offering the same action twice invites a manager to wonder
@@ -1057,14 +1068,31 @@ export function LeadsClient({
     [filters, debouncedSearch],
   );
 
-  const assigneeFilterOptions = useMemo(
-    () => [
+  // Bộ lọc: các Agent, cộng những người đang giữ lead mà không còn (hoặc chưa
+  // từng) là Agent — không có họ thì không lọc ra được lead cũ của họ.
+  const assigneeFilterOptions = useMemo(() => {
+    const agentEmails = new Set(assigneeOptions.map((option) => option.value));
+    const holders = [
+      ...new Set(
+        leads.flatMap((lead) =>
+          lead.assigned_to_email ? [lead.assigned_to_email.trim().toLowerCase()] : [],
+        ),
+      ),
+    ]
+      .filter((email) => !agentEmails.has(email))
+      .map((email) => ({
+        value: email,
+        label: personLabel(email, nameByEmail),
+        keywords: [email],
+      }))
+      .sort((left, right) => left.label.localeCompare(right.label));
+    return [
       { value: ALL_FILTER, label: "All assignees" },
       { value: UNASSIGNED_FILTER, label: "Unassigned" },
       ...assigneeOptions,
-    ],
-    [assigneeOptions],
-  );
+      ...holders,
+    ];
+  }, [assigneeOptions, leads, nameByEmail]);
   const statusFilterOptions = useMemo(
     () => [
       { value: ALL_FILTER, label: "All statuses" },
@@ -1720,14 +1748,19 @@ export function LeadsClient({
       <LeadImportDialog
         open={importOpen}
         productFilter={productFilter}
-        columns={columns}
+        nameByEmail={nameByEmail}
         sourceId={sourceId}
         onClose={() => setImportOpen(false)}
         onImported={async (result) => {
           await reload();
+          // Import vừa thêm lựa chọn mới (vd. một Insurance Needs lạ). Trang Lead
+          // không nghe kênh cấu hình bảng, nên phải tải lại cột/option từ server,
+          // nếu không ô đó hiện id thô.
+          if (result.createdOptions.length > 0) router.refresh();
           // Báo bằng toast thay vì giữ modal: lượt import sạch thì bảng kết quả
           // chỉ có một con số. Modal chỉ ở lại khi có thứ đáng đọc.
           const parts = [`Imported ${result.inserted.toLocaleString()} lead${result.inserted === 1 ? "" : "s"}`];
+          if (result.assignedFromFile > 0) parts.push(`${result.assignedFromFile} assigned`);
           if (result.duplicates > 0) parts.push(`${result.duplicates} duplicate`);
           if (result.skipped.length > 0) parts.push(`${result.skipped.length} skipped`);
           setImportToast(`${parts.join(" · ")}.`);
@@ -1737,6 +1770,7 @@ export function LeadsClient({
         open={addOpen}
         productFilter={productFilter}
         assignees={assignees}
+        collaboratorRoster={collaboratorRoster}
         currentUserEmail={currentUserEmail}
         sourceId={sourceId}
         columns={columns}

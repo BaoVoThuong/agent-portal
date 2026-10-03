@@ -4229,13 +4229,24 @@ revoke all on function table_config_write_context(text, text, text[], text[], js
 grant execute on function table_config_write_context(text, text, text[], text[], jsonb)
   to service_role;
 
+-- Cột hệ thống mà admin được quản lý danh sách lựa chọn. Khớp với
+-- ADMIN_MANAGED_SYSTEM_COLUMNS trong src/lib/table-config/system-option-columns.ts
+-- (2026-09-18-provider-specialty-multiselect.sql, 2026-10-03-lead-import-fields-system.sql).
 create or replace function is_admin_managed_system_column(p_scope text, p_key text)
 returns boolean
 language sql
 immutable
 set search_path = public
 as $$
-  select (p_scope, p_key) in (('provider', 'obamacare'), ('provider', 'medicare'));
+  select (p_scope, p_key) in (
+    ('provider', 'practices_as'),
+    ('provider', 'obamacare'),
+    ('provider', 'medicare'),
+    ('lead', 'gender'),
+    ('lead', 'contact_method'),
+    ('lead', 'best_time_to_contact'),
+    ('lead', 'insurance_needs')
+  );
 $$;
 
 create or replace function create_table_column_option(

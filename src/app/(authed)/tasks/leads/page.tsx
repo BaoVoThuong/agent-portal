@@ -12,6 +12,7 @@ import { resolveLeadOwnerEmails } from "@/lib/leads/membership";
 import { fetchTableColumnsWithOptions } from "@/lib/table-config/queries";
 import { isLeadProduct } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { fetchTaskAgents } from "@/lib/tasks/assignees";
 import { LeadsClient } from "./_components/LeadsClient";
 
 export const dynamic = "force-dynamic";
@@ -42,7 +43,7 @@ export default async function LeadsPage({
   // Resolved once: a worker's queue is their own leads plus every agent they
   // are an Assistant for. null means a manager, i.e. no owner filter at all.
   const ownerEmails = await resolveLeadOwnerEmails(actor);
-  const [page, config, vocabulary, alertSettings, collaboratorRoster] = await Promise.all([
+  const [page, config, vocabulary, alertSettings, leadWorkers, agents] = await Promise.all([
     fetchAllLeads(
       actor,
       { product: productFilter, alert: params.alert },
@@ -56,8 +57,27 @@ export default async function LeadsPage({
     // and they stay correct as the clock moves without a refresh.
     fetchLeadAlertSettings(supabase),
     fetchLeadAssignees(),
+    // Agent ở Config (task_agents) không nhất thiết có quyền Lead, nhưng Import
+    // giao lead cho họ theo cột Agent — cần tên để bảng không hiện email.
+    fetchTaskAgents(),
   ]);
-  const assignees = actor.canViewAll ? collaboratorRoster : [];
+  // "Agent" và "Collaborators" của lead = danh sách Agent ở Account Management
+  // (task_agents, 2026-10-03): bộ lọc Assignee, ô Agent, gán hàng loạt, ô
+  // Collaborators. Agent không cần quyền Lead — Assistant của họ xử lý lead.
+  const agentPeople = agents.map((agent) => ({
+    email: agent.email.trim().toLowerCase(),
+    name: agent.name,
+  }));
+  const assignees = actor.canViewAll ? agentPeople : [];
+  // Tên hiển thị: Agent + người có quyền Lead (người đang giữ lead cũ có thể
+  // không phải Agent — vd. admin — vẫn phải hiện tên chứ không hiện email).
+  const displayPeople = [
+    ...agentPeople,
+    ...leadWorkers.map((person) => ({
+      email: person.email.trim().toLowerCase(),
+      name: person.name,
+    })),
+  ];
 
   return (
     <LeadsClient
@@ -76,7 +96,8 @@ export default async function LeadsPage({
       archivedStatuses={vocabulary.archivedStatuses}
       interactionTypes={vocabulary.types}
       assignees={assignees}
-      collaboratorRoster={collaboratorRoster}
+      collaboratorRoster={agentPeople}
+      agentNames={displayPeople}
     />
   );
 }

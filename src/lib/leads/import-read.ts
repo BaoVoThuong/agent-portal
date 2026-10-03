@@ -1,0 +1,47 @@
+import * as XLSX from "xlsx";
+
+export type SpreadsheetContents = {
+  /** Dòng đầu tiên, đã trim, bỏ ô rỗng. */
+  headers: string[];
+  /** Mỗi dòng dữ liệu là một object theo tiêu đề; ô trống là null. */
+  records: Record<string, unknown>[];
+  /**
+   * Số dòng Excel của từng record (tiêu đề = 1). SheetJS bỏ dòng trống ở giữa,
+   * nên `index + 2` sẽ lệch khỏi dòng người dùng nhìn thấy trong file.
+   */
+  rowNumbers: number[];
+};
+
+/**
+ * Đọc sheet đầu tiên của một file Excel/CSV — dùng chung cho dialog (client)
+ * và route Import (server), để hai bên không đọc cùng một file ra hai thứ.
+ *
+ * `codepage: 65001` là bắt buộc: CSV xuất từ Google Sheets là UTF-8, nhưng
+ * SheetJS mặc định đọc CSV theo latin1 — "Bé gái" thành "BÃ© gÃ¡i". File xlsx
+ * tự mang mã hoá nên không bị ảnh hưởng.
+ */
+export function readFirstSheet(data: ArrayBuffer): SpreadsheetContents {
+  const workbook = XLSX.read(data, { type: "array", codepage: 65001 });
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) throw new Error("That file has no sheets.");
+  const sheet = workbook.Sheets[sheetName];
+  const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: null });
+  const headers = (matrix[0] ?? [])
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean);
+  if (headers.length === 0) {
+    throw new Error("The first row must contain column headers.");
+  }
+  // Khoá của record là tiêu đề THÔ ("Phone Number " còn dấu cách); cắt cho khớp
+  // với `headers` đã trim, nếu không cột đó đọc ra toàn null.
+  const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null });
+  const records = raw.map((record) =>
+    Object.fromEntries(Object.entries(record).map(([key, value]) => [key.trim(), value])),
+  );
+  // `__rowNum__` là thuộc tính ẩn SheetJS gắn vào mỗi record (đếm từ 0).
+  const rowNumbers = raw.map((record, index) => {
+    const rowNum = (record as { __rowNum__?: unknown }).__rowNum__;
+    return typeof rowNum === "number" ? rowNum + 1 : index + 2;
+  });
+  return { headers, records, rowNumbers };
+}

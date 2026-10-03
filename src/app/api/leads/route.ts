@@ -8,7 +8,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { resolveEventByName } from "@/lib/leads/events";
 import { resolveLeadOwnerEmails } from "@/lib/leads/membership";
 import { findMissingRequiredFields } from "@/lib/table-config/required";
-import { fetchLeadAssignees } from "@/lib/leads/assignees";
+import { fetchLeadMemberEmails } from "@/lib/leads/assignees";
 
 export const dynamic = "force-dynamic";
 
@@ -150,18 +150,19 @@ export async function POST(request: Request) {
   }
 
   if (assignedToEmail && !isPersonalLead) {
-    const { data: receivingAgent, error: receivingAgentError } = await supabase
+    // Lead nhiều product: người nhận chỉ cần nằm trong pool của MỘT trong số đó.
+    const { data: receivingAgents, error: receivingAgentError } = await supabase
       .from("lead_assignment_weights")
       .select("agent_email")
-      .eq("product", input.product)
+      .in("product", input.products)
       .eq("agent_email", assignedToEmail)
       .eq("is_active", true)
       .gt("weight", 0)
-      .maybeSingle();
+      .limit(1);
     if (receivingAgentError) {
       return NextResponse.json({ error: receivingAgentError.message }, { status: 500 });
     }
-    if (!receivingAgent) {
+    if (!receivingAgents?.length) {
       return NextResponse.json(
         { error: "That agent is not in the Distribute pool for this product." },
         { status: 400 },
@@ -169,26 +170,23 @@ export async function POST(request: Request) {
     }
   }
 
-  // Personal lead không đi qua Distribute pool, nên người nhận chỉ cần có quyền
-  // Lead — cùng điều kiện với collaborator. Người tạo thì đã có quyền sẵn.
+  // Personal lead không đi qua Distribute pool: người nhận là một Agent (danh
+  // sách ở Account Management) hoặc người có quyền Lead. Người tạo luôn được.
   const personalAssigneeToCheck =
     isPersonalLead && assignedToEmail && assignedToEmail !== normalizedActorEmail
       ? assignedToEmail
       : null;
   if (input.collaboratorEmails.length > 0 || personalAssigneeToCheck) {
-    const eligiblePeople = await fetchLeadAssignees();
-    const eligibleEmails = new Set(
-      eligiblePeople.map((person) => person.email.trim().toLowerCase()),
-    );
+    const eligibleEmails = await fetchLeadMemberEmails();
     if (personalAssigneeToCheck && !eligibleEmails.has(personalAssigneeToCheck)) {
       return NextResponse.json(
-        { error: "Choose an agent who has access to Lead Management." },
+        { error: "Choose one of the Agents in Account Management." },
         { status: 400 },
       );
     }
     if (input.collaboratorEmails.some((collaborator) => !eligibleEmails.has(collaborator))) {
       return NextResponse.json(
-        { error: "Choose collaborators who have access to Lead Management." },
+        { error: "Choose collaborators from the Agents in Account Management." },
         { status: 400 },
       );
     }
@@ -221,6 +219,7 @@ export async function POST(request: Request) {
     .insert(
       buildNewLeadRow({
         product: input.product,
+        products: input.products,
         eventId,
         statusId,
         fullName: input.fullName,

@@ -15,6 +15,7 @@ import {
 } from "@/lib/rbac/system-roles";
 import { useBodyScrollLock } from "./../_shared/useBodyScrollLock";
 import { usePendingKeys } from "@/lib/collaboration/use-pending-keys";
+import { AgentMembershipSection, type AgentMembershipData } from "./AgentMembershipSection";
 
 type AccountManagerClientProps = {
   currentUserEmail: string;
@@ -22,6 +23,8 @@ type AccountManagerClientProps = {
   canManageAlerts: boolean;
   initialUsers: ManagedAccountUser[];
   availableRoles: RoleOption[];
+  /** null = người này không phải admin cấu hình, không thấy tab Agent membership. */
+  agentMembership: AgentMembershipData | null;
 };
 
 type ManagedAccountUser = AccountUser & {
@@ -74,8 +77,10 @@ export default function AccountManagerClient({
   canManageAlerts,
   initialUsers,
   availableRoles,
+  agentMembership,
 }: AccountManagerClientProps) {
   const router = useRouter();
+  const [pageTab, setPageTab] = useState<"accounts" | "agents">("accounts");
   const actionMenuRef = useRef<HTMLTableCellElement | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -509,7 +514,46 @@ export default function AccountManagerClient({
         </p>
       </header>
 
-      <section className="min-w-0 overflow-visible rounded-lg border border-[#d8dee7] bg-white">
+      {agentMembership ? (
+        <div className="mb-4 flex w-fit rounded border border-[#dfe3ea] bg-[#f4f5f7] p-0.5 shadow-sm">
+          {(
+            [
+              ["accounts", "Accounts"],
+              ["agents", "Agent membership"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setPageTab(value)}
+              className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
+                pageTab === value
+                  ? "bg-white text-[#0c66e4] shadow-sm ring-1 ring-[#d8dee7]"
+                  : "text-[#44546f] hover:bg-white/70 hover:text-[#172b4d]"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      {agentMembership && pageTab === "agents" ? (
+        <AgentMembershipSection
+          initialAgents={agentMembership.agents}
+          candidates={agentMembership.candidates}
+          assignees={agentMembership.assignees}
+          initialMembers={agentMembership.members}
+          available={agentMembership.available}
+          availabilityError={agentMembership.error}
+        />
+      ) : null}
+
+      {/* `hidden` thay vì bỏ khỏi cây: đổi tab không làm mất ô tìm hay bảng đang mở. */}
+      <section
+        hidden={pageTab !== "accounts"}
+        className="min-w-0 overflow-visible rounded-lg border border-[#d8dee7] bg-white"
+      >
         <div className="flex flex-col gap-4 border-b border-[#e4e9f2] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-base font-semibold text-[#16233a]">

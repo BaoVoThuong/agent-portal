@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { partitionImportRows } from "./import-validate";
-import type { ParsedLead } from "./import-parse";
+import type { ImportValidationRow } from "./import-validate";
 import type { WriteValidationContext } from "@/lib/table-config/custom-values";
 import type { TableColumn } from "@/lib/table-config/types";
 
@@ -27,7 +27,7 @@ const context = (columns: TableColumn[]): WriteValidationContext => ({
   matchedPersonEmails: [],
 });
 
-const lead = (over: Partial<ParsedLead> = {}): ParsedLead => ({
+const lead = (over: Partial<ImportValidationRow> = {}): ImportValidationRow => ({
   row: 2,
   full_name: "Test Person",
   phone: "7145550123",

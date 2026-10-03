@@ -10,7 +10,7 @@ import type { LeadRow } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { validateCustomValues } from "@/lib/table-config/custom-values";
 import { findMissingRequiredFieldsFromContext } from "@/lib/table-config/required";
-import { fetchLeadAssignees } from "@/lib/leads/assignees";
+import { fetchLeadMemberEmails } from "@/lib/leads/assignees";
 import {
   fetchWriteValidationContext,
   TableConfigUnavailableError,
@@ -91,13 +91,11 @@ export async function PATCH(request: Request, { params }: Ctx) {
       (collaborator) => !currentCollaborators.has(collaborator),
     );
     if (additions.length > 0) {
-      const eligibleCollaborators = await fetchLeadAssignees();
-      const eligibleEmails = new Set(
-        eligibleCollaborators.map((person) => person.email.trim().toLowerCase()),
-      );
+      // Agent ở Account Management hoặc người có quyền Lead (2026-10-03).
+      const eligibleEmails = await fetchLeadMemberEmails();
       if (additions.some((collaborator) => !eligibleEmails.has(collaborator))) {
         return NextResponse.json(
-          { error: "Choose collaborators who have access to Lead Management." },
+          { error: "Choose collaborators from the Agents in Account Management." },
           { status: 400 },
         );
       }

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { EditableCustomCell } from "../../../_shared/EditableCustomCell";
 import { leadDisplayKey } from "@/lib/leads/display";
+import { storesInCustomValues } from "@/lib/table-config/system-option-columns";
 import { LEAD_TYPE_LABEL } from "@/lib/leads/lead-type";
 import { ALERT_SEVERITY, type LeadAlert } from "@/lib/leads/alerts";
 import { leadIsInScope } from "@/lib/leads/capabilities";
@@ -784,7 +785,7 @@ const LeadDataCell = memo(function LeadDataCell({
     );
   }
 
-  if (!column.is_system) {
+  if (storesInCustomValues(column)) {
     return (
       <div
         style={style}
