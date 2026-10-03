@@ -28,9 +28,8 @@ import { ProviderTableSettingsButton } from "./ProviderTableSettingsButton";
 import { ProviderToolbar } from "./ProviderToolbar";
 // Dựng lại CHÍNH component của Provider Finder, không chép code sang đây.
 // Trang riêng `/automation/provider-finder` đã bị ẩn (chỉ còn chuyển hướng về
-// đây), nên tab này là lối vào DUY NHẤT của tính năng tìm theo khoảng cách —
-// component vẫn nằm ở thư mục cũ, đừng tưởng nó mồ côi mà xoá.
-import ProviderFinderClient from "../../provider-finder/ProviderFinderClient";
+// đây), nên tab này là lối vào DUY NHẤT của tính năng tìm theo khoảng cách.
+import ProviderFinderClient from "./ProviderFinderClient";
 
 const VIEWS = [
   { key: "list" as const, label: "List" },

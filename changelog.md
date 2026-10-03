@@ -6,6 +6,17 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-03 — Provider List chuyển sang Task Management
+
+- Trang Provider List (kèm tab Finder Tool) dời từ `/automation/provider-list`
+  sang `/tasks/providers`; sidebar hiện nó trong nhóm **Task Management** thay
+  vì Automation Tool. `/automation/provider-list` và `/automation/provider-finder`
+  chuyển hướng về địa chỉ mới (giữ query). API vẫn ở `/api/automation/provider-*`.
+- Quyền không đổi (`automation.provider_finder`). Nhóm Task Management và mục
+  Table Configuration nay hiện cho cả người chỉ có quyền này — trước đó họ vào
+  được `/config` (scope Provider) nhưng sidebar không có mục.
+- Thứ tự trang đích sau đăng nhập không đổi (`lib/rbac/routes.ts` giữ vị trí).
+
 ## 2026-10-03 — Lead: bỏ Product, pool chia theo Event, Personal lead luôn có Agent
 
 Cần chạy SQL **sau khi** deploy code này (code mới vẫn đọc/ghi được DB cũ; code

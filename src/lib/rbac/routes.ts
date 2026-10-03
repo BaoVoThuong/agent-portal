@@ -28,8 +28,10 @@ const ACCESSIBLE_ROUTES: PermissionRoute[] = [
     // Provider Finder đã gộp thành tab bên trong Provider List, nên chỉ còn một
     // đích cho quyền này. Bỏ mục cũ khỏi đây là cần thiết, không chỉ để dọn:
     // `getFirstAccessiblePath` lấy mục ĐẦU TIÊN khớp quyền, nên nếu để lại thì
-    // người chỉ có quyền này sẽ bị đưa về đúng trang vừa bị ẩn.
-    href: "/automation/provider-list",
+    // người chỉ có quyền này sẽ bị đưa về đúng trang vừa bị ẩn. Provider List
+    // nay ở Task Management (2026-10-03); giữ nguyên VỊ TRÍ trong danh sách để
+    // trang đích sau đăng nhập của mọi người không đổi.
+    href: "/tasks/providers",
     permission: PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
   },
   {

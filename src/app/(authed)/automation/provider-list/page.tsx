@@ -1,62 +1,25 @@
-import type { Metadata } from "next";
-import { requireAnyPermission } from "@/lib/rbac/server";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
-import {
-  canActorExport,
-  canActorImport,
-} from "@/lib/table-config/export-access";
-import { getSupabaseAdmin } from "@/lib/supabase";
-import { fetchTableColumnsWithOptions } from "@/lib/table-config/queries";
-import { PROVIDER_SELECT, PROVIDER_TABLE, type ProviderRow } from "@/lib/providers/types";
-import { RouteTiming } from "@/lib/server-timing";
-import { personLabel } from "@/lib/tasks/people";
-import { ProviderListClient } from "./_components/ProviderListClient";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = { title: "Provider List" };
-
-export default async function ProviderListPage() {
-  const timing = new RouteTiming("provider-list-page");
-  // Dùng chung quyền với Provider Finder: cùng dữ liệu, cùng nhóm người dùng.
-  const session = await timing.measure("auth", () =>
-    requireAnyPermission([PERMISSIONS.AUTOMATION_PROVIDER_FINDER]),
-  );
-
-  const supabase = getSupabaseAdmin();
-  // Nạp ngay trên server để màn hình không chớp trống một nhịp: 458 dòng là
-  // một truy vấn duy nhất, rẻ hơn nhiều so với vòng gọi API sau khi mount.
-  const [config, providersResult] = await Promise.all([
-    timing.measure("columns", () =>
-      fetchTableColumnsWithOptions("provider", supabase),
-    ),
-    timing.measure("provider_query", async () =>
-      supabase
-        .from(PROVIDER_TABLE)
-        .select(PROVIDER_SELECT)
-        .is("archived_at", null)
-        .order("updated_at", { ascending: false })
-        .limit(5000),
-    ),
-  ]);
-  timing.log(providersResult.error ? 500 : 200);
-
-  return (
-    <ProviderListClient
-      initialProviders={(providersResult.data ?? []) as unknown as ProviderRow[]}
-      loadError={providersResult.error?.message ?? null}
-      columns={config.columns}
-      columnOptions={config.options}
-      // Tên chứ không phải email: cột Verified by đang chứa "Ngan Nguyen",
-      // "Zoe Nguyen" — chen một địa chỉ email vào là cột đó có hai kiểu dữ liệu.
-      // Cùng điều kiện với API. Hai quyền TÁCH RIÊNG: Export chỉ đọc, Import
-      // ghi đè hàng loạt — cho quyền kéo ra không có nghĩa là cho quyền đẩy vào.
-      canExport={canActorExport(session.user.permissions)}
-      canImport={canActorImport(session.user.permissions)}
-      viewerName={personLabel(
-        session.user.email ?? "",
-        session.user.name ? new Map([[session.user.email ?? "", session.user.name]]) : undefined,
-      )}
-    />
-  );
+/**
+ * Địa chỉ cũ. Provider List đã chuyển vào nhóm Task Management ở
+ * `/tasks/providers` (2026-10-03).
+ *
+ * Giữ chuyển hướng chứ không xoá: người ta đã lưu link. Không cần kiểm quyền ở
+ * đây — trang đích tự kiểm bằng `requireAnyPermission([AUTOMATION_PROVIDER_FINDER])`.
+ */
+export default async function LegacyProviderListPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = searchParams ? await searchParams : {};
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (typeof value === "string") query.set(key, value);
+    else if (Array.isArray(value) && value[0]) query.set(key, value[0]);
+  }
+  const suffix = query.toString();
+  redirect(suffix ? `/tasks/providers?${suffix}` : "/tasks/providers");
 }

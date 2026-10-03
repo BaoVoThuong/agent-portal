@@ -48,7 +48,6 @@ const menuData: MenuItem[] = [
     anyPermission: [
       PERMISSIONS.AUTOMATION_HEALTH_STATEMENT,
       PERMISSIONS.AUTOMATION_PC_STATEMENT,
-      PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
     ],
     children: [
       {
@@ -60,14 +59,6 @@ const menuData: MenuItem[] = [
         href: "/automation/pc-statement",
         label: "P&C Statement",
         permission: PERMISSIONS.AUTOMATION_PC_STATEMENT,
-      },
-      {
-        // Provider Finder không còn mục riêng: nó đã là tab "Finder Tool" bên
-        // trong Provider List, dùng chung một bộ dữ liệu và một bộ lọc. Để hai
-        // mục cạnh nhau chỉ khiến người dùng phải đoán xem nên bấm cái nào.
-        href: "/automation/provider-list",
-        label: "Provider List",
-        permission: PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
       },
     ],
   },
@@ -104,11 +95,14 @@ const menuData: MenuItem[] = [
     // khoản trên production CHỈ có quyền lead. Giữ nguyên điều kiện cũ là hai
     // người đó mất luôn màn hình họ dùng hằng ngày — mất IM LẶNG, vì menu chỉ
     // đơn giản không hiện ra.
+    // Provider List cũng nằm ở đây (2026-10-03) — người chỉ có quyền Provider
+    // phải thấy nhóm này, nếu không họ mất lối vào màn hình đó.
     anyPermission: [
       PERMISSIONS.TASK_MANAGE,
       PERMISSIONS.TASK_WORK,
       PERMISSIONS.LEAD_MANAGE,
       PERMISSIONS.LEAD_WORK,
+      PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
     ],
     children: [
       {
@@ -144,11 +138,25 @@ const menuData: MenuItem[] = [
         anyPermission: [PERMISSIONS.LEAD_MANAGE, PERMISSIONS.LEAD_WORK, PERMISSIONS.TASK_MANAGE],
       },
       {
-        // MỘT mục cho cả bốn bảng. Người chỉ có quyền lead vào đây vẫn chỉ thấy
-        // bảng Lead Management — xem configScopesFor ở lib/table-config.
+        // Provider Finder không còn mục riêng: nó đã là tab "Finder Tool" bên
+        // trong Provider List, dùng chung một bộ dữ liệu và một bộ lọc. Chuyển từ
+        // Automation Tool sang đây 2026-10-03.
+        href: "/tasks/providers",
+        label: "Provider List",
+        activePath: "/tasks/providers",
+        permission: PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
+      },
+      {
+        // MỘT mục cho mọi bảng. Mỗi người chỉ thấy bảng mình quản — người chỉ
+        // có quyền Provider chỉ thấy Provider List; xem configScopesFor ở
+        // lib/table-config.
         href: "/config",
         label: "Table Configuration",
-        anyPermission: [PERMISSIONS.TASK_MANAGE, PERMISSIONS.LEAD_MANAGE],
+        anyPermission: [
+          PERMISSIONS.TASK_MANAGE,
+          PERMISSIONS.LEAD_MANAGE,
+          PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
+        ],
       },
     ],
   },

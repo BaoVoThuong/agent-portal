@@ -11,7 +11,7 @@ import {
 } from "react";
 import { Map as MapIcon, Search } from "lucide-react";
 import { ProviderFinderMap } from "./ProviderFinderMap";
-import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
+import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
 import { PROVIDER_SPECIALTY_OPTIONS } from "@/lib/providers/specialties";
 
 const specialtyOptions = PROVIDER_SPECIALTY_OPTIONS.filter(

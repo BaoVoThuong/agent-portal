@@ -28,7 +28,8 @@ const tableConfig: Item = { href: "/config" };
 const tasks: Item = { href: "/tasks" };
 const acaEnrollment: Item = { href: "/enrollment?program=aca", activePath: "/enrollment" };
 const medicareEnrollment: Item = { href: "/enrollment?program=medicare", activePath: "/enrollment" };
-const items = [leads, tableConfig, tasks, acaEnrollment, medicareEnrollment];
+const providers: Item = { href: "/tasks/providers", activePath: "/tasks/providers" };
+const items = [leads, providers, tableConfig, tasks, acaEnrollment, medicareEnrollment];
 
 describe("sidebar active item", () => {
   it("marks Lead Management active on the list itself", () => {
@@ -42,6 +43,13 @@ describe("sidebar active item", () => {
   // khả năng bấm — sidebar không còn đường quay về danh sách task.
   it("/tasks/leads không làm mục /tasks sáng theo", () => {
     expect(activeItem("/tasks/leads", items, tasks)).toBe(false);
+  });
+
+  // Provider List chuyển vào /tasks/providers (2026-10-03): cùng rủi ro tiền tố.
+  it("/tasks/providers chỉ làm sáng Provider List", () => {
+    expect(activeItem("/tasks/providers", items, providers)).toBe(true);
+    expect(activeItem("/tasks/providers", items, tasks)).toBe(false);
+    expect(activeItem("/tasks/providers", items, leads)).toBe(false);
   });
 
   // The bug: an active entry renders as a plain <span>, so a parent that also
