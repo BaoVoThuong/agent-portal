@@ -62,6 +62,8 @@ cũ thì hỏng ngay khi cột Product bị xoá):
   phone, email hoặc FUB link. Dòng chỉ trùng tên vẫn hiện trong khối đỏ để biết
   nhưng không có ô tick, "Tick all" bỏ qua, và server bỏ qua `exclude_rows` của
   dòng đó — luôn được import.
+- Mặc định của dialog Import là **Event lead** (2026-10-04); Personal lead phải
+  chọn tay.
 - Event chưa tồn tại: dò "trùng trong cùng event" dùng `EVENT_NOT_CREATED_YET`
   (không chặn dòng nào) thay vì null — null là Personal lead.
 

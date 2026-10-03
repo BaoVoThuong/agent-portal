@@ -104,9 +104,10 @@ export function LeadImportDialog({
   const [eventsState, setEventsState] = useState<
     "idle" | "loading" | "ready" | "error"
   >("idle");
-  // Personal là mặc định. Event lead thì GÕ tên event (khai báo) — không có
-  // bước tạo: tên chưa có thì Import tạo luôn (user chốt 2026-10-03).
-  const [leadType, setLeadType] = useState<LeadType>("personal");
+  // Event lead là mặc định (user chốt 2026-10-04: import gần như luôn là danh
+  // sách của một sự kiện). Event lead thì GÕ tên event (khai báo) — không có
+  // bước tạo: tên chưa có thì Import tạo luôn.
+  const [leadType, setLeadType] = useState<LeadType>("event");
   const [eventName, setEventName] = useState("");
   const [eventsTruncated, setEventsTruncated] = useState(
     () => peekLeadEvents()?.truncated ?? false,
@@ -218,7 +219,7 @@ export function LeadImportDialog({
     setPreview(null);
     setPreviewState("idle");
     setRemovedRows(new Set());
-    setLeadType("personal");
+    setLeadType("event");
     setEventName("");
     setEventsState("idle");
     setAutoAssign(false);
