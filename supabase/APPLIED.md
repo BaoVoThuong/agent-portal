@@ -8,7 +8,7 @@ Ba thư mục, ba vai trò khác nhau:
 | Thư mục | Vai trò | Chạy lại được? |
 |---|---|---|
 | `schema.sql` | Bản dựng database MỚI từ đầu | Chỉ cho DB trống — xem cảnh báo cuối trang |
-| `rollouts/` | Lịch sử migration, đặt tên theo ngày | Có, đều idempotent — **trừ một ngoại lệ dưới đây** |
+| `rollouts/` | Lịch sử migration, đặt tên theo ngày | Có, đều idempotent — **trừ hai ngoại lệ dưới đây** |
 | `checks/` | Công cụ kiểm tra, chỉ đọc | Có, chạy bất cứ lúc nào |
 
 ---
@@ -58,12 +58,34 @@ idempotent — trước đó nó chỉ idempotent ở bước UPDATE.
 
 ---
 
-## ⛔ Ngoại lệ duy nhất KHÔNG idempotent
+## 2026-10-03 → 2026-10-04 — Lead Management go-live
+
+User báo đã chạy hết ngày 2026-10-04 (thứ tự thật không ghi lại). Hai file đầu
+phải chạy SAU khi deploy code `e775c79` — code cũ đọc cột `leads.product` mà
+file 1 xoá.
+
+| # | File | Vì sao |
+|---|---|---|
+| 1 | `rollouts/2026-10-03-lead-remove-product-event-pools.sql` | Bỏ Product; pool chia + cờ auto-assign theo từng Event (`lead_event_assignment_*`); ngưỡng cảnh báo còn một dòng |
+| 2 | `rollouts/2026-10-03-lead-personal-agent-integrity.sql` | Personal lead (không Event) luôn có Agent đang hoạt động: constraint + trigger, chặn gỡ Agent / tắt tài khoản còn giữ Personal lead |
+| 3 | `rollouts/2026-10-03-lead-retire-tag-column.sql` | Archive cột Tag trong Table Config (tuỳ chọn; code đã ẩn sẵn) |
+| 4 | `rollouts/2026-10-03-sheet-sync-timeout.sql` | `service_role` statement_timeout 120s + `notify pgrst, 'reload config'` — `finalize_sheet_sync` 17k dòng bị cắt ở ~8s (57014) |
+| 5 | `rollouts/2026-10-04-reset-leads-sample-data.sql` | ⛔ Xoá toàn bộ lead mẫu trước khi nhập thật — **KHÔNG chạy lại**, xem mục dưới |
+| 6 | `rollouts/2026-10-04-lead-statuses-new-set.sql` | Bộ status mới (New, Need to call back, Can't contact, Called but no response, Do not contact, Quoted, Closed/Purchased); đổi tên status cũ để giữ id |
+
+---
+
+## ⛔ Hai ngoại lệ KHÔNG idempotent
 
 `rollouts/2026-08-17-reset-cs-for-golive.sql` — reset dữ liệu Customer Service
 trước go-live. **Chạy đúng một lần.**
 
-Mọi file khác trong `rollouts/` chạy lại đều vô hại. File này thì không: chạy lần
+`rollouts/2026-10-04-reset-leads-sample-data.sql` — xoá mọi lead + event trước
+khi nhập lead thật. **Đã chạy, đừng chạy lại**: có chốt chặn (bảng
+`_bk_20261004_*` tồn tại, hoặc hơn 150 lead thì dừng), nhưng đừng dựa vào đó.
+Xoá các bảng `_bk_20261004_*` khi không cần tra cứu nữa (lệnh ở cuối file).
+
+Mọi file khác trong `rollouts/` chạy lại đều vô hại. File CS thì không: chạy lần
 hai sẽ xoá dữ liệu thật phát sinh sau go-live, và khối kiểm tra vẫn báo ✅ vì nó
 chỉ khẳng định `tasks = 0` — đúng y kết quả của một lần chạy nhầm.
 
