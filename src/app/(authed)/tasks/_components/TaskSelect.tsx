@@ -84,7 +84,7 @@ export function TaskSelect({
   const personLabelByValue = new Map(options.map((option) => [option.value, option.label]));
   const selectedPersonLabel = value
     ? selectedOption?.label ?? formatEmailAsName(value)
-    : "Unassigned";
+    : placeholder;
   const selectedLabel = isMulti
     ? selectedOptions.length === 0
       ? placeholder

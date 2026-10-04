@@ -933,7 +933,8 @@ export function LeadDetailDrawer({
                   </RailField>
                 ) : null}
                 {showCollaborators ? (
-                  <RailField label="Collaborators" className="sm:col-span-2 xl:col-span-2">
+                  // Cùng hàng với Event và Agent (user chốt 2026-10-04).
+                  <RailField label="Collaborators">
                     <LeadCollaboratorsEditor
                       emails={currentLead.collaborator_emails ?? []}
                       people={collaboratorRoster}
@@ -945,21 +946,20 @@ export function LeadDetailDrawer({
                   </RailField>
                 ) : null}
                 {needDetailColumns.map((column) => (
+                  // Trọn một hàng: nhu cầu thường nhiều nhãn, và để Contact
+                  // Method / Best Time / Ticket number đứng chung hàng kế tiếp.
                   <RailField
                     key={column.id}
                     label={column.label}
-                    className="sm:col-span-2 xl:col-span-2"
+                    className="sm:col-span-2 xl:col-span-3"
                   >
                     {detailFieldControl(column)}
                   </RailField>
                 ))}
                 {propertyDetailColumns.map((column) => (
-                  <RailField
-                    key={column.id}
-                    label={column.label}
-                    // Ô chọn nhiều hiện hết nhãn nên cần cả bề ngang.
-                    className={column.type === "multiselect" ? "sm:col-span-2 xl:col-span-2" : ""}
-                  >
+                  // Contact Method · Best Time to Contact · Ticket number chung
+                  // một hàng (user chốt 2026-10-04); nhãn chọn nhiều tự xuống dòng.
+                  <RailField key={column.id} label={column.label}>
                     {detailFieldControl(column)}
                   </RailField>
                 ))}

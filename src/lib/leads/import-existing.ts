@@ -1,9 +1,5 @@
 import { normalizePhone } from "./import-parse";
-import {
-  fubPersonKey,
-  normalizePersonName,
-  type TemplateLead,
-} from "./import-template";
+import { fubPersonKey, type TemplateLead } from "./import-template";
 
 /** Một lead đang có, chỉ những trường cần để so (đọc ở route Import). */
 export type ExistingLeadCandidate = {
@@ -18,7 +14,12 @@ export type ExistingLeadCandidate = {
   event_name: string | null;
 };
 
-export type ExistingMatchField = "name" | "phone" | "email" | "fub";
+/**
+ * Không có "name": trùng tên KHÔNG làm một dòng thành khách cũ (user chốt
+ * 2026-10-04) — tên trùng nhau là chuyện thường ("Elizabeth" khớp hai lead của
+ * hai người khác nhau). Chỉ phone, email, FUB link mới định danh một người.
+ */
+export type ExistingMatchField = "phone" | "email" | "fub";
 
 /**
  * Event lead với tên event chưa có (preview của Import — chưa tạo gì). Event
@@ -42,12 +43,6 @@ export type ExistingLeadMatch = {
     on: ExistingMatchField[];
   }[];
   /**
-   * Bỏ được dòng này khỏi lượt import không: chỉ khi trùng phone, email hoặc FUB
-   * link. CHỈ trùng tên thì không — tên trùng nhau là chuyện thường (user chốt
-   * 2026-10-03): vẫn báo để người import biết, nhưng dòng luôn được import.
-   */
-  removable: boolean;
-  /**
    * Lead đã có trong CHÍNH event này với cùng số (hoặc, khi dòng không có số,
    * cùng FUB link / email). Import đằng nào cũng không ghi được — DB chặn trùng
    * số trong một event — nên ô "Remove" bị khoá ở trạng thái đã tick.
@@ -56,15 +51,12 @@ export type ExistingLeadMatch = {
 };
 
 /**
- * Dò khách cũ (2026-10-03): dòng nào trong file trùng MỘT trong bốn trường —
- * tên, phone, email, FUB link — với một lead chưa archive ở bất kỳ event nào.
+ * Dò khách cũ: dòng nào trong file trùng MỘT trong ba trường — phone, email,
+ * FUB link — với một lead chưa archive ở bất kỳ event nào. Trùng tên không
+ * tính (xem `ExistingMatchField`).
  *
- * Chỉ là cảnh báo: preview hiện đỏ trên đầu, người import tick để bỏ dòng. Tên
- * ngắn ("Mai", "Chris") khớp nhầm nhiều, nên trả về khớp theo trường nào để
- * người dùng tự quyết, không tự bỏ.
- *
- * So ở Node chứ không ở SQL: DB không có extension `unaccent`, mà tên trong
- * file thường không dấu còn tên agent gõ tay thì có dấu.
+ * Chỉ là cảnh báo: preview hiện đỏ trên đầu, người import tick để bỏ dòng.
+ * Trả về khớp theo trường nào để người dùng tự quyết, không tự bỏ.
  */
 export function findExistingLeadMatches(
   rows: readonly TemplateLead[],
@@ -79,8 +71,6 @@ export function findExistingLeadMatches(
     else byKey.set(key, [lead]);
   };
   for (const lead of leads) {
-    const name = normalizePersonName(lead.full_name);
-    add(name ? `name:${name}` : null, lead);
     add(lead.phone ? `phone:${normalizePhone(lead.phone) ?? lead.phone}` : null, lead);
     add(lead.email ? `email:${lead.email.trim().toLowerCase()}` : null, lead);
     add(fubPersonKey(lead.fub_link) ? `fub:${fubPersonKey(lead.fub_link)}` : null, lead);
@@ -88,10 +78,8 @@ export function findExistingLeadMatches(
 
   const result: ExistingLeadMatch[] = [];
   for (const row of rows) {
-    const name = normalizePersonName(row.full_name);
     const fub = fubPersonKey(row.fub_link);
     const keys: [ExistingMatchField, string | null][] = [
-      ["name", name ? `name:${name}` : null],
       ["phone", row.phone ? `phone:${row.phone}` : null],
       ["email", row.email ? `email:${row.email}` : null],
       ["fub", fub ? `fub:${fub}` : null],
@@ -125,12 +113,10 @@ export function findExistingLeadMatches(
       }
     }
     if (hits.size === 0) continue;
-    const matches = [...hits.values()].sort((left, right) => right.displayNumber - left.displayNumber);
     result.push({
       row: row.row,
       name: row.full_name,
-      matches,
-      removable: matches.some((hit) => hit.on.some((field) => field !== "name")),
+      matches: [...hits.values()].sort((left, right) => right.displayNumber - left.displayNumber),
       sameEventBlocked,
     });
   }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { RotateCcw, Shuffle, X } from "lucide-react";
+import { RotateCcw, Search, Shuffle, X } from "lucide-react";
 import { fetchLeadEvents, peekLeadEvents, type LeadEventOption } from "@/lib/leads/events-cache";
 import { pickWeighted } from "@/lib/leads/round-robin";
 import {
@@ -16,7 +16,7 @@ import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
 import { isPersonalLeadEventName } from "@/lib/leads/lead-type";
 
 type WeightRow = AssignmentWeightRowView;
-type WeightsPayload = { enabled: boolean; weights: WeightRow[] };
+type WeightsPayload = { weights: WeightRow[] };
 type PoolPayload = { pending: number; remaining: number };
 type RosterAgent = { email: string; name: string | null; eventIds: string[] };
 type DistributeResult = { assigned: number; unassigned: number; remaining: number; reason?: string };
@@ -50,7 +50,8 @@ export function LeadDistributeDialog({
   const [rosterError, setRosterError] = useState(false);
   const [weights, setWeights] = useState<WeightsPayload | null>(null);
   const [draft, setDraft] = useState<WeightRow[]>([]);
-  const [enabled, setEnabled] = useState(false);
+  // Lọc danh sách Agent theo tên/email — danh sách dài thì khỏi phải cuộn tìm.
+  const [agentQuery, setAgentQuery] = useState("");
   const [pool, setPool] = useState<PoolPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -128,10 +129,9 @@ export function LeadDistributeDialog({
         if (cancelled || sequence !== requestSequence.current) return;
         const rawWeights: unknown[] = Array.isArray(weightsPayload?.weights) ? weightsPayload.weights : [];
         const rows = rawWeights.map(parseAssignmentWeightRow).filter((row): row is WeightRow => row !== null);
-        const next = { enabled: weightsPayload?.enabled === true, weights: rows };
+        const next = { weights: rows };
         setWeights(next);
         setDraft(rows.map((row) => ({ ...row })));
-        setEnabled(next.enabled);
         setPool({ pending: Number(poolPayload?.pending) || 0, remaining: Number(poolPayload?.remaining) || 0 });
       })
       .catch((loadError: unknown) => {
@@ -158,13 +158,20 @@ export function LeadDistributeDialog({
     return [...agents.values()].sort((a, b) => personLabel(a.email, nameByEmail).localeCompare(personLabel(b.email, nameByEmail)));
   }, [draft, nameByEmail, roster]);
 
+  const normalizedAgentQuery = foldSearch(agentQuery);
+  const visibleAgents = normalizedAgentQuery
+    ? agentsByEmail.filter((agent) =>
+        foldSearch(`${personLabel(agent.email, nameByEmail)} ${agent.email}`).includes(normalizedAgentQuery),
+      )
+    : agentsByEmail;
+
   const activeRows = draft.filter((row) => row.is_active && row.weight > 0);
   const totalWeight = activeRows.reduce((sum, row) => sum + row.weight, 0);
   const shareOf = (row: WeightRow) => totalWeight > 0 && row.is_active && row.weight > 0
     ? Math.round((row.weight / totalWeight) * 1000) / 10
     : 0;
   const signature = (rows: WeightRow[]) => JSON.stringify(rows.map((row) => [row.agent_email, row.weight, row.position, row.is_active]));
-  const dirty = weights !== null && (enabled !== weights.enabled || signature(draft) !== signature(weights.weights));
+  const dirty = weights !== null && signature(draft) !== signature(weights.weights);
   const upcoming = pickWeighted(activeRows.map((row) => ({
     email: row.agent_email,
     weight: row.weight,
@@ -195,10 +202,9 @@ export function LeadDistributeDialog({
     if (!poolResponse.ok) throw new Error(poolPayload?.error ?? "Could not reload the Event pool.");
     const rawWeights: unknown[] = Array.isArray(weightsPayload?.weights) ? weightsPayload.weights : [];
     const rows = rawWeights.map(parseAssignmentWeightRow).filter((row): row is WeightRow => row !== null);
-    const next = { enabled: weightsPayload?.enabled === true, weights: rows };
+    const next = { weights: rows };
     setWeights(next);
     setDraft(rows.map((row) => ({ ...row })));
-    setEnabled(next.enabled);
     setPool({ pending: Number(poolPayload?.pending) || 0, remaining: Number(poolPayload?.remaining) || 0 });
   }
 
@@ -213,7 +219,6 @@ export function LeadDistributeDialog({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           event_id: eventId,
-          enabled,
           weights: draft.map(({ agent_email, weight, position, is_active }) => ({ agent_email, weight, position, is_active })),
         }),
       });
@@ -340,20 +345,25 @@ export function LeadDistributeDialog({
             </div>
           </div>
 
-          <label className="flex shrink-0 items-start gap-2 rounded border border-[#dfe1e1] bg-white px-3 py-2 text-sm">
-            <input type="checkbox" checked={enabled} disabled={!eventId || loading} onChange={(event) => setEnabled(event.target.checked)} />
-            <span>
-              <span className="font-semibold text-[#172b4d]">Auto-assign on import for this Event</span>
-              <span className="mt-0.5 block text-xs text-[#6b778c]">Imports still require the importer to confirm distribution.</span>
-            </span>
-          </label>
 
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[#dfe1e1]">
+            <label className="relative block shrink-0 border-b border-[#dfe1e1] bg-white px-3 py-2">
+              <Search className="pointer-events-none absolute left-5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8993a4]" aria-hidden="true" />
+              <input
+                type="search"
+                value={agentQuery}
+                onChange={(event) => setAgentQuery(event.target.value)}
+                placeholder="Search Agent by name or email"
+                aria-label="Search Agent"
+                disabled={!eventId}
+                className="h-9 w-full rounded border border-[#dfe1e6] bg-white pl-8 pr-2 text-sm outline-none focus:border-[#0c66e4] disabled:bg-[#f7f8fa]"
+              />
+            </label>
             <div className="grid shrink-0 grid-cols-[minmax(0,1fr)_5rem_6rem_1fr] gap-3 border-b border-[#dfe1e1] bg-[#f7f8fa] px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
               <span>Agent</span><span>Pool</span><span>Weight</span><span>Share</span>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-              {!eventId ? <p className="px-3 py-8 text-center text-sm text-[#6b778c]">Choose an Event to configure its Agents.</p> : loading ? <p className="px-3 py-8 text-center text-sm text-[#6b778c]">Loading Agents…</p> : rosterError ? <p className="px-3 py-8 text-center text-sm text-rose-700">Could not load the Agent roster.</p> : agentsByEmail.length === 0 ? <p className="px-3 py-8 text-center text-sm text-[#6b778c]">No Agents found. Add them under Account Management → Agent membership → Agents.</p> : agentsByEmail.map((agent) => {
+              {!eventId ? <p className="px-3 py-8 text-center text-sm text-[#6b778c]">Choose an Event to configure its Agents.</p> : loading ? <p className="px-3 py-8 text-center text-sm text-[#6b778c]">Loading Agents…</p> : rosterError ? <p className="px-3 py-8 text-center text-sm text-rose-700">Could not load the Agent roster.</p> : agentsByEmail.length === 0 ? <p className="px-3 py-8 text-center text-sm text-[#6b778c]">No Agents found. Add them under Account Management → Agent membership → Agents.</p> : visibleAgents.length === 0 ? <p className="px-3 py-8 text-center text-sm text-[#6b778c]">No Agent matches “{agentQuery.trim()}”.</p> : visibleAgents.map((agent) => {
                 const current = draft.find((row) => row.agent_email.trim().toLowerCase() === agent.email.trim().toLowerCase());
                 const active = Boolean(current?.is_active);
                 const weightRow = current ?? { agent_email: agent.email, weight: 0, position: draft.length + 1, is_active: false, share: 0, current_weight: 0 };
@@ -398,4 +408,9 @@ export function LeadDistributeDialog({
       </div>
     </div>
   );
+}
+
+/** Không phân biệt hoa thường và dấu: "huyen" khớp "Huyền". */
+function foldSearch(value: string): string {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/gi, "d").toLowerCase().trim();
 }

@@ -52,7 +52,10 @@ const LEAD_COLUMN_WIDTHS: Record<string, number> = {
   // Derived alert badges live here instead of competing with the customer's
   // name for width.
   tag: 150,
-  phone: 112,
+  // 10 chữ số ở cỡ chữ của bảng rộng ~90–100px tuỳ chữ số (số "mảnh" như 1, 7
+  // vừa 112 cũ, còn 2813870355 thì bị cắt "…"); cộng 24px padding + khung ô
+  // sửa tại chỗ. 140 chứa được cả dạng "(281) 387-0355".
+  phone: 140,
   secondary_phone: 160,
   email: 190,
   assignee: 180,
@@ -92,6 +95,11 @@ type LeadTableProps = {
   columnOptions: TableColumnOption[];
   nameByEmail: Map<string, string>;
   isManager: boolean;
+  /**
+   * Hiện cột ô chọn ở đầu bảng. Chỉ bật khi manager bấm "Reassign leads"
+   * (2026-10-04) — bình thường bảng không có cột này.
+   */
+  selectable: boolean;
   /** Agents the manager can hand a lead to; empty for a non-manager. */
   assignees: { email: string; name: string | null }[];
   collaboratorRoster: { email: string; name: string | null }[];
@@ -133,6 +141,7 @@ export function LeadTable({
   columnOptions,
   nameByEmail,
   isManager,
+  selectable,
   selected,
   allVisibleSelected,
   onToggleLead,
@@ -175,7 +184,7 @@ export function LeadTable({
     [assignees, nameByEmail],
   );
 
-  const staticColumnWidth = isManager ? SELECTION_COLUMN_WIDTH : 0;
+  const staticColumnWidth = selectable ? SELECTION_COLUMN_WIDTH : 0;
   const pinnedOffsetByKey = useMemo(
     () => buildPinnedOffsetByKey(columns, staticColumnWidth),
     [columns, staticColumnWidth],
@@ -225,7 +234,7 @@ export function LeadTable({
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">
         <div style={{ minWidth }}>
           <div className="sticky top-0 z-20 flex items-stretch whitespace-nowrap border-b border-[#dfe1e6] bg-[#fafbfc] text-[11px] font-bold uppercase tracking-wide text-[#6b778c] shadow-[0_1px_0_#dfe1e6]">
-            {isManager ? (
+            {selectable ? (
               <div
                 style={{ width: SELECTION_COLUMN_WIDTH, left: 0 }}
                 className="sticky z-[30] flex shrink-0 items-center border-r border-[#dfe1e6] bg-[#fafbfc] px-3 py-2"
@@ -284,6 +293,7 @@ export function LeadTable({
                   assigneeChoices={assigneeChoices}
                   collaboratorPeople={collaboratorRoster}
                   isManager={isManager}
+                  selectable={selectable}
                   canEdit={leadIsInScope(lead, editableOwnerEmails, currentUserEmail)}
                   alerts={alertsByLeadId.get(lead.id) ?? EMPTY_ALERTS}
                   selected={selected.has(lead.id)}
@@ -392,6 +402,7 @@ const LeadRow = memo(function LeadRow({
   assigneeChoices,
   collaboratorPeople,
   isManager,
+  selectable,
   canEdit,
   alerts,
   selected,
@@ -413,6 +424,7 @@ const LeadRow = memo(function LeadRow({
   assigneeChoices: readonly { value: string; label: string; keywords?: string[] }[];
   collaboratorPeople: { email: string; name: string | null }[];
   isManager: boolean;
+  selectable: boolean;
   canEdit: boolean;
   alerts: readonly LeadAlert[];
   selected: boolean;
@@ -457,7 +469,7 @@ const LeadRow = memo(function LeadRow({
       className="group flex min-h-11 min-w-max cursor-pointer items-stretch gap-0 whitespace-nowrap bg-white px-0 py-0 transition hover:bg-[#f7f8f9] [&>*]:flex [&>*]:items-center [&>*]:whitespace-nowrap [&>*]:px-3 [&>*]:py-2.5"
       onClick={handleOpen}
     >
-      {isManager ? (
+      {selectable ? (
         <StaticCell width={SELECTION_COLUMN_WIDTH} left={0}>
           <input
             className="h-4 w-4 rounded border-[#c1c7d0] text-[#0c66e4] focus:ring-[#0c66e4]"

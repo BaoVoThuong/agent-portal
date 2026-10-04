@@ -1,11 +1,6 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { buildLeadActor, canManageLeads, isLeadViewAdmin } from "@/lib/leads/access";
-import {
-  autoAssignLeads,
-  isAutoAssignEnabled,
-  type AutoAssignOutcome,
-} from "@/lib/leads/auto-assign";
 import { buildNewLeadRow } from "@/lib/leads/create";
 import {
   activeImportColumns,
@@ -56,7 +51,6 @@ export const dynamic = "force-dynamic";
 // đính kèm là 4 MB). Một file CSV 2.000 dòng chỉ khoảng 300 KB.
 const MAX_BYTES = 4 * 1024 * 1024;
 const MAX_ROWS = 2000;
-const PREVIEW_ROWS = 10;
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -144,7 +138,9 @@ export async function POST(request: Request) {
   if (rawEventId && !UUID_RE.test(rawEventId)) return NextResponse.json({ error: "The event is not valid." }, { status: 400 });
   const typedEventName = leadType === "event" ? normalizeEventName(String(form.get("event_name") ?? "")) : "";
   if (leadType === "event") {
-    if (!typedEventName) return NextResponse.json({ error: "Type the event name." }, { status: 400 });
+    // Preview chạy ngay khi chọn file (user chốt 2026-10-04) — chưa gõ tên event
+    // vẫn xem trước được; chỉ Import thật mới bắt buộc tên.
+    if (!typedEventName && !dryRun) return NextResponse.json({ error: "Type the event name." }, { status: 400 });
     if (typedEventName.length > 200) return NextResponse.json({ error: "The event name is too long." }, { status: 400 });
     if (isPersonalLeadEventName(typedEventName)) {
       return NextResponse.json(
@@ -154,6 +150,14 @@ export async function POST(request: Request) {
     }
   }
   const isPersonal = leadType === "personal" || (!leadType && !rawEventId);
+  // Personal lead (2026-10-04): người import chọn MỘT Agent cho cả file; cột
+  // Agent trong file bị bỏ qua. Client cũ không gửi thì giữ cách cũ (theo cột).
+  const chosenAgentEmail = isPersonal
+    ? String(form.get("agent_email") ?? "").trim().toLowerCase()
+    : "";
+  if (leadType === "personal" && !chosenAgentEmail && !dryRun) {
+    return NextResponse.json({ error: "Choose the Agent these Personal leads belong to." }, { status: 400 });
+  }
   const excludedByUser = parseExcludedRows(form.get("exclude_rows"));
 
   let sheet;
@@ -260,10 +264,8 @@ export async function POST(request: Request) {
     existingClients.filter((match) => match.sameEventBlocked).map((match) => match.row),
   );
   // Server chỉ nhận tick bỏ trên dòng THẬT SỰ là khách cũ — một request méo
-  // không được xoá dòng bất kỳ. Dòng CHỈ trùng tên thì luôn import.
-  const existingRows = new Set(
-    existingClients.filter((match) => match.removable).map((match) => match.row),
-  );
+  // không được xoá dòng bất kỳ.
+  const existingRows = new Set(existingClients.map((match) => match.row));
   const excludedRows = new Set(
     [...excludedByUser].filter((row) => existingRows.has(row) && !blockedRows.has(row)),
   );
@@ -279,10 +281,27 @@ export async function POST(request: Request) {
       resolutionByName.set(row.agentName, resolveImportAgent(row.agentName, agentAccounts, accounts));
     }
   }
-  const resolutionOf = (row: TemplateLead) =>
-    row.agentName ? resolutionByName.get(row.agentName) ?? null : null;
+  let chosenAgent: ImportAgentResolution | null = null;
+  if (chosenAgentEmail) {
+    const agent = agentAccounts.find((candidate) => candidate.email === chosenAgentEmail);
+    if (!agent) {
+      return NextResponse.json(
+        { error: "Choose one of the Agents in Account Management." },
+        { status: 400 },
+      );
+    }
+    chosenAgent = { status: "matched", email: agent.email, name: agent.name?.trim() || agent.email };
+  }
+  // Preview Personal lead chưa chọn Agent: coi như sẽ chọn — không báo dòng nào
+  // bị bỏ vì thiếu Agent, vì cột Agent trong file không còn được dùng.
+  const agentChosenLater = leadType === "personal" && !chosenAgent;
+  const resolutionOf = (row: TemplateLead): ImportAgentResolution | null => {
+    if (chosenAgent) return chosenAgent;
+    if (agentChosenLater || !row.agentName) return null;
+    return resolutionByName.get(row.agentName) ?? null;
+  };
   const unmatchedAgents: UnmatchedImportAgent[] = [];
-  for (const [name, resolution] of resolutionByName) {
+  for (const [name, resolution] of chosenAgent || agentChosenLater ? [] : resolutionByName) {
     if (resolution.status === "matched") continue;
     unmatchedAgents.push({
       name,
@@ -337,7 +356,7 @@ export async function POST(request: Request) {
   });
   // Không có Event = Personal lead. Mỗi dòng phải nêu một Agent đang hoạt động;
   // không âm thầm đưa Personal lead vào pool như Event lead.
-  const personalAgentSkipped: ImportRowNote[] = isPersonal
+  const personalAgentSkipped: ImportRowNote[] = isPersonal && !agentChosenLater
     ? partitioned.valid
         .filter((row) => resolutionOf(row)?.status !== "matched")
         .map((row) => ({
@@ -345,7 +364,7 @@ export async function POST(request: Request) {
           reason: "Personal leads require an Agent from Account Management.",
         }))
     : [];
-  const validRows = isPersonal
+  const validRows = isPersonal && !agentChosenLater
     ? partitioned.valid.filter((row) => resolutionOf(row)?.status === "matched")
     : partitioned.valid;
   const skipped = [...parsed.skipped, ...partitioned.skipped, ...personalAgentSkipped]
@@ -357,7 +376,7 @@ export async function POST(request: Request) {
       dryRun: true,
       sheetName: sheet.sheetName,
       eventName: isPersonal ? null : eventName,
-      eventIsNew: !isPersonal && eventId === null,
+      eventIsNew: !isPersonal && Boolean(eventName) && eventId === null,
       totalRows: parsed.rows.length + parsed.skipped.length,
       importable: validRows.length,
       skipped,
@@ -373,11 +392,19 @@ export async function POST(request: Request) {
       unmatchedAgents,
       optionsToCreate,
       rowsWithoutPhone: parsed.rows.filter((row) => !row.phone).length,
-      previewRows: parsed.rows.slice(0, PREVIEW_ROWS).map((row) => ({
+      // Mọi dòng (tối đa MAX_ROWS) — dialog tự chia trang (user chốt 2026-10-04).
+      previewRows: parsed.rows.map((row) => ({
         row: row.row,
         name: row.full_name,
+        age: cellText(row.customRaw.age),
+        gender: cellText(row.customRaw.gender),
         phone: row.phone,
+        email: row.email,
+        ticketNumber: cellText(row.customRaw.ticket_number),
+        contactMethod: cellText(row.customRaw.contact_method),
+        bestTimeToContact: cellText(row.customRaw.best_time_to_contact),
         insuranceNeeds: cellText(row.customRaw.insurance_needs),
+        fubLink: row.fub_link,
         agent: agentLabel(resolutionOf(row)),
         description: row.description,
       })),
@@ -395,7 +422,6 @@ export async function POST(request: Request) {
     unmatchedAgents,
     createdOptions,
     ignoredColumns,
-    autoAssign: null,
   };
   const sourceId = readLeadMutationSourceId(request);
   if (createdOptions.length > 0) {
@@ -481,16 +507,15 @@ export async function POST(request: Request) {
   } else {
   // Gán theo cột Agent — chỉ người nằm trong danh sách Agent ở Config. Hỏng
   // một người thì các lead đó nằm ở pool; lượt import đã thành công rồi.
+  // KHÔNG tự chia lead không có Agent (bỏ 2026-10-04): chúng nằm trong pool
+  // của Event, người quản lý bấm Distribute pool khi muốn chia.
   const idsByAgent = new Map<string, string[]>();
-  const unassignedIds: string[] = [];
   for (const { row, token } of rowsWithToken) {
     const id = insertedIdByToken.get(token);
     if (!id) continue;
     const resolution = resolutionOf(row);
     if (resolution?.status === "matched") {
       idsByAgent.set(resolution.email, [...(idsByAgent.get(resolution.email) ?? []), id]);
-    } else {
-      unassignedIds.push(id);
     }
   }
   for (const [agentEmail, ids] of idsByAgent) {
@@ -502,35 +527,9 @@ export async function POST(request: Request) {
     });
     if (error) {
       console.error("lead.import.assign_failed", { agentEmail, count: ids.length, error: error.message });
-      unassignedIds.push(...ids);
       continue;
     }
     result.assignedFromFile += ids.length;
-  }
-
-  // Chia tự động chỉ cho lead CHƯA có Agent, khi admin bật pool của Event này
-  // và người import xác nhận — gán nhầm 2.000 lead phải gỡ bằng tay.
-  const wantsAutoAssign = String(form.get("auto_assign") ?? "") === "true";
-  if (wantsAutoAssign && eventId && unassignedIds.length > 0) {
-    let outcome: AutoAssignOutcome;
-    if (await isAutoAssignEnabled(eventId, supabase)) {
-      try {
-        outcome = await autoAssignLeads(unassignedIds, eventId, actorEmail, supabase);
-      } catch (error) {
-        outcome = {
-          assigned: 0,
-          unassigned: unassignedIds.length,
-          reason: error instanceof Error ? error.message : "Could not distribute the new leads.",
-        };
-      }
-    } else {
-      outcome = {
-        assigned: 0,
-        unassigned: unassignedIds.length,
-        reason: "Auto-assign is switched off for this Event.",
-      };
-    }
-    result.autoAssign = outcome;
   }
   }
 

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CircleAlert, Plus, Search, Shuffle, Upload, X } from "lucide-react";
+import { CircleAlert, Plus, Search, Shuffle, Upload, UserPen, X } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { requestJson } from "@/lib/collaboration/optimistic";
 import type { PendingFile } from "@/lib/tasks/pending-attachments";
@@ -55,6 +55,7 @@ import {
   serializeLayout,
   type LayoutEntry,
 } from "@/lib/table-config/layout";
+import { saveUserTableLayout } from "@/lib/table-config/save-layout";
 import { TaskSelect } from "../../_components/TaskSelect";
 import {
   type LeadAlertSettings,
@@ -174,6 +175,9 @@ export function LeadsClient({
   const [total, setTotal] = useState(initialTotal);
   const [truncated, setTruncated] = useState(initialTruncated);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Chế độ gán lại hàng loạt (2026-10-04): cột ô chọn và thanh gán chỉ hiện khi
+  // manager bấm "Reassign leads"; tắt chế độ thì bỏ hết dòng đang chọn.
+  const [reassignMode, setReassignMode] = useState(false);
   const [selectedLead, setSelectedLead] = useState<LeadRow | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -483,15 +487,21 @@ export function LeadsClient({
   // Personal table settings reuse the generic user_table_layout API that Task
   // List uses. Admin `hidden_default` still wins; this is only each person's
   // choice about the remaining columns.
+  //
+  // Cờ "đã tải" chỉ bật SAU KHI áp xong layout. Bật trước khi gọi API (bản cũ)
+  // thì lần chạy đầu bị huỷ — React dev chạy effect hai lần, hoặc `columns` đổi
+  // khi request đang bay — làm lần chạy sau thấy cờ đã bật và thoát: layout đã
+  // lưu không bao giờ được áp (bảng về mặc định), `updated_at` vẫn null nên lần
+  // lưu kế tiếp bị server trả 409 "Layout changed elsewhere".
   useEffect(() => {
     if (leadLayoutHydratedRef.current) return;
-    leadLayoutHydratedRef.current = true;
     let alive = true;
 
     void fetch("/api/config/layout?scope=lead")
       .then((response) => (response.ok ? response.json() : null))
       .then((payload: { layout?: unknown; updated_at?: unknown } | null) => {
         if (!alive) return;
+        leadLayoutHydratedRef.current = true;
         leadLayoutUpdatedAtRef.current =
           typeof payload?.updated_at === "string" ? payload.updated_at : null;
         if (!Array.isArray(payload?.layout)) {
@@ -1164,35 +1174,12 @@ export function LeadsClient({
             hiddenKeys.has(column.key),
         })),
       );
-      const response = await fetch("/api/config/layout", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          scope: "lead",
-          layout,
-          expected_updated_at: leadLayoutUpdatedAtRef.current,
-        }),
-      }).catch(() => null);
-
-      if (response?.ok) {
-        const payload = (await response.json().catch(() => null)) as
-          | { updated_at?: unknown }
-          | null;
-        if (typeof payload?.updated_at === "string") {
-          leadLayoutUpdatedAtRef.current = payload.updated_at;
-        }
+      const saved = await saveUserTableLayout("lead", layout, leadLayoutUpdatedAtRef.current);
+      if (saved.ok) {
+        if (saved.updatedAt) leadLayoutUpdatedAtRef.current = saved.updatedAt;
         return;
       }
-
-      const payload = (await response?.json().catch(() => null)) as
-        | { error?: unknown }
-        | null
-        | undefined;
-      setEditError(
-        typeof payload?.error === "string"
-          ? payload.error
-          : "Could not save the table layout.",
-      );
+      setEditError(saved.error);
     };
 
     const queued = leadLayoutSaveQueueRef.current.then(save, save);
@@ -1242,6 +1229,24 @@ export function LeadsClient({
               </p>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
+              {isManager && view === "list" && (
+                <button
+                  className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm font-bold shadow-sm transition ${
+                    reassignMode
+                      ? "border-[#0c66e4] bg-[#e9f2ff] text-[#0c66e4]"
+                      : "border-[#dfe1e6] bg-white text-[#42526e] hover:border-[#0c66e4] hover:text-[#0c66e4]"
+                  }`}
+                  type="button"
+                  aria-pressed={reassignMode}
+                  onClick={() => {
+                    if (reassignMode) setSelected(new Set());
+                    setReassignMode(!reassignMode);
+                  }}
+                  title="Select leads and hand them to another Agent"
+                >
+                  <UserPen className="h-4 w-4" /> {reassignMode ? "Done" : "Reassign leads"}
+                </button>
+              )}
               {isManager && (
                 <button
                   className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:cursor-not-allowed disabled:opacity-50"
@@ -1432,12 +1437,14 @@ export function LeadsClient({
         </div>
       ) : null}
 
-      {view === "list" && isManager && selected.size > 0 && (
+      {view === "list" && isManager && reassignMode && (
         <div className="min-w-0 shrink-0 px-6 pb-3">
           <div className="mx-auto max-w-[1760px] rounded border border-[#b8d4ff] bg-[#e9f2ff] px-4 py-3 text-sm shadow-[0_1px_2px_rgba(9,30,66,0.08)]">
             <div className="flex flex-wrap items-center gap-3">
               <span className="font-semibold text-[#172b4d]">
-                {selected.size} lead{selected.size === 1 ? "" : "s"} selected
+                {selected.size > 0
+                  ? `${selected.size} lead${selected.size === 1 ? "" : "s"} selected`
+                  : "Tick the leads to reassign"}
               </span>
               <div className="min-w-[220px] flex-1">
                 <TaskSelect
@@ -1460,7 +1467,7 @@ export function LeadsClient({
               <button
                 className="inline-flex h-9 items-center rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-50"
                 type="button"
-                disabled={!assignmentEmail || assigning}
+                disabled={!assignmentEmail || assigning || selected.size === 0}
                 onClick={() => void assignSelected(assignmentEmail)}
               >
                 {assigning ? "Saving..." : "Assign"}
@@ -1468,7 +1475,7 @@ export function LeadsClient({
               <button
                 className="inline-flex h-9 items-center rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:cursor-not-allowed disabled:opacity-50"
                 type="button"
-                disabled={assigning || selectedHasPersonalLead}
+                disabled={assigning || selectedHasPersonalLead || selected.size === 0}
                 title={
                   selectedHasPersonalLead
                     ? "Personal leads must always have an Agent."
@@ -1547,6 +1554,7 @@ export function LeadsClient({
               columnOptions={columnOptions}
               nameByEmail={nameByEmail}
               isManager={isManager}
+              selectable={isManager && reassignMode}
               selected={selected}
               allVisibleSelected={allVisibleSelected}
               onToggleLead={toggleLead}
@@ -1668,6 +1676,7 @@ export function LeadsClient({
       <LeadImportDialog
         open={importOpen}
         nameByEmail={nameByEmail}
+        agents={collaboratorRoster}
         sourceId={sourceId}
         onClose={() => setImportOpen(false)}
         onImported={async (result) => {

@@ -39,16 +39,14 @@ function lead(over: Partial<ExistingLeadCandidate>): ExistingLeadCandidate {
 }
 
 describe("findExistingLeadMatches", () => {
-  it("matches on each of the four fields", () => {
+  it("matches on phone, email and FUB link", () => {
     const leads = [
-      lead({ id: "a", full_name: "Trần Thị Lan" }),
       lead({ id: "b", phone: "7135550101" }),
       lead({ id: "c", email: "x@example.com" }),
       lead({ id: "d", fub_link: "https://f.followupboss.com/2/people/view/77" }),
     ];
     const matches = findExistingLeadMatches(
       [
-        row({ row: 2, full_name: "Tran Thi Lan" }),
         row({ row: 3, phone: "7135550101" }),
         row({ row: 4, email: "x@example.com" }),
         row({ row: 5, fub_link: "http://f.followupboss.com/2/people/view/77" }),
@@ -58,21 +56,32 @@ describe("findExistingLeadMatches", () => {
       EVENT,
     );
     expect(matches.map((match) => [match.row, match.matches[0].leadId, match.matches[0].on])).toEqual([
-      [2, "a", ["name"]],
       [3, "b", ["phone"]],
       [4, "c", ["email"]],
       [5, "d", ["fub"]],
     ]);
   });
 
+  // Trùng tên không phải khách cũ (user chốt 2026-10-04): "Elizabeth" khớp
+  // lead của hai người khác nhau.
+  it("ignores a match on name alone", () => {
+    expect(
+      findExistingLeadMatches(
+        [row({ full_name: "Elizabeth", phone: "7135550199" })],
+        [lead({ full_name: "ELIZABETH", phone: "7135550101" })],
+        EVENT,
+      ),
+    ).toEqual([]);
+  });
+
   it("lists one lead once even when several fields match", () => {
     const [match] = findExistingLeadMatches(
-      [row({ full_name: "Lan", phone: "7135550101" })],
-      [lead({ full_name: "Lan", phone: "7135550101" })],
+      [row({ phone: "7135550101", email: "x@example.com" })],
+      [lead({ phone: "7135550101", email: "x@example.com" })],
       EVENT,
     );
     expect(match.matches).toHaveLength(1);
-    expect(match.matches[0].on).toEqual(["name", "phone"]);
+    expect(match.matches[0].on).toEqual(["phone", "email"]);
   });
 
   // Ở event khác thì chỉ là cảnh báo; cùng event + cùng số thì DB không cho
@@ -92,27 +101,6 @@ describe("findExistingLeadMatches", () => {
     );
     expect(otherEvent[0].sameEventBlocked).toBe(false);
 
-    const sameNameOnly = findExistingLeadMatches(
-      [row({ full_name: "Lan", phone: "7135550199" })],
-      [lead({ full_name: "Lan", phone: "7135550101", event_id: EVENT })],
-      EVENT,
-    );
-    expect(sameNameOnly[0].sameEventBlocked).toBe(false);
-  });
-
-  // Chỉ trùng tên thì không bỏ được (user chốt 2026-10-03): tên trùng là
-  // chuyện thường, dòng vẫn import.
-  it("lets a row be removed only when it matches on phone, email or FUB", () => {
-    const [nameOnly, namePhone] = findExistingLeadMatches(
-      [
-        row({ row: 2, full_name: "Lan" }),
-        row({ row: 3, full_name: "Lan", phone: "7135550101" }),
-      ],
-      [lead({ id: "a", full_name: "Lan" }), lead({ id: "b", phone: "7135550101" })],
-      EVENT,
-    );
-    expect(nameOnly.removable).toBe(false);
-    expect(namePhone.removable).toBe(true);
   });
 
   // Event gõ tên chưa có: không lead nào nằm trong đó, nên Personal lead cùng

@@ -6,6 +6,39 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-04 — Sửa lỗi layout bảng tự reset + "Layout changed elsewhere"
+
+- **Nguyên nhân:** Lead Management, Provider List và Task board bật cờ "đã tải
+  layout" TRƯỚC khi gọi `/api/config/layout`. Lần chạy effect đầu bị huỷ (React
+  dev chạy effect hai lần; hoặc `columns` đổi khi request đang bay) thì lần sau
+  thấy cờ đã bật và thoát → layout đã lưu không bao giờ được áp (bảng về mặc
+  định), `updated_at` còn null nên lần lưu sau server coi là tạo mới → 409
+  "Layout changed elsewhere". Task board còn tệ hơn: timer bị huỷ nên không gọi
+  API layout lần nào.
+- **Sửa:** cờ chỉ bật sau khi áp xong layout. Lưu layout (Lead, Provider) qua
+  `saveUserTableLayout` (lib/table-config/save-layout.ts): gặp 409 thì đọc
+  `updated_at` mới nhất rồi ghi lại lựa chọn hiện tại MỘT lần — layout là của
+  riêng người đó, 409 chỉ nghĩa là họ vừa lưu ở tab/máy khác.
+
+## 2026-10-04 — Lead: bỏ tự chia khi import, tìm Agent trong Distribute pool, bộ status mới
+
+- **Bỏ hẳn tự chia lead khi import.** Bỏ công tắc "Auto-assign on import for
+  this Event" ở Distribute pool và ô "Distribute leads without an Agent by
+  ratio" ở Import; route Import không còn đọc `auto_assign`
+  (`LeadImportResult.autoAssign` bỏ). Lead không có Agent nằm trong pool của
+  Event — bấm Distribute pool để chia. Cột `auto_assign_enabled` trong DB để
+  nguyên, không còn ai đọc.
+- Distribute pool có **ô tìm Agent** theo tên/email (không phân biệt dấu).
+- Bảng Lead **không còn cột ô chọn mặc định**; nút "Reassign leads" (cạnh
+  Distribute pool) bật chế độ chọn + thanh gán hàng loạt, bấm "Done" thì tắt
+  và bỏ chọn.
+- **Bộ status mới** (SQL `2026-10-04-lead-statuses-new-set.sql`, user chạy):
+  New (mặc định), Need to call back (scheduled), Can't contact (lost), Called
+  but no response (open), Do not contact (lost), Quoted (open),
+  Closed/Purchased (won). Đổi tên status cũ để giữ id; status khác bị archive.
+- Cột Phone ở bảng Lead rộng 112 → 140px: số 10 chữ số có chữ số "rộng" bị
+  cắt "…" dù dữ liệu đủ.
+
 ## 2026-10-03 — Provider List chuyển sang Task Management
 
 - Trang Provider List (kèm tab Finder Tool) dời từ `/automation/provider-list`
@@ -58,12 +91,26 @@ cũ thì hỏng ngay khi cột Product bị xoá):
   không tạo) và báo "Existing event" / "New event"; Import thật mới tìm-hoặc-tạo
   (`resolveEventByName`), và chỉ khi có ít nhất một dòng để ghi — không để lại
   event rỗng. Tên "Personal lead" bị từ chối ở Event lead.
-- **Khách cũ chỉ trùng tên không bỏ được.** `ExistingLeadMatch.removable` = trùng
-  phone, email hoặc FUB link. Dòng chỉ trùng tên vẫn hiện trong khối đỏ để biết
-  nhưng không có ô tick, "Tick all" bỏ qua, và server bỏ qua `exclude_rows` của
-  dòng đó — luôn được import.
+- **Trùng tên không còn là khách cũ** (2026-10-04, thay quyết định "chỉ trùng
+  tên thì không bỏ được" của 2026-10-03). `findExistingLeadMatches` chỉ so phone,
+  email, FUB link; dòng chỉ trùng tên không hiện trong khối đỏ nữa. Bỏ cờ
+  `removable`.
+- **Preview chạy ngay khi chọn file** (2026-10-04), không phải gõ tên event
+  trước: route cho `dry_run` Event lead chưa có tên (không chặn dòng "đã có
+  trong event"); Import thật vẫn bắt buộc tên event. Nút Import chỉ bật khi
+  preview chạy đúng Lead type / tên event / Agent đang chọn.
+- **Tên event mặc định = tên file** bỏ đuôi (vd. "Mid-Autumn Festival 0926"),
+  sửa được; chỉ tự điền khi ô trống hoặc vẫn là tên tự điền từ file trước.
+- **Preview hiện MỌI dòng** của file (trước chỉ 10 dòng đầu), chia trang 20
+  dòng/trang, đủ các cột của mẫu (Age, Gender, Email, Ticket #, Contact Method,
+  Best Time, FUB link…); bảng cuộn/kéo ngang, cột Row + Full Name đứng yên.
 - Mặc định của dialog Import là **Event lead** (2026-10-04); Personal lead phải
   chọn tay.
+- **Import Personal lead: chọn MỘT Agent cho cả file** (2026-10-04) thay cho
+  cột Agent trong file. Route nhận `agent_email` (phải là Agent đang hoạt động ở
+  Account Management), bắt buộc khi Import thật; cột Agent của file bị bỏ qua và
+  không còn dòng nào bị bỏ vì "không khớp Agent". Event lead vẫn gán theo cột
+  Agent như cũ.
 - Event chưa tồn tại: dò "trùng trong cùng event" dùng `EVENT_NOT_CREATED_YET`
   (không chặn dòng nào) thay vì null — null là Personal lead.
 

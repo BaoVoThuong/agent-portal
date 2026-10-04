@@ -1,4 +1,3 @@
-import type { AutoAssignOutcome } from "./auto-assign";
 import type { ExistingLeadMatch } from "./import-existing";
 import type { ImportRowNote } from "./import-template";
 
@@ -23,8 +22,15 @@ export type UnmatchedImportAgent = {
 export type LeadImportPreviewRow = {
   row: number;
   name: string | null;
+  age: string | null;
+  gender: string | null;
   phone: string | null;
+  email: string | null;
+  ticketNumber: string | null;
+  contactMethod: string | null;
+  bestTimeToContact: string | null;
   insuranceNeeds: string | null;
+  fubLink: string | null;
   agent: {
     status: "matched" | "not-agent" | "not-found" | "ambiguous" | "none";
     label: string | null;
@@ -60,6 +66,7 @@ export type LeadImportPreview = {
   unmatchedAgents: UnmatchedImportAgent[];
   optionsToCreate: { column: string; label: string }[];
   rowsWithoutPhone: number;
+  /** MỌI dòng đọc được của file; dialog chia trang. */
   previewRows: LeadImportPreviewRow[];
 };
 
@@ -76,5 +83,4 @@ export type LeadImportResult = {
   unmatchedAgents: UnmatchedImportAgent[];
   createdOptions: { column: string; label: string }[];
   ignoredColumns: string[];
-  autoAssign: AutoAssignOutcome | null;
 };
