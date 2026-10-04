@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, Plus, Upload } from "lucide-react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { resolveLayout, serializeLayout, type LayoutEntry } from "@/lib/table-config/layout";
+import { saveUserTableLayout } from "@/lib/table-config/save-layout";
 import {
   initialHiddenProviderColumnKeys,
   toggleHiddenProviderListColumn,
@@ -88,15 +89,17 @@ export function ProviderListClient({
   // Cài đặt bảng theo từng người, dùng chung API user_table_layout với Task
   // List và Lead Management. `hidden_default` của admin vẫn thắng; đây chỉ là lựa
   // chọn riêng về những cột còn lại.
+  // Cờ "đã tải" chỉ bật SAU KHI áp xong layout — xem chú thích cùng chỗ ở
+  // LeadsClient: bật trước thì lần chạy bị huỷ làm layout không bao giờ được áp.
   useEffect(() => {
     if (layoutHydratedRef.current) return;
-    layoutHydratedRef.current = true;
     let alive = true;
 
     void fetch("/api/config/layout?scope=provider")
       .then((response) => (response.ok ? response.json() : null))
       .then((payload: { layout?: unknown; updated_at?: unknown } | null) => {
         if (!alive) return;
+        layoutHydratedRef.current = true;
         layoutUpdatedAtRef.current =
           typeof payload?.updated_at === "string" ? payload.updated_at : null;
         if (!Array.isArray(payload?.layout)) return;
@@ -138,22 +141,8 @@ export function ProviderListClient({
             hidden: !column.pinned && hiddenKeys.has(column.key),
           }))
         );
-        const response = await fetch("/api/config/layout", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            scope: "provider",
-            layout,
-            expected_updated_at: layoutUpdatedAtRef.current,
-          }),
-        }).catch(() => null);
-        if (!response?.ok) return;
-        const payload = (await response.json().catch(() => null)) as
-          | { updated_at?: unknown }
-          | null;
-        if (typeof payload?.updated_at === "string") {
-          layoutUpdatedAtRef.current = payload.updated_at;
-        }
+        const saved = await saveUserTableLayout("provider", layout, layoutUpdatedAtRef.current);
+        if (saved.ok && saved.updatedAt) layoutUpdatedAtRef.current = saved.updatedAt;
       })();
     },
     [layoutColumns]

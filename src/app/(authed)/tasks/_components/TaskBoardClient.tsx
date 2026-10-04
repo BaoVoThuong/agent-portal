@@ -365,9 +365,11 @@ export function TaskBoardClient({
     [taskLayoutColumns]
   );
 
+  // Cờ "đã tải" chỉ bật SAU KHI request layout trả về — xem chú thích cùng chỗ
+  // ở LeadsClient. Ở đây còn tệ hơn: lần chạy bị huỷ xoá luôn timer, nên bật
+  // cờ trước là KHÔNG BAO GIỜ gọi API layout.
   useEffect(() => {
     if (taskLayoutHydratedRef.current) return;
-    taskLayoutHydratedRef.current = true;
     let alive = true;
     const initialTaskListColumns = taskListColumnsFromConfig(tableColumns);
     const initialTaskListColumnKeySet = new Set(initialTaskListColumns.map((column) => column.key));
@@ -385,6 +387,7 @@ export function TaskBoardClient({
         .then((response) => (response.ok ? response.json() : null))
         .then((payload: { layout?: unknown; updated_at?: unknown } | null) => {
           if (!alive) return;
+          taskLayoutHydratedRef.current = true;
           taskLayoutUpdatedAtRef.current =
             typeof payload?.updated_at === "string" ? payload.updated_at : null;
           if (Array.isArray(payload?.layout)) {
