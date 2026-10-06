@@ -104,6 +104,17 @@ type LeadsClientProps = {
   interactionTypes: LeadInteractionType[];
   /** Empty for non-managers: only they can reassign, so only they get the roster. */
   assignees: { email: string; name: string | null }[];
+  /**
+   * Add lead được hiện cho ai: manager, hoặc worker là Agent / Assistant (chỉ
+   * tạo được Personal lead). Server tính từ cùng quy tắc mà POST /api/leads
+   * kiểm lại, nên nút hiện ra khớp với thứ API chịu nhận.
+   */
+  canAddLead: boolean;
+  /**
+   * Agent mà người này được phép mở Personal lead cho. Manager: cả roster.
+   * Worker: chính họ (nếu là Agent) + các Agent họ làm Assistant.
+   */
+  addLeadAgents: { email: string; name: string | null }[];
   collaboratorRoster: { email: string; name: string | null }[];
   /**
    * CHỈ để hiện tên: Agent + người có quyền Lead. Người đang giữ lead cũ có thể
@@ -149,6 +160,8 @@ export function LeadsClient({
   archivedStatuses,
   interactionTypes,
   assignees,
+  canAddLead,
+  addLeadAgents,
   collaboratorRoster,
   agentNames,
 }: LeadsClientProps) {
@@ -1267,7 +1280,7 @@ export function LeadsClient({
                 </button>
               )}
               {/* Nút chính ở ngoài cùng bên phải, như "New task" bên Task. */}
-              {isManager && (
+              {canAddLead && (
                 <button
                   className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
                   type="button"
@@ -1696,7 +1709,8 @@ export function LeadsClient({
       />
       <LeadAddDialog
         open={addOpen}
-        assignees={assignees}
+        assignees={addLeadAgents}
+        personalOnly={!isManager}
         collaboratorRoster={collaboratorRoster}
         currentUserEmail={currentUserEmail}
         sourceId={sourceId}

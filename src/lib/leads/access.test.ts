@@ -6,6 +6,7 @@ import {
   canManageLeads,
   canViewLead,
   isLeadViewAdmin,
+  personalLeadAgentEmailsForWorker,
 } from "./access";
 import type { LeadRow } from "./types";
 
@@ -116,5 +117,72 @@ describe("account-role admin", () => {
     expect(admin.isManager).toBe(true);
     expect(canViewLead(admin, theirs)).toBe(true);
     expect(canEditLead(admin, theirs)).toBe(true);
+  });
+});
+
+// Agent / Assistant add Personal leads: the lead belongs to themselves (Agent)
+// or to the Agent they assist (Assistant). This is the list the create route
+// enforces, so an empty result is "may not add a lead at all".
+describe("personal lead agents for a worker", () => {
+  const roster = ["agent-a@x.com", "agent-b@x.com", "cs@x.com"];
+
+  it("gives an Agent only themselves", () => {
+    expect(
+      personalLeadAgentEmailsForWorker({
+        actorEmail: "agent-a@x.com",
+        rosterEmails: roster,
+        assistedAgentEmails: [],
+      }),
+    ).toEqual(["agent-a@x.com"]);
+  });
+
+  it("gives an Assistant the Agent they assist, not themselves", () => {
+    expect(
+      personalLeadAgentEmailsForWorker({
+        actorEmail: "assistant@x.com",
+        rosterEmails: roster,
+        assistedAgentEmails: ["agent-a@x.com"],
+      }),
+    ).toEqual(["agent-a@x.com"]);
+  });
+
+  it("offers every Agent an Assistant covers, and puts an Agent's own seat first", () => {
+    expect(
+      personalLeadAgentEmailsForWorker({
+        actorEmail: "agent-b@x.com",
+        rosterEmails: roster,
+        assistedAgentEmails: ["agent-a@x.com", "agent-b@x.com"],
+      }),
+    ).toEqual(["agent-b@x.com", "agent-a@x.com"]);
+  });
+
+  it("drops an assisted Agent who is no longer on the roster", () => {
+    expect(
+      personalLeadAgentEmailsForWorker({
+        actorEmail: "assistant@x.com",
+        rosterEmails: roster,
+        assistedAgentEmails: ["agent-a@x.com", "gone@x.com"],
+      }),
+    ).toEqual(["agent-a@x.com"]);
+  });
+
+  it("is empty for someone who is neither an Agent nor an Assistant", () => {
+    expect(
+      personalLeadAgentEmailsForWorker({
+        actorEmail: "plain-cs@x.com",
+        rosterEmails: roster,
+        assistedAgentEmails: [],
+      }),
+    ).toEqual([]);
+  });
+
+  it("matches emails case-insensitively", () => {
+    expect(
+      personalLeadAgentEmailsForWorker({
+        actorEmail: "Agent-A@X.com",
+        rosterEmails: ["AGENT-A@x.com"],
+        assistedAgentEmails: [],
+      }),
+    ).toEqual(["agent-a@x.com"]);
   });
 });

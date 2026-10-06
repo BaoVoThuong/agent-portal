@@ -6,6 +6,26 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-06 — Lead: Agent và Assistant tự thêm Personal lead
+
+- **Trước:** chỉ manager (`lead.manage` hoặc admin) tạo được lead; `POST /api/leads`
+  trả 403 cho mọi worker, nút "Add lead" chỉ hiện cho manager.
+- **Giờ:** worker (`lead.work`/`task.manage`) tạo được lead nếu là Agent trong
+  Account Management hoặc là Assistant của ít nhất một Agent — và **chỉ Personal
+  lead**. Event lead vẫn chỉ manager (worker gửi lead_type khác "personal", kể cả
+  client cũ không gửi lead_type → 403).
+- **Chủ của lead do server quyết**, không tin `assigned_to_email` của client.
+  Danh sách Agent hợp lệ = chính mình (nếu là Agent) + các Agent mình làm
+  Assistant (`agent_members.is_assistant`), giao với roster Account Management
+  (`personalLeadAgentEmailsForWorker` trong lib/leads/access.ts):
+  - đúng 1 Agent → lead thuộc Agent đó, ô Agent bị khoá;
+  - nhiều Agent → chọn trong số đó, ngoài danh sách → 403;
+  - rỗng (plain CS) → 403, nút "Add lead" không hiện.
+- Dialog Add lead ở chế độ worker: ẩn chọn Lead type và Event, không gọi
+  `/api/leads/events` và `/api/leads/assignment-roster` (chỉ cho Event lead /
+  manager). Collaborators, đính kèm file giữ nguyên.
+- Không đổi schema, không có SQL rollout. Manager không đổi gì.
+
 ## 2026-10-04 — Sửa lỗi layout bảng tự reset + "Layout changed elsewhere"
 
 - **Nguyên nhân:** Lead Management, Provider List và Task board bật cờ "đã tải

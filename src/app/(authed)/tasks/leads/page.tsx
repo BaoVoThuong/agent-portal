@@ -1,7 +1,11 @@
 import { redirect } from "next/navigation";
 import { requireAnyPermission } from "@/lib/rbac/server";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { buildLeadActor, isLeadViewAdmin } from "@/lib/leads/access";
+import {
+  buildLeadActor,
+  isLeadViewAdmin,
+  personalLeadAgentEmailsForWorker,
+} from "@/lib/leads/access";
 import { fetchLeadAssignees } from "@/lib/leads/assignees";
 import {
   fetchAllLeads,
@@ -64,6 +68,22 @@ export default async function LeadsPage({
     name: agent.name,
   }));
   const assignees = actor.canViewAll ? agentPeople : [];
+  // Add lead: manager chọn được mọi Agent; worker chỉ mở Personal lead cho chính
+  // mình (nếu là Agent) và các Agent mình làm Assistant. ownerEmails của worker
+  // đã là [mình, ...Agent mình hỗ trợ] nên không phải đọc agent_members lần nữa.
+  const addLeadAgentEmails = actor.isManager
+    ? null
+    : new Set(
+        personalLeadAgentEmailsForWorker({
+          actorEmail: email,
+          rosterEmails: agentPeople.map((person) => person.email),
+          assistedAgentEmails: ownerEmails ?? [],
+        }),
+      );
+  const addLeadAgents = addLeadAgentEmails
+    ? agentPeople.filter((person) => addLeadAgentEmails.has(person.email))
+    : agentPeople;
+  const canAddLead = actor.isManager || addLeadAgents.length > 0;
   // Tên hiển thị: Agent + người có quyền Lead (người đang giữ lead cũ có thể
   // không phải Agent — vd. admin — vẫn phải hiện tên chứ không hiện email).
   const displayPeople = [
@@ -90,6 +110,8 @@ export default async function LeadsPage({
       archivedStatuses={vocabulary.archivedStatuses}
       interactionTypes={vocabulary.types}
       assignees={assignees}
+      canAddLead={canAddLead}
+      addLeadAgents={addLeadAgents}
       collaboratorRoster={agentPeople}
       agentNames={displayPeople}
     />

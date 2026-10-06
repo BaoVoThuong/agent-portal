@@ -72,6 +72,28 @@ export function canWorkLeads(actor: LeadActor): boolean {
   return actor.isWorker;
 }
 
+/**
+ * Agents a worker may open a Personal lead for: themselves when they are an
+ * Agent in Account Management, then every Agent they are an Assistant for.
+ *
+ * Both sides are cut down to the roster. An Assistant pairing can outlive the
+ * agent's roster entry, and a Personal lead has to land on a current Agent —
+ * the same rule the create route enforces for a manager's pick.
+ *
+ * Empty means the worker is neither an Agent nor an Assistant, so they cannot
+ * add a lead at all. Managers do not use this: they may choose any roster Agent.
+ */
+export function personalLeadAgentEmailsForWorker(input: {
+  actorEmail: string;
+  rosterEmails: Iterable<string>;
+  assistedAgentEmails: readonly string[];
+}): string[] {
+  const roster = new Set([...input.rosterEmails].map(normalize));
+  const own = normalize(input.actorEmail);
+  const candidates = [own, ...input.assistedAgentEmails.map(normalize)];
+  return [...new Set(candidates.filter((email) => email !== "" && roster.has(email)))];
+}
+
 /** True when the actor's own email is the one the lead is assigned to. */
 export function isLeadOwner(
   actor: LeadActor,

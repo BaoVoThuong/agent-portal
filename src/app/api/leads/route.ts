@@ -6,7 +6,10 @@ import { fetchAllLeads, fetchDefaultLeadStatusId } from "@/lib/leads/queries";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { resolveEventByName } from "@/lib/leads/events";
-import { resolveLeadOwnerEmails } from "@/lib/leads/membership";
+import {
+  resolveLeadOwnerEmails,
+  resolveWorkerPersonalLeadAgentEmails,
+} from "@/lib/leads/membership";
 import { findMissingRequiredFields } from "@/lib/table-config/required";
 import { fetchLeadMemberEmails } from "@/lib/leads/assignees";
 import { fetchTaskAgents } from "@/lib/tasks/assignees";
@@ -64,14 +67,46 @@ export async function POST(request: Request) {
   const actor = buildLeadActor(session.user.permissions, email, {
     isAdmin: isLeadViewAdmin(session.user),
   });
-  if (!canManageLeads(actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!canWorkLeads(actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const parsed = parseCreateLeadInput(await request.json().catch(() => null));
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
   const input = parsed.value;
   const supabase = getSupabaseAdmin();
   const normalizedActorEmail = actor.email.trim().toLowerCase();
-  const assignedToEmail = input.assignedToEmail;
+  let assignedToEmail = input.assignedToEmail;
+
+  // Manager tạo được mọi loại lead. Agent và Assistant (worker) chỉ tạo được
+  // Personal lead, và chủ của nó do SERVER quyết định — chính họ nếu là Agent,
+  // hoặc Agent mà họ làm Assistant — không lấy theo thứ client gửi lên.
+  if (!canManageLeads(actor)) {
+    // `lead_type` null là client cũ: event tuỳ chọn, không đủ để chứng minh đây
+    // là Personal lead, nên worker không đi qua đường đó.
+    if (input.leadType !== "personal") {
+      return NextResponse.json(
+        { error: "Only managers can add Event leads. Add a Personal lead instead." },
+        { status: 403 },
+      );
+    }
+    const allowedAgents = await resolveWorkerPersonalLeadAgentEmails(
+      actor,
+      (await fetchTaskAgents()).map((agent) => agent.email),
+    );
+    if (allowedAgents.length === 0) {
+      return NextResponse.json(
+        { error: "Only Agents and their Assistants can add leads." },
+        { status: 403 },
+      );
+    }
+    if (allowedAgents.length === 1) {
+      assignedToEmail = allowedAgents[0];
+    } else if (assignedToEmail && !allowedAgents.includes(assignedToEmail)) {
+      return NextResponse.json(
+        { error: "You can only add leads for yourself or the Agents you assist." },
+        { status: 403 },
+      );
+    }
+  }
 
   if (input.clientRequestId) {
     const { data: existing, error: existingError } = await supabase

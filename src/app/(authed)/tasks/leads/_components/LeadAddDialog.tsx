@@ -43,8 +43,17 @@ type LeadAddDialogProps = {
   columns: TableColumn[];
   columnOptions: TableColumnOption[];
   statuses: LeadStatus[];
-  /** Agent ở Account Management — người nhận Personal lead. */
+  /**
+   * Agent được chọn làm chủ Personal lead. Manager: cả roster Account
+   * Management. Worker (`personalOnly`): chính họ nếu là Agent + các Agent họ
+   * làm Assistant.
+   */
   assignees: { email: string; name: string | null }[];
+  /**
+   * Worker (Agent / Assistant) chỉ tạo được Personal lead: không có chọn loại
+   * lead, không có Event, và khi chỉ có một Agent hợp lệ thì ô Agent bị khoá.
+   */
+  personalOnly?: boolean;
   /** Agent ở Account Management — danh sách chọn Collaborators. */
   collaboratorRoster: { email: string; name: string | null }[];
   /** Dùng để tự chọn người tạo khi họ cũng là Agent. */
@@ -246,6 +255,7 @@ export function LeadAddDialog({
   columnOptions,
   statuses,
   assignees,
+  personalOnly = false,
   collaboratorRoster,
   currentUserEmail,
   onClose,
@@ -289,11 +299,15 @@ export function LeadAddDialog({
   // Account Management ngay khi tạo; manager không nằm trong roster không thể
   // tự nhận một Personal lead.
   const personalAgents = assignees;
-  const defaultPersonalAgent = personalAgents.some(
-    (person) => person.email === actorEmail,
-  )
-    ? actorEmail
-    : "";
+  // Worker chỉ có đúng một Agent hợp lệ thì lead thuộc về Agent đó, không có gì
+  // để chọn — server cũng ép như vậy, ô chỉ để người dùng thấy lead sẽ về ai.
+  const lockedPersonalAgent =
+    personalOnly && personalAgents.length === 1 ? personalAgents[0].email : "";
+  const defaultPersonalAgent =
+    lockedPersonalAgent ||
+    (personalAgents.some((person) => person.email === actorEmail)
+      ? actorEmail
+      : "");
   const effectiveAssignee = isPersonalLead
     ? assignedToEmail || defaultPersonalAgent
     : assignedToEmail;
@@ -352,17 +366,18 @@ export function LeadAddDialog({
     statuses.find((status) => status.id === selectedStatusId)?.label ?? "—";
 
   useEffect(() => {
-    if (!open || eventsState !== "idle") return;
+    if (!open || personalOnly || eventsState !== "idle") return;
     void fetchLeadEvents()
       .then((payload) => {
         setEvents(payload.events);
         setEventsState("ready");
       })
       .catch(() => setEventsState("error"));
-  }, [eventsState, open]);
+  }, [eventsState, open, personalOnly]);
 
   useEffect(() => {
-    if (!open) return;
+    // Danh sách này chỉ phục vụ Event lead, và route của nó chỉ cho manager.
+    if (!open || personalOnly) return;
     let cancelled = false;
     void fetch("/api/leads/assignment-roster", { cache: "no-store" })
       .then(async (response) => {
@@ -381,7 +396,7 @@ export function LeadAddDialog({
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [open, personalOnly]);
 
   function chooseLeadType(next: LeadType) {
     setLeadType(next);
@@ -691,6 +706,7 @@ export function LeadAddDialog({
 
             <aside className="border-t border-[#dfe1e6] bg-[#f7f8fa] p-4 lg:min-h-0 lg:overflow-y-auto lg:border-l lg:border-t-0">
               <fieldset disabled={saving} className="space-y-4">
+              {personalOnly ? null : (
               <div>
                 <span className="mb-1.5 block text-xs font-bold uppercase text-[#6b778c]">
                   Lead type
@@ -721,6 +737,7 @@ export function LeadAddDialog({
                   })}
                 </div>
               </div>
+              )}
               {isPersonalLead ? (
                 <div className="block space-y-1">
                   <span className={LABEL_CLASS}>
@@ -798,7 +815,7 @@ export function LeadAddDialog({
                         ? "No Agents in Account Management"
                         : "Choose an Agent"
                     }
-                    disabled={personalAgents.length === 0}
+                    disabled={personalAgents.length === 0 || lockedPersonalAgent !== ""}
                     searchable
                     // Ô người giống Agent ở form tạo Task: avatar + tên.
                     personValue
