@@ -46,3 +46,17 @@ describe("notification alert permissions", () => {
     );
   });
 });
+
+describe("provider permissions", () => {
+  it("keeps Provider List management separate from the Provider Finder tool", () => {
+    expect(PERMISSIONS.AUTOMATION_PROVIDER_FINDER).toBe("automation.provider_finder");
+    expect(PERMISSIONS.AUTOMATION_PROVIDER_MANAGE).toBe("automation.provider_manage");
+    expect(PERMISSION_DEFINITIONS).toContainEqual(
+      expect.objectContaining({
+        key: "automation.provider_manage",
+        groupKey: "automation",
+        sortOrder: 350,
+      }),
+    );
+  });
+});

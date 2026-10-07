@@ -148,14 +148,15 @@ const menuData: MenuItem[] = [
       },
       {
         // MỘT mục cho mọi bảng. Mỗi người chỉ thấy bảng mình quản — người chỉ
-        // có quyền Provider chỉ thấy Provider List; xem configScopesFor ở
-        // lib/table-config.
+        // có quyền Provider List - Manage chỉ thấy Provider List; xem
+        // configScopesFor ở lib/table-config. Quyền Provider Finder một mình
+        // không còn đủ: đổi cột là việc của tầng Manage.
         href: "/config",
         label: "Table Configuration",
         anyPermission: [
           PERMISSIONS.TASK_MANAGE,
           PERMISSIONS.LEAD_MANAGE,
-          PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
+          PERMISSIONS.AUTOMATION_PROVIDER_MANAGE,
         ],
       },
     ],

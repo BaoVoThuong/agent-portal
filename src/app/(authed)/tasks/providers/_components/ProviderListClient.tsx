@@ -48,6 +48,7 @@ export function ProviderListClient({
   viewerName,
   canExport,
   canImport,
+  canManage,
 }: {
   initialProviders: ProviderRow[];
   loadError: string | null;
@@ -58,6 +59,8 @@ export function ProviderListClient({
   /** Hai quyền tách riêng: Export chỉ đọc, Import ghi đè hàng loạt. */
   canExport: boolean;
   canImport: boolean;
+  /** Thêm và xoá address — tầng Provider List - Manage. */
+  canManage: boolean;
 }) {
   const [providers, setProviders] = useState<ProviderRow[]>(initialProviders);
   const [query, setQuery] = useState("");
@@ -256,6 +259,23 @@ export function ProviderListClient({
     setNotice(null);
   }
 
+  /** Xoá = archive: dòng biến khỏi bảng nhưng vẫn nằm trong database. */
+  async function archiveProvider(id: string) {
+    const response = await fetch(`/api/automation/provider-list/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ archived: true }),
+    }).catch(() => null);
+    const payload = (await response?.json().catch(() => null)) as
+      | { error?: string }
+      | null;
+    if (!response?.ok) {
+      throw new Error(payload?.error ?? "Could not delete the address.");
+    }
+    setProviders((current) => current.filter((row) => row.id !== id));
+    setNotice({ tone: "info", text: "Address deleted." });
+  }
+
   async function createProvider(body: Record<string, unknown>) {
     const response = await fetch("/api/automation/provider-list", {
       method: "POST",
@@ -306,7 +326,7 @@ export function ProviderListClient({
                   <Upload className="h-4 w-4" /> Import
                 </button>
               ) : null}
-              {view === "list" ? (
+              {view === "list" && canManage ? (
                 <button
                   type="button"
                   onClick={() => setAddOpen(true)}
@@ -420,6 +440,11 @@ export function ProviderListClient({
         onClose={() => setEditingProvider(null)}
         onSave={(patch) =>
           editingProvider ? patchProvider(editingProvider.id, patch) : Promise.resolve()
+        }
+        onArchive={
+          canManage && editingProvider
+            ? () => archiveProvider(editingProvider.id)
+            : undefined
         }
       />
     </main>

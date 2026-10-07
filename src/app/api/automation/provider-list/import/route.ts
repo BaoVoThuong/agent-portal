@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { canImportProviders } from "@/lib/providers/access";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildProviderRow, parseCreateProviderInput } from "@/lib/providers/create";
 import { todayForColumn } from "@/lib/providers/form";
@@ -35,13 +34,10 @@ export async function POST(request: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  // Xem bảng là một chuyện; nhập cả bảng lại là chuyện khác. Đòi THÊM
-  // quyền task.import chứ không thay thế: người không được vào Provider
-  // List thì vẫn không được đụng tới dữ liệu của nó.
-  if (
-    !can(session.user.permissions, PERMISSIONS.AUTOMATION_PROVIDER_FINDER) ||
-    !can(session.user.permissions, PERMISSIONS.TASK_IMPORT)
-  ) {
+  // Xem bảng là một chuyện; nhập cả bảng lại là chuyện khác. Đòi THÊM quyền
+  // (task.import, hoặc Provider List - Manage) chứ không thay thế: người không
+  // được vào Provider List thì vẫn không được đụng tới dữ liệu của nó.
+  if (!canImportProviders(session.user.permissions)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

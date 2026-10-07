@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { canExportProviders } from "@/lib/providers/access";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildProviderExportMatrix } from "@/lib/providers/export";
 import { PROVIDER_SELECT, PROVIDER_TABLE, type ProviderRow } from "@/lib/providers/types";
@@ -23,13 +22,10 @@ export async function POST(request: Request) {
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  // Xem bảng là một chuyện; xuất cả bảng lại là chuyện khác. Đòi THÊM
-  // quyền task.export chứ không thay thế: người không được vào Provider
-  // List thì vẫn không được đụng tới dữ liệu của nó.
-  if (
-    !can(session.user.permissions, PERMISSIONS.AUTOMATION_PROVIDER_FINDER) ||
-    !can(session.user.permissions, PERMISSIONS.TASK_EXPORT)
-  ) {
+  // Xem bảng là một chuyện; xuất cả bảng lại là chuyện khác. Đòi THÊM quyền
+  // (task.export, hoặc Provider List - Manage) chứ không thay thế: người không
+  // được vào Provider List thì vẫn không được đụng tới dữ liệu của nó.
+  if (!canExportProviders(session.user.permissions)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

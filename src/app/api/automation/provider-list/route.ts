@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { canManageProviders } from "@/lib/providers/access";
 import { buildProviderRow, parseCreateProviderInput } from "@/lib/providers/create";
 import { PROVIDER_SELECT, PROVIDER_TABLE, PROVIDER_TEXT_FIELDS } from "@/lib/providers/types";
 import { validateCustomValues } from "@/lib/table-config/custom-values";
@@ -19,7 +20,7 @@ export const dynamic = "force-dynamic";
  * Provider List dùng chung quyền với Provider Finder — cùng một dữ liệu, cùng
  * một nhóm người dùng trong Automation Tool.
  */
-async function gate(timing?: RouteTiming) {
+async function gate(timing?: RouteTiming, options: { manage?: boolean } = {}) {
   const session = timing
     ? await timing.measure("auth", () => auth())
     : await auth();
@@ -27,6 +28,11 @@ async function gate(timing?: RouteTiming) {
   if (!email) return { ok: false as const, status: 401, error: "Unauthorized" };
   if (!can(session.user.permissions, PERMISSIONS.AUTOMATION_PROVIDER_FINDER)) {
     return { ok: false as const, status: 403, error: "Forbidden" };
+  }
+  // Thêm address là việc của tầng Manage (xem lib/providers/access.ts); xem và
+  // sửa ô thì chỉ cần quyền Provider Finder.
+  if (options.manage && !canManageProviders(session.user.permissions)) {
+    return { ok: false as const, status: 403, error: "You cannot add addresses." };
   }
   return { ok: true as const, email };
 }
@@ -74,7 +80,7 @@ export async function POST(request: Request) {
   };
 
   try {
-    const actor = await gate(timing);
+    const actor = await gate(timing, { manage: true });
     if (!actor.ok) return respond({ error: actor.error }, actor.status);
 
     const parsed = parseCreateProviderInput(

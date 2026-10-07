@@ -6,6 +6,34 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-08 — Provider List: tầng quyền Manage (Add / Delete address, cột, Export / Import)
+
+- **Trước:** MỘT quyền `automation.provider_finder` (~41 người: Task CS, Health
+  Agent, Admin…) cho tất cả: xem, tìm, sửa ô, thêm dòng, archive dòng, đổi cột
+  bảng Provider. Export / Import đòi thêm `task.export` / `task.import`.
+- **Giờ hai tầng.** Tầng 1 `automation.provider_finder` — xem, chạy Finder, sửa ô
+  (không đổi). Tầng 2 quyền MỚI `automation.provider_manage` ("Provider List -
+  Manage"), đứng TRÊN tầng 1 (thiếu finder thì vô hiệu): thêm address, xoá
+  address, đổi cột bảng Provider, Export và Import bảng Provider.
+- Luật nằm ở một chỗ: `lib/providers/access.ts` (`canManageProviders`,
+  `canExportProviders` = finder + (`task.export` | manage), `canImportProviders` =
+  finder + (`task.import` | manage)). Manage KHÔNG mở Export / Import của Task hay
+  Enrollment.
+- Server: `POST /api/automation/provider-list` (thêm) đòi manage; `PATCH
+  .../[id]` với `archived: true` (xoá) đòi manage, sửa ô thì không; ghi cấu hình
+  cột scope provider (`loadConfigAdminForScope`) đòi manage, còn đọc cấu hình và
+  lưu bố cục riêng vẫn chỉ cần finder. Trang `/config` và mục sidebar "Table
+  Configuration" chỉ hiện Provider cho người có manage.
+- Giao diện: nút "Add address" chỉ hiện khi có manage. Dialog sửa provider có nút
+  **Delete address** (hỏi xác nhận, chỉ archive chứ không xoá thật) cho người có
+  manage.
+- **SQL rollout (user chạy, chạy TRƯỚC deploy):**
+  `supabase/rollouts/2026-10-08-provider-manage-permission.sql` — tạo quyền và cấp
+  cho role đã có cả `provider_finder` lẫn `task.export` (Admin, Linh Le, Sub
+  Admin). Task CS và Health Agent giữ xem / tìm / sửa ô nhưng mất nút Add
+  address. **Import mở rộng:** trước chỉ Admin có `task.import`, giờ cả Linh Le và
+  Sub Admin Import được bảng Provider.
+
 ## 2026-10-07 — Enrollment: record quá hạn Due Date thì cả dòng đỏ
 
 - Bảng Enrollment (ACA, Medicare, Medicaid — dùng chung một dòng) tô dòng hồng

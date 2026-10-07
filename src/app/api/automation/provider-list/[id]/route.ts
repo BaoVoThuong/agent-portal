@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { canManageProviders } from "@/lib/providers/access";
 import { buildProviderPatch } from "@/lib/providers/patch";
 import { PROVIDER_SELECT, PROVIDER_TABLE } from "@/lib/providers/types";
 import { validateCustomValues } from "@/lib/table-config/custom-values";
@@ -19,7 +20,7 @@ const UUID_RE =
 
 type Ctx = { params: Promise<{ id: string }> };
 
-/** Sửa ô ngay trên bảng, và archive một dòng. Cùng quyền với Provider Finder. */
+/** Sửa ô ngay trên bảng (quyền Provider Finder), và archive một dòng (quyền Manage). */
 export async function PATCH(request: Request, { params }: Ctx) {
   const { id } = await params;
   const session = await auth();
@@ -49,6 +50,14 @@ export async function PATCH(request: Request, { params }: Ctx) {
 
   const parsed = buildProviderPatch(await request.json().catch(() => null));
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+  // Xoá (archive) một address là việc của tầng Manage; sửa ô thì không cần.
+  // Kiểm ở đây chứ không chỉ ẩn nút trên giao diện — ẩn nút không phải là quyền.
+  if (
+    "archived_at" in parsed.patch &&
+    !canManageProviders(session.user.permissions)
+  ) {
+    return NextResponse.json({ error: "You cannot delete addresses." }, { status: 403 });
+  }
   const patch: Record<string, unknown> = { ...parsed.patch };
   const submittedCustomValues = parsed.customValues ?? {};
 

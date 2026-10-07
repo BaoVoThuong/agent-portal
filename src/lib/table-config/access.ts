@@ -10,6 +10,7 @@ import {
   canWorkLeads,
   isLeadViewAdmin,
 } from "@/lib/leads/access";
+import { canManageProviders } from "@/lib/providers/access";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import type { TableScope } from "./types";
@@ -64,17 +65,22 @@ async function loadLeadConfigGate(need: "work" | "manage"): Promise<ScopeGateRes
  * kể cả ở `/leads/config`, màn hình dựng riêng cho họ.
  */
 /**
- * Bảng Provider List đi theo quyền của Automation Tool.
+ * Bảng Provider List đi theo quyền của Automation Tool, hai tầng.
  *
- * Một cổng duy nhất cho cả đọc lẫn ghi: ai mở được màn Provider List thì cũng
- * tự thêm/sửa cột của bảng đó. Tách hai mức ở đây là dựng một bậc quyền thứ hai
- * mà sidebar và route registry không hề biết tới.
+ * ĐỌC cấu hình (và lưu bố cục riêng của chính mình) chỉ cần Provider Finder: mọi
+ * người xem bảng đều phải đọc được cột, và `ConfigClient` gọi lại
+ * `GET /api/config/columns` sau mỗi lần sửa. GHI cấu hình — thêm, đổi tên, xoá
+ * cột, sửa lựa chọn — là đổi cấu trúc cả bảng nên đòi thêm quyền Manage
+ * (`canManageProviders`), cùng bậc với thêm / xoá address.
  */
-async function loadProviderConfigGate(): Promise<ScopeGateResult> {
+async function loadProviderConfigGate(mode: "read" | "write"): Promise<ScopeGateResult> {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return { ok: false, error: "Unauthorized", status: 401 };
   if (!can(session.user.permissions, PERMISSIONS.AUTOMATION_PROVIDER_FINDER)) {
+    return { ok: false, error: "Forbidden", status: 403 };
+  }
+  if (mode === "write" && !canManageProviders(session.user.permissions)) {
     return { ok: false, error: "Forbidden", status: 403 };
   }
   return { ok: true, actor: { email } };
@@ -82,7 +88,7 @@ async function loadProviderConfigGate(): Promise<ScopeGateResult> {
 
 export async function loadConfigAdminForScope(scope: TableScope): Promise<ScopeGateResult> {
   if (scope === "lead") return loadLeadConfigGate("manage");
-  if (scope === "provider") return loadProviderConfigGate();
+  if (scope === "provider") return loadProviderConfigGate("write");
   return loadConfigAdmin();
 }
 
@@ -96,6 +102,6 @@ export async function loadConfigAdminForScope(scope: TableScope): Promise<ScopeG
  */
 export async function loadConfigActorForScope(scope: TableScope): Promise<ScopeGateResult> {
   if (scope === "lead") return loadLeadConfigGate("work");
-  if (scope === "provider") return loadProviderConfigGate();
+  if (scope === "provider") return loadProviderConfigGate("read");
   return loadConfigActor();
 }

@@ -20,6 +20,7 @@ export function ProviderEditDialog({
   viewerName,
   onClose,
   onSave,
+  onArchive,
 }: {
   provider: ProviderRow | null;
   columns: readonly TableColumn[];
@@ -28,12 +29,15 @@ export function ProviderEditDialog({
   viewerName: string;
   onClose: () => void;
   onSave: (patch: Record<string, unknown>) => Promise<void>;
+  /** Chỉ truyền cho người có quyền Manage; không truyền thì không có nút xoá. */
+  onArchive?: () => Promise<void>;
 }) {
   const open = provider !== null;
   const [values, setValues] = useState<Record<string, unknown>>(() =>
     provider ? providerFormValues(provider, columns) : {}
   );
   const [saving, setSaving] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useBodyScrollLock(open);
@@ -56,6 +60,23 @@ export function ProviderEditDialog({
       onClose();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Could not save provider.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function archive() {
+    if (saving || !onArchive) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onArchive();
+      onClose();
+    } catch (archiveError) {
+      setConfirmingDelete(false);
+      setError(
+        archiveError instanceof Error ? archiveError.message : "Could not delete the address."
+      );
     } finally {
       setSaving(false);
     }
@@ -116,9 +137,44 @@ export function ProviderEditDialog({
         </div>
 
         <footer className="flex items-center justify-between gap-3 border-t border-[#dfe1e6] bg-white px-4 py-2.5 sm:px-5">
-          <p className="hidden text-xs text-[#7a869a] sm:block">
-            Changes are saved to the provider directory.
-          </p>
+          {onArchive ? (
+            confirmingDelete ? (
+              <div className="flex flex-wrap items-center gap-2" role="alert">
+                <span className="text-sm font-semibold text-[#bf2600]">
+                  Delete this address? It disappears from the list.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void archive()}
+                  disabled={saving}
+                  className="rounded-lg bg-[#bf2600] px-3 py-1.5 text-sm font-bold text-white transition hover:bg-[#a52200] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {saving ? "Deleting…" : "Yes, delete"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDelete(false)}
+                  disabled={saving}
+                  className="rounded px-3 py-1.5 text-sm font-bold text-[#42526e] transition hover:bg-[#f2f4f7]"
+                >
+                  Keep
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(true)}
+                disabled={saving}
+                className="rounded px-3 py-2 text-sm font-bold text-[#bf2600] transition hover:bg-[#ffebe6] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Delete address
+              </button>
+            )
+          ) : (
+            <p className="hidden text-xs text-[#7a869a] sm:block">
+              Changes are saved to the provider directory.
+            </p>
+          )}
           <div className="ml-auto flex items-center gap-2">
             <button
               type="button"

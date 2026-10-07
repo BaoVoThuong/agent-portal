@@ -4,6 +4,7 @@ export const PERMISSIONS = {
   AUTOMATION_HEALTH_STATEMENT: "automation.health_statement",
   AUTOMATION_PC_STATEMENT: "automation.pc_statement",
   AUTOMATION_PROVIDER_FINDER: "automation.provider_finder",
+  AUTOMATION_PROVIDER_MANAGE: "automation.provider_manage",
   AGENT_DASHBOARD_HEALTH: "agent_dashboard.health",
   AGENT_DASHBOARD_PC: "agent_dashboard.pc",
   COMPANY_DASHBOARD_HEALTH: "company_dashboard.health",
@@ -78,6 +79,15 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     groupLabel: "Automation",
     description: "Access and run the Provider Finder tool.",
     sortOrder: 300,
+  },
+  {
+    key: PERMISSIONS.AUTOMATION_PROVIDER_MANAGE,
+    label: "Provider List - Manage",
+    groupKey: "automation",
+    groupLabel: "Automation",
+    description:
+      "Add and delete provider addresses, change the Provider List columns, and export / import the Provider List. Needs Provider Finder as well.",
+    sortOrder: 350,
   },
   {
     key: PERMISSIONS.AGENT_DASHBOARD_HEALTH,
