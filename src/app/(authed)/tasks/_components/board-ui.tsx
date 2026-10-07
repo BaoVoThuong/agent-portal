@@ -254,7 +254,12 @@ export function AvatarStack({
     .join(", ");
 
   return (
-    <span className="inline-flex items-center" title={title}>
+    // `isolate` là bắt buộc: `zIndex` bên dưới tạo stacking context cho từng
+    // avatar ngay trong ô bảng, nên nếu không khoanh lại thì avatar của một cột
+    // cuộn ngang xuống dưới cột ghim (Client Name, `sticky z-[1]`) vẫn nổi lên
+    // TRÊN nền của cột ghim — avatar lơ lửng giữa tên khách, còn chữ bên cạnh nó
+    // thì bị che mất.
+    <span className="isolate inline-flex items-center" title={title}>
       {visible.map((email, index) => (
         <span
           key={email}
