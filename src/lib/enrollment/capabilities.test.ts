@@ -29,6 +29,7 @@ describe("resolveEnrollmentCapabilities", () => {
       canView: true,
       canEditContent: true,
       canEditFields: true,
+      canEditDueDate: true,
       canChangeStage: true,
       canReopen: true,
       canReviewQC: true,
@@ -46,6 +47,7 @@ describe("resolveEnrollmentCapabilities", () => {
       canView: true,
       canEditContent: true,
       canEditFields: true,
+      canEditDueDate: true,
       canChangeStage: true,
       canReopen: true,
       canReviewQC: true,
@@ -83,6 +85,22 @@ describe("resolveEnrollmentCapabilities", () => {
     expect(capabilities.canView).toBe(true);
     expect(capabilities.canEditContent).toBe(false);
     expect(capabilities.canEditFields).toBe(false);
+  });
+
+  // Plain CS sees the shared queue but owns none of it. Due Date follows view
+  // access, like CS tasks, while every other field stays with owner / caller /
+  // responsible / creator.
+  it("lets an unrelated worker move the due date but nothing else", () => {
+    const capabilities = resolveEnrollmentCapabilities(worker);
+    expect(capabilities.canEditDueDate).toBe(true);
+    expect(capabilities.canEditFields).toBe(false);
+    expect(capabilities.canChangeStage).toBe(false);
+  });
+
+  it("denies a non-worker even when membership flags are supplied", () => {
+    expect(
+      resolveEnrollmentCapabilities(outsider, { isAgentOwner: true }).canEditDueDate
+    ).toBe(false);
   });
 
   it("denies a non-worker even when membership flags are supplied", () => {

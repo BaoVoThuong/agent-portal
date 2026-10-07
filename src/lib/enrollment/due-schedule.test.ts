@@ -5,6 +5,8 @@ import {
   businessEndOfDay,
   classifyDueRecord,
   dueRecipients,
+  enrollmentTintsPastDue,
+  isEnrollmentPastDue,
   reminderResetForDueChange,
 } from "./due-schedule";
 
@@ -71,6 +73,32 @@ describe("enrollment due schedule", () => {
       "agent@example.com",
       "manager@example.com",
     ]);
+  });
+
+  // Texas is UTC-5 in October: 03:00Z on Oct 2 is still the evening of Oct 1.
+  it("marks a record past due only once its Texas due day is over", () => {
+    const open = { closed_at: null };
+    const now = new Date("2026-10-02T03:00:00.000Z");
+    expect(isEnrollmentPastDue({ ...open, due_date: "2026-09-30" }, now)).toBe(true);
+    expect(isEnrollmentPastDue({ ...open, due_date: "2026-10-01" }, now)).toBe(false);
+    expect(isEnrollmentPastDue({ ...open, due_date: "2026-10-02" }, now)).toBe(false);
+    expect(
+      isEnrollmentPastDue({ ...open, due_date: "2026-10-01" }, new Date("2026-10-02T06:00:00.000Z")),
+    ).toBe(true);
+  });
+
+  it("never marks a closed record or one without a due date as past due", () => {
+    const now = new Date("2026-10-02T03:00:00.000Z");
+    expect(isEnrollmentPastDue({ due_date: null, closed_at: null }, now)).toBe(false);
+    expect(
+      isEnrollmentPastDue({ due_date: "2026-09-01", closed_at: "2026-09-02T13:00:00Z" }, now),
+    ).toBe(false);
+  });
+
+  it("tints past-due rows for ACA and Medicare but never Medicaid renewals", () => {
+    expect(enrollmentTintsPastDue("aca")).toBe(true);
+    expect(enrollmentTintsPastDue("medicare")).toBe(true);
+    expect(enrollmentTintsPastDue("medicaid")).toBe(false);
   });
 
   it("keeps the end of a business date in the configured timezone", () => {

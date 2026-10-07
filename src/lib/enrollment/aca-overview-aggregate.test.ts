@@ -130,6 +130,19 @@ describe("ACA overview fairness guards", () => {
     expect(snapshot.scorecards.overdue).toBe(1);
   });
 
+  // The Overview tables tint a past-due row like the List does, so each action
+  // row has to carry the record's due date.
+  it("carries the due date on action and unassigned rows", () => {
+    const snapshot = aggregateAcaOverview(input([
+      record("late", { due_date: "2026-08-01" }),
+      record("loose", { due_date: "2026-09-01", responsible_enroll_email: null }),
+      record("none"),
+    ]));
+    expect(snapshot.actions.find((row) => row.recordId === "late")?.dueDate).toBe("2026-08-01");
+    expect(snapshot.actions.find((row) => row.recordId === "none")?.dueDate).toBeNull();
+    expect(snapshot.unassigned.find((row) => row.recordId === "loose")?.dueDate).toBe("2026-09-01");
+  });
+
   it("emits a team baseline row and an unassigned row that are not people", () => {
     const snapshot = aggregateAcaOverview(twoPeople([
       record("r1", { responsible_enroll_email: "a@example.com" }),

@@ -1,3 +1,4 @@
+import { isEnrollmentPastDue } from "./due-schedule";
 import type {
   EnrollmentOption,
   EnrollmentProgram,
@@ -31,12 +32,14 @@ export function enrollmentDisplayKey(
     : `${prefix}-—`;
 }
 
+// Cùng một luật với dòng đỏ trong bảng và cron nhắc hạn (giờ Texas), nếu không ô
+// "Past due" ở Overview đếm một record là quá hạn vài tiếng trước khi dòng của
+// nó đổi màu: server chạy UTC, trình duyệt thì giờ máy.
 export function enrollmentIsOverdue(
   record: Pick<EnrollmentRecord, "due_date" | "closed_at">,
   now = new Date()
 ): boolean {
-  if (!record.due_date || record.closed_at) return false;
-  return dateOnlyToEndOfDay(record.due_date).getTime() < now.getTime();
+  return isEnrollmentPastDue(record, now);
 }
 
 export function enrollmentIsDueSoon(

@@ -6,6 +6,47 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-07 — Enrollment: record quá hạn Due Date thì cả dòng đỏ
+
+- Bảng Enrollment (ACA, Medicare, Medicaid — dùng chung một dòng) tô dòng hồng
+  đỏ nhạt khi record **quá hạn**, như Task CS. Ai cũng thấy, không phân quyền.
+- **Quá hạn** = `due_date` nhỏ hơn hôm nay theo giờ Texas **và** record chưa
+  đóng (`closed_at` rỗng) và không ở Final Stage (`is_terminal`, như Overview
+  ACA — hồ sơ cũ có thể ở Final Stage mà `closed_at` còn rỗng). Hạn đúng hôm
+  nay chưa tính. Hàm
+  `isEnrollmentPastDue` (lib/enrollment/due-schedule.ts) dùng cùng luật với cron
+  nhắc hạn (`classifyDueRecord`) và nhãn "Overdue by …" ở cột Time progress,
+  nên dòng đỏ, thông báo và nhãn khớp nhau. Cột ghim dùng cùng màu nền.
+- Dòng tự đỏ đúng lúc qua ngày Texas nhờ đồng hồ `timeProgressNow` có sẵn,
+  không cần tải lại. Không đổi schema.
+- **Medicaid không tô đỏ**: cột này của Medicaid là "Renewal Date" (ngày gia
+  hạn trôi qua, không phải hạn chót bị lỡ). `enrollmentTintsPastDue(program)`
+  chặn màu đỏ cho Medicaid ở cả bảng List lẫn Overview. Chỉ ảnh hưởng màu —
+  cron nhắc hạn và ô "Past due" ở Overview không đổi.
+- **Overview (manager)**: hai bảng "Needs action" và "Unassigned" cũng tô đỏ
+  dòng quá hạn; mỗi `AcaOverviewActionRow` giờ mang thêm `dueDate`.
+- **Ô "Past due" ở Overview** (`enrollmentIsOverdue`, lib/enrollment/helpers.ts)
+  đổi sang cùng luật giờ Texas. Trước đó nó so theo giờ máy (server chạy UTC) nên
+  đếm một record là quá hạn từ ~7 giờ tối ngày hạn giờ Texas, sớm hơn dòng đỏ và
+  thông báo vài tiếng; con số có thể lệch 1 record ở ranh giới đó.
+
+## 2026-10-07 — Enrollment: ai xem được record thì đổi được Due Date
+
+- **Trước:** Due Date nằm chung nhóm `canEditFields` (manager, Agent chủ /
+  Assistant, Caller, Responsible Enroll, người tạo). CS thường thấy hàng đợi
+  chung nhưng không đổi được hạn: ô bị khoá, API trả 403 "You cannot edit this
+  record." — trong khi Task CS đổi được từ 2026-09-04.
+- **Giờ:** thêm capability `canEditDueDate` (lib/enrollment/access.ts) = ai xem
+  được record thì đổi được; `PATCH /api/enrollment/[id]` gác `due_date` riêng
+  bằng nó (403 "You cannot change this record's due date.") và không còn tính
+  nó vào `touchesOtherFields`. Các trường khác vẫn đòi `canEditFields`.
+- Người mới được đổi: CS thường (worker thấy hàng đợi chung). Agent/Assistant
+  vốn chỉ thấy record họ đã có quyền sửa nên không đổi gì. Áp cho cả Medicare
+  và ACA (cùng route).
+- Đổi hạn vẫn reset `due_soon_notified_at` / `overdue_notified_at` /
+  `overdue_reminded_at` như cũ, nên thông báo nhắc bắn lại theo hạn mới.
+- Không đổi schema, không có SQL rollout.
+
 ## 2026-10-06 — Lead: Agent và Assistant tự thêm Personal lead
 
 - **Trước:** chỉ manager (`lead.manage` hoặc admin) tạo được lead; `POST /api/leads`

@@ -21,6 +21,12 @@ export type EnrollmentCapabilities = {
   /** Client name, FUB link and description — mirrors CS task content. */
   canEditContent: boolean;
   canEditFields: boolean;
+  /**
+   * Due Date, tách khỏi `canEditFields`: ai xem được record thì dời được hạn,
+   * như Task CS (xem `canEditTaskDueDate` ở lib/tasks/access.ts). Các trường
+   * còn lại của `canEditFields` vẫn đòi chủ record / người làm việc / người tạo.
+   */
+  canEditDueDate: boolean;
   canChangeStage: boolean;
   canReopen: boolean;
   canReviewQC: boolean;
@@ -51,6 +57,7 @@ export function resolveEnrollmentCapabilities(
       canView: true,
       canEditContent: true,
       canEditFields: true,
+      canEditDueDate: true,
       canChangeStage: true,
       canReopen: true,
       canReviewQC: true,
@@ -64,6 +71,7 @@ export function resolveEnrollmentCapabilities(
       canView: false,
       canEditContent: false,
       canEditFields: false,
+      canEditDueDate: false,
       canChangeStage: false,
       canReopen: false,
       canReviewQC: false,
@@ -80,6 +88,9 @@ export function resolveEnrollmentCapabilities(
     canView: true,
     canEditContent: isOwner || Boolean(flags.isCreator),
     canEditFields: isOwner || isDoingTheWork || Boolean(flags.isCreator),
+    // Worker nào đã qua ranh giới phạm vi (enrollment/scope.ts) đều xem được
+    // record này, nên đều dời được hạn — kể cả CS thường chỉ thấy hàng đợi chung.
+    canEditDueDate: true,
     canChangeStage: isOwner || isDoingTheWork,
     canReopen: isOwner || isDoingTheWork,
     canReviewQC: isOwner,

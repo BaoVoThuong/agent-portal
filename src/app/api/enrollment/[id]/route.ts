@@ -325,8 +325,13 @@ export async function PATCH(request: Request, { params }: Ctx) {
     "updated_at",
     "updated_by_email",
   ]);
+  // Due Date có quyền riêng (canEditDueDate) rộng hơn phần còn lại của trường
+  // sửa được: nếu để lẫn vào touchesOtherFields thì một patch chỉ đổi hạn của
+  // CS thường vẫn bị chặn bằng "You cannot edit this record."
+  const touchesDueDate = "due_date" in patch;
   const touchesOtherFields = Object.keys(patch).some(
-    (key) => !derivedKeys.has(key) && !CONTENT_FIELDS.has(key)
+    (key) =>
+      !derivedKeys.has(key) && !CONTENT_FIELDS.has(key) && key !== "due_date"
   );
 
   if (touchesAgent && !capabilities.canTransferAgent) {
@@ -344,6 +349,12 @@ export async function PATCH(request: Request, { params }: Ctx) {
   if (touchesOtherFields && !capabilities.canEditFields) {
     return NextResponse.json(
       { error: "You cannot edit this record." },
+      { status: 403 }
+    );
+  }
+  if (touchesDueDate && !capabilities.canEditDueDate) {
+    return NextResponse.json(
+      { error: "You cannot change this record's due date." },
       { status: 403 }
     );
   }

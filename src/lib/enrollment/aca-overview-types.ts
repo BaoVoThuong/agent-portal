@@ -74,6 +74,8 @@ export type AcaOverviewActionRow = {
   stageLabel: string | null; stageColor: string | null;
   daysInStage: number | null; daysSilent: number | null;
   createdAt: string; lastActivityAt: string | null;
+  /** Hạn của record, để bảng tô đỏ dòng quá hạn như bảng List. */
+  dueDate: string | null;
   sortDays: number; stageAgeEstimated: boolean; updatedAt?: string | null;
 };
 

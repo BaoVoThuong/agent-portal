@@ -163,6 +163,7 @@ import {
   toOptimisticEnrollmentPatch,
 } from "@/lib/enrollment/optimistic-patch";
 import { EnrollmentOverview } from "./EnrollmentOverview";
+import { enrollmentTintsPastDue, isEnrollmentPastDue } from "@/lib/enrollment/due-schedule";
 import { buildEnrollmentTimeProgress } from "@/lib/enrollment/time-progress";
 
 type SortKey =
@@ -2750,9 +2751,24 @@ function EnrollmentRowItem({
     };
   }
 
+  // Quá hạn Due Date thì cả dòng hồng đỏ nhạt, như Task CS. Không phân quyền: đây
+  // là tín hiệu về tình trạng công việc nên AI CŨNG thấy. Cột ghim tự đặt nền
+  // riêng để không lộ nội dung chạy bên dưới khi cuộn ngang, nên phải dùng cùng
+  // màu ở đó, nếu không Client name bị trắng giữa một dòng đỏ.
+  // Stage cuối (Final Stage) cũng là xong, dù `closed_at` có thể còn rỗng ở hồ sơ
+  // cũ: Overview ACA đã loại record theo `is_terminal` chứ không theo closed_at.
+  const pastDue =
+    enrollmentTintsPastDue(record.program) &&
+    !stage?.is_terminal &&
+    isEnrollmentPastDue(record, now);
+
   function cellClassName(key: EnrollmentColumn["key"], className: string): string {
     const stickyClass = columnByKey.get(key)?.sticky
-      ? "sticky z-[1] border-r border-[#dfe1e6] bg-white group-hover:bg-[#f7f8f9]"
+      ? `sticky z-[1] border-r border-[#dfe1e6] ${
+          pastDue
+            ? "bg-[#fdecef] group-hover:bg-[#fbdde3]"
+            : "bg-white group-hover:bg-[#f7f8f9]"
+        }`
       : "";
     return `${className} ${stickyClass}`;
   }
@@ -2761,7 +2777,11 @@ function EnrollmentRowItem({
     <div
       onMouseEnter={() => prefetchEnrollmentDetail(record.id)}
       onDoubleClick={() => onOpen(record.id)}
-      className="group flex min-h-11 items-stretch whitespace-nowrap bg-white transition hover:bg-[#f7f8f9]"
+      className={`group flex min-h-11 items-stretch whitespace-nowrap transition ${
+        pastDue
+          ? "bg-[#fdecef] hover:bg-[#fbdde3]"
+          : "bg-white hover:bg-[#f7f8f9]"
+      }`}
     >
       {has("key") ? (
         <div
@@ -3039,7 +3059,7 @@ function EnrollmentRowItem({
               label: columnByKey.get("due")?.label ?? "Due Date",
             }}
             value={record.due_date}
-            canEdit={capabilities.canEditFields}
+            canEdit={capabilities.canEditDueDate}
             onSave={async (next) => { await onPatch(record.id, { due_date: next }); }}
             className="w-full !text-xs !font-medium !text-[#6b778c]"
           />
@@ -4519,7 +4539,7 @@ function EnrollmentDrawer({
                     type="date"
                     value={formatDateInput(record.due_date)}
                     placeholder="month/day/year"
-                    disabled={!capabilities.canEditFields}
+                    disabled={!capabilities.canEditDueDate}
                     onChange={(event) => {
                       const nextDueDate = event.target.value || null;
                       if (nextDueDate === formatDateInput(record.due_date)) return;

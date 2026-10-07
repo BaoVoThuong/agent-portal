@@ -1,3 +1,5 @@
+import type { EnrollmentProgram } from "./types";
+
 export const ENROLLMENT_BUSINESS_TIME_ZONE = "America/Chicago";
 
 export type DueAction = "due_soon" | "overdue" | "overdue_reminder";
@@ -59,6 +61,33 @@ export function businessEndOfDay(
   ) + 999;
   const offset = localAsUtc - guessedUtc.getTime();
   return new Date(guessedUtc.getTime() - offset);
+}
+
+/**
+ * Chương trình này có tô đỏ dòng quá hạn không.
+ *
+ * Medicaid gọi cột này là "Renewal Date": đó là ngày gia hạn sẽ trôi qua chứ
+ * không phải một hạn chót bị lỡ, nên dòng không bao giờ đỏ. Chỉ ảnh hưởng màu —
+ * thông báo nhắc hạn và ô "Past due" ở Overview không đổi.
+ */
+export function enrollmentTintsPastDue(program: EnrollmentProgram): boolean {
+  return program !== "medicaid";
+}
+
+/**
+ * Record này đang quá hạn Due Date không — để tô đỏ dòng trong bảng.
+ *
+ * Cùng luật với cron nhắc hạn (`classifyDueRecord` → "overdue": due_date nhỏ hơn
+ * hôm nay theo giờ Texas, record chưa đóng) và với nhãn "Overdue by …" ở cột Time
+ * progress, nên dòng đỏ, thông báo và nhãn không bao giờ nói ba chuyện khác nhau.
+ * "Đến hạn hôm nay" chưa tính là quá hạn: còn cả ngày để làm.
+ */
+export function isEnrollmentPastDue(
+  record: Pick<DueRecordSchedule, "due_date" | "closed_at">,
+  now: Date = new Date(),
+): boolean {
+  if (record.closed_at || !record.due_date) return false;
+  return record.due_date < businessDate(now);
 }
 
 export function classifyDueRecord(
