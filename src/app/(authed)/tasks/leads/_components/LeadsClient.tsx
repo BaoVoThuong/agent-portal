@@ -68,6 +68,13 @@ import {
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { LeadDetailDrawer } from "./LeadDetailDrawer";
 import { LeadAddDialog } from "./LeadAddDialog";
+import {
+  PAGE_ACTIONS_CLASS,
+  PAGE_HEADER_WITH_SUBTITLE_CLASS,
+  PAGE_PRIMARY_BUTTON_CLASS,
+  PAGE_TITLE_CLASS,
+  pageSecondaryButtonClass,
+} from "../../../_shared/page-header-styles";
 import { LeadDistributeDialog } from "./LeadDistributeDialog";
 import { LeadImportDialog } from "./LeadImportDialog";
 import { Toast } from "../../../_shared/Toast";
@@ -1232,23 +1239,21 @@ export function LeadsClient({
     <main className={shellClassName}>
       <div className="min-w-0 shrink-0 px-6 pb-4 pt-5">
         <div className="mx-auto flex max-w-[1760px] flex-col gap-3">
-          <header className="flex flex-wrap items-end justify-between gap-3">
+          {/* Có dòng phụ đề nên nhóm nút canh theo dòng tiêu đề (items-start), để
+              nút đứng đúng chỗ như ở Enrollment thay vì tụt xuống ngang phụ đề. */}
+          <header className={PAGE_HEADER_WITH_SUBTITLE_CLASS}>
             <div>
-              <h1 className="text-3xl font-bold leading-tight tracking-normal text-[#172b4d]">
+              <h1 className={PAGE_TITLE_CLASS}>
                 Lead Management
               </h1>
               <p className="mt-1 text-sm font-medium text-[#6b778c]">
                 {total.toLocaleString()} active leads
               </p>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className={PAGE_ACTIONS_CLASS}>
               {isManager && view === "list" && (
                 <button
-                  className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm font-bold shadow-sm transition ${
-                    reassignMode
-                      ? "border-[#0c66e4] bg-[#e9f2ff] text-[#0c66e4]"
-                      : "border-[#dfe1e6] bg-white text-[#42526e] hover:border-[#0c66e4] hover:text-[#0c66e4]"
-                  }`}
+                  className={pageSecondaryButtonClass(reassignMode ? "pressed" : undefined)}
                   type="button"
                   aria-pressed={reassignMode}
                   onClick={() => {
@@ -1262,7 +1267,7 @@ export function LeadsClient({
               )}
               {isManager && (
                 <button
-                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:cursor-not-allowed disabled:opacity-50"
+                  className={pageSecondaryButtonClass()}
                   type="button"
                   onClick={() => setDistributeOpen(true)}
                   title="Distribute pooled leads to agents by the configured ratio"
@@ -1272,7 +1277,7 @@ export function LeadsClient({
               )}
               {isManager && (
                 <button
-                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+                  className={pageSecondaryButtonClass()}
                   type="button"
                   onClick={() => setImportOpen(true)}
                 >
@@ -1282,7 +1287,7 @@ export function LeadsClient({
               {/* Nút chính ở ngoài cùng bên phải, như "New task" bên Task. */}
               {canAddLead && (
                 <button
-                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
+                  className={PAGE_PRIMARY_BUTTON_CLASS}
                   type="button"
                   onClick={() => setAddOpen(true)}
                 >

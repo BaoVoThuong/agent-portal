@@ -163,6 +163,13 @@ import {
   toOptimisticEnrollmentPatch,
 } from "@/lib/enrollment/optimistic-patch";
 import { EnrollmentOverview } from "./EnrollmentOverview";
+import {
+  PAGE_ACTIONS_CLASS,
+  PAGE_HEADER_CLASS,
+  PAGE_PRIMARY_BUTTON_CLASS,
+  PAGE_TITLE_CLASS,
+  pageSecondaryButtonClass,
+} from "../../_shared/page-header-styles";
 import { enrollmentTintsPastDue, isEnrollmentPastDue } from "@/lib/enrollment/due-schedule";
 import { buildEnrollmentTimeProgress } from "@/lib/enrollment/time-progress";
 
@@ -1933,13 +1940,13 @@ export function EnrollmentClient({
       ) : null}
       <div className="min-w-0 shrink-0 px-6 pb-4 pt-5">
         <div className="mx-auto flex max-w-[1760px] flex-col gap-3">
-          <header className="flex flex-wrap items-end justify-between gap-3">
+          <header className={PAGE_HEADER_CLASS}>
             <div>
-              <h1 className="text-3xl font-bold leading-tight tracking-normal text-[#172b4d]">
+              <h1 className={PAGE_TITLE_CLASS}>
                 {ENROLLMENT_PROGRAM_LABELS[program]}
               </h1>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className={PAGE_ACTIONS_CLASS}>
               {canExport ? (
                 <EnrollmentExportMenu onExport={exportVisibleRecords} />
               ) : null}
@@ -1949,7 +1956,7 @@ export function EnrollmentClient({
                 <button
                   type="button"
                   onClick={() => setImportOpen(true)}
-                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] transition hover:bg-[#f4f5f7]"
+                  className={pageSecondaryButtonClass()}
                 >
                   <Upload className="h-4 w-4" />
                   Import
@@ -1959,7 +1966,7 @@ export function EnrollmentClient({
                 <button
                   type="button"
                   onClick={() => setCreating(true)}
-                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
+                  className={PAGE_PRIMARY_BUTTON_CLASS}
                 >
                   <Plus className="h-4 w-4" />
                   New enrollment
@@ -2177,9 +2184,7 @@ function EnrollmentExportMenu({ onExport }: { onExport: () => void }) {
         onClick={toggle}
         aria-haspopup="menu"
         aria-expanded={isOpen}
-        className={`inline-flex h-9 items-center gap-2 rounded-lg border bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] ${
-          isOpen ? "border-[#0c66e4] text-[#0c66e4]" : "border-[#d8dee8]"
-        }`}
+        className={pageSecondaryButtonClass(isOpen ? "open" : undefined)}
       >
         <Download className="h-4 w-4" />
         Export

@@ -101,6 +101,13 @@ import {
 import type { PendingFile } from "@/lib/tasks/pending-attachments";
 import { useAnchoredMenu } from "./use-anchored-menu";
 import {
+  PAGE_ACTIONS_CLASS,
+  PAGE_HEADER_CLASS,
+  PAGE_PRIMARY_BUTTON_CLASS,
+  PAGE_TITLE_CLASS,
+  pageSecondaryButtonClass,
+} from "../../_shared/page-header-styles";
+import {
   TASK_LIST_DEFAULT_HIDDEN_COLUMN_KEYS,
   TASK_LIST_LOCKED_COLUMN_KEYS,
   taskListColumnsFromConfig,
@@ -2130,15 +2137,15 @@ export function TaskBoardClient({
       ) : null}
       <div className="min-w-0 shrink-0 px-6 pb-4 pt-5">
         <div className="mx-auto flex max-w-[1760px] flex-col gap-3">
-          <header className="flex flex-wrap items-end justify-between gap-3">
+          <header className={PAGE_HEADER_CLASS}>
             <div>
-              <h1 className="text-3xl font-bold leading-tight tracking-normal text-[#172b4d]">
+              <h1 className={PAGE_TITLE_CLASS}>
                 {pageTitle}
               </h1>
             </div>
 
             {!overviewHeader ? (
-              <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className={PAGE_ACTIONS_CLASS}>
                 {canExport ? (
                   <ExportMenu onExport={exportVisibleTasks} />
                 ) : null}
@@ -2146,7 +2153,7 @@ export function TaskBoardClient({
                   <button
                     type="button"
                     onClick={() => setCreating(true)}
-                    className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc]"
+                    className={PAGE_PRIMARY_BUTTON_CLASS}
                   >
                     <Plus className="h-4 w-4" />
                     New task
@@ -2438,9 +2445,7 @@ function ExportMenu({ onExport }: { onExport: () => void }) {
         onClick={toggle}
         aria-haspopup="menu"
         aria-expanded={isOpen}
-        className={`inline-flex h-9 items-center gap-2 rounded-lg border bg-white px-3 text-sm font-bold text-[#42526e] shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] ${
-          isOpen ? "border-[#0c66e4] text-[#0c66e4]" : "border-[#d8dee8]"
-        }`}
+        className={pageSecondaryButtonClass(isOpen ? "open" : undefined)}
       >
         <Download className="h-4 w-4" />
         Export

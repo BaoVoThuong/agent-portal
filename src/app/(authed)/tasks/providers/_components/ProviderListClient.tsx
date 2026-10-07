@@ -25,6 +25,13 @@ import { AddProviderDialog } from "./AddProviderDialog";
 import { ProviderImportDialog } from "./ProviderImportDialog";
 import { ProviderTable } from "./ProviderTable";
 import { ProviderEditDialog } from "./ProviderEditDialog";
+import {
+  PAGE_ACTIONS_CLASS,
+  PAGE_HEADER_CLASS,
+  PAGE_PRIMARY_BUTTON_CLASS,
+  PAGE_TITLE_CLASS,
+  pageSecondaryButtonClass,
+} from "../../../_shared/page-header-styles";
 import { ProviderTableSettingsButton } from "./ProviderTableSettingsButton";
 import { ProviderToolbar } from "./ProviderToolbar";
 // Dựng lại CHÍNH component của Provider Finder, không chép code sang đây.
@@ -295,15 +302,15 @@ export function ProviderListClient({
 
   return (
     <main className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#f7f9fc] text-[#172b4d]">
-      <div className="min-w-0 shrink-0 px-6 pb-3 pt-5">
+      <div className="min-w-0 shrink-0 px-6 pb-4 pt-5">
         <div className="mx-auto flex max-w-[1760px] flex-col gap-3">
-          <header className="flex flex-wrap items-center justify-between gap-3">
+          <header className={PAGE_HEADER_CLASS}>
             <div>
-              <h1 className="text-3xl font-bold leading-tight tracking-[-0.02em] text-[#172b4d]">
+              <h1 className={PAGE_TITLE_CLASS}>
                 Provider List
               </h1>
             </div>
-            <div className="flex items-center gap-2">
+            <div className={PAGE_ACTIONS_CLASS}>
               {/* Nút này chỉ có nghĩa với bảng; tab tìm theo địa chỉ không thêm
                   dòng. Nút chọn cột đã xuống cuối hàng lọc bên dưới. */}
               {view === "list" && canExport ? (
@@ -311,7 +318,7 @@ export function ProviderListClient({
                   type="button"
                   onClick={() => void exportRows()}
                   disabled={exporting || rows.length === 0}
-                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:cursor-not-allowed disabled:text-[#98a2b3]"
+                  className={pageSecondaryButtonClass()}
                 >
                   <Download className="h-4 w-4" />
                   {exporting ? "Exporting…" : "Export"}
@@ -321,7 +328,7 @@ export function ProviderListClient({
                 <button
                   type="button"
                   onClick={() => setImportOpen(true)}
-                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-bold text-[#42526e] transition hover:bg-[#f4f5f7]"
+                  className={pageSecondaryButtonClass()}
                 >
                   <Upload className="h-4 w-4" /> Import
                 </button>
@@ -330,7 +337,7 @@ export function ProviderListClient({
                 <button
                   type="button"
                   onClick={() => setAddOpen(true)}
-                  className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-[0_2px_5px_rgba(9,30,66,0.16)] transition hover:bg-[#0055cc]"
+                  className={PAGE_PRIMARY_BUTTON_CLASS}
                 >
                   <Plus className="h-4 w-4" /> Add address
                 </button>
