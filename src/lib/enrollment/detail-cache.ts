@@ -1,6 +1,7 @@
 import type { EnrollmentDetail } from "./types";
 import { COMMENT_PAGE_SIZE } from "@/lib/collaboration/comment-pagination";
 import { indexReactionRows, type ReactionRow } from "@/lib/tasks/reactions";
+import { reuseSignedAttachmentUrls } from "@/lib/attachments/reuse-signed-urls";
 
 // Signed URLs are valid for one hour. Keep detail responses shorter-lived so
 // a warm drawer does not serve links that are close to expiry.
@@ -203,7 +204,7 @@ export function fetchEnrollmentDetail(
     if (!response.ok) {
       throw new Error(`Could not load enrollment detail (${response.status}).`);
     }
-    let detail = (await response.json()) as EnrollmentDetail;
+    let detail = reuseSignedAttachmentUrls((await response.json()) as EnrollmentDetail);
     if (
       generationOf(id) === generation &&
       requestVersions.get(id) === requestVersion

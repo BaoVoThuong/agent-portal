@@ -1,5 +1,6 @@
 import type { TaskDetail } from "./detail";
 import { indexReactionRows, type ReactionRow } from "./reactions";
+import { reuseSignedAttachmentUrls } from "@/lib/attachments/reuse-signed-urls";
 
 // Client-side cache of task detail (comments/activity/attachments), shared by
 // the drawer and by hover-prefetch so opening a task feels instant: the network
@@ -229,7 +230,7 @@ export function fetchTaskDetail(
     if (!response.ok) {
       throw new Error(`Could not load task detail (${response.status}).`);
     }
-    let detail = (await response.json()) as TaskDetail;
+    let detail = reuseSignedAttachmentUrls((await response.json()) as TaskDetail);
     if (
       generationOf(id) === generation &&
       requestVersions.get(id) === requestVersion

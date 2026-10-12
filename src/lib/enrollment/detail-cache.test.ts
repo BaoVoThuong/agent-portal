@@ -145,3 +145,22 @@ describe("enrollment detail cache", () => {
     expect(calls).toBe(2);
   });
 });
+
+describe("enrollment signed attachment URL reuse", () => {
+  it("keeps the first signed URL across a drawer refresh", async () => {
+    const withUrl = (token: string): EnrollmentDetail => ({
+      ...detail,
+      attachments: [
+        { id: "enr-file", file_name: "id.png", mime_type: "image/png", size_bytes: 1, url: `https://s/enr?token=${token}` },
+      ],
+      comments: [],
+    });
+
+    await fetchEnrollmentDetail("enr-reuse", { fetcher: async () => Response.json(withUrl("1")) });
+    const refreshed = await refreshEnrollmentDetail("enr-reuse", {
+      fetcher: async () => Response.json(withUrl("2")),
+    });
+
+    expect(refreshed.attachments[0]?.url).toBe("https://s/enr?token=1");
+  });
+});

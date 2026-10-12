@@ -14,6 +14,7 @@ import {
   refreshTaskDetail,
   setCachedTaskDetail,
 } from "@/lib/tasks/detail-cache";
+import { SIGNED_URL_REUSE_MS } from "@/lib/attachments/reuse-signed-urls";
 
 const detail: TaskDetail = {
   comments: [],
@@ -359,5 +360,77 @@ describe("cache size bound", () => {
       setCachedTaskDetail("stable", detail);
     }
     expect(getCachedTaskDetail("stable")).toBeDefined();
+  });
+});
+
+describe("signed attachment URL reuse", () => {
+  function attachment(id: string, url: string | null) {
+    return { id, file_name: `${id}.png`, mime_type: "image/png", size_bytes: 1, url };
+  }
+
+  // Remembered URLs are module state keyed by attachment id, so each test uses
+  // its own ids.
+  function detailWith(prefix: string, taskUrl: string | null, commentUrl: string | null): TaskDetail {
+    return {
+      ...detail,
+      attachments: [attachment(`${prefix}-task`, taskUrl)],
+      comments: [{ id: "c1", attachments: [attachment(`${prefix}-comment`, commentUrl)] }],
+    };
+  }
+
+  function load(id: string, body: TaskDetail) {
+    return fetchTaskDetail(id, {
+      source: "revalidate",
+      fetcher: async () => Response.json(body),
+    });
+  }
+
+  it("keeps the first signed URL across refreshes so images are not downloaded again", async () => {
+    vi.useFakeTimers();
+    try {
+      await load("reuse", detailWith("reuse", "https://s/task?token=1", "https://s/comment?token=1"));
+      vi.advanceTimersByTime(60_000);
+      // The drawer's periodic refresh invalidates the cache entry first.
+      invalidateTaskDetail("reuse");
+      const second = await load(
+        "reuse",
+        detailWith("reuse", "https://s/task?token=2", "https://s/comment?token=2"),
+      );
+
+      expect(second.attachments[0]?.url).toBe("https://s/task?token=1");
+      expect(second.comments[0]?.attachments[0]?.url).toBe("https://s/comment?token=1");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("switches to the fresh URL once the remembered one nears expiry", async () => {
+    vi.useFakeTimers();
+    try {
+      await load("expiry", detailWith("expiry", "https://s/task?token=1", null));
+      vi.advanceTimersByTime(SIGNED_URL_REUSE_MS);
+      const later = await load("expiry", detailWith("expiry", "https://s/task?token=2", null));
+
+      expect(later.attachments[0]?.url).toBe("https://s/task?token=2");
+      expect(SIGNED_URL_REUSE_MS).toBeLessThan(3600_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("leaves an unavailable attachment without a URL", async () => {
+    await load("unavailable", detailWith("unavailable", "https://s/task?token=1", null));
+    const next = await load("unavailable", detailWith("unavailable", null, null));
+
+    expect(next.attachments[0]?.url).toBeNull();
+    expect(next.comments[0]?.attachments[0]?.url).toBeNull();
+  });
+
+  it("keeps remembered URLs when a realtime change clears every cached detail", async () => {
+    await load("cleared", detailWith("cleared", "https://s/task?token=1", null));
+    clearCachedTaskDetails();
+    const next = await load("cleared", detailWith("cleared", "https://s/task?token=2", null));
+
+    expect(next.attachments[0]?.url).toBe("https://s/task?token=1");
   });
 });
