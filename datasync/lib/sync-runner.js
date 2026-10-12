@@ -124,6 +124,10 @@ async function syncConfig(config, options = {}) {
       p_source_gid: config.gid,
     });
   } catch (error) {
+    if (String(error?.message ?? "").includes("SUPERSEDED_RUN")) {
+      console.error(`[${config.name}] Promotion refused: a newer run of this tab already finalized. Nothing to resume.`);
+      throw error;
+    }
     // Staged rows survive a failed promotion (it rolls back as one unit), so
     // the upload does not have to be repeated once the cause is fixed.
     console.error(

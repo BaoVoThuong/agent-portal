@@ -13,8 +13,9 @@ export default defineConfig({
     environment: "node",
     // `scripts/` nằm trong danh sách vì logic của script backfill (băm địa chỉ,
     // tính tâm ZIP) quyết định toạ độ ghi vào database — để nó ngoài tầm test
-    // là để phần dễ ghi sai dữ liệu nhất không ai kiểm.
-    include: ["src/**/*.test.ts", "scripts/**/*.test.mjs"],
+    // là để phần dễ ghi sai dữ liệu nhất không ai kiểm. `datasync/` cùng lý do:
+    // nó xoá và ghi lại bảng dữ liệu thật mỗi ngày.
+    include: ["src/**/*.test.ts", "scripts/**/*.test.mjs", "datasync/**/*.test.mjs"],
     globals: false,
   },
 });

@@ -54,6 +54,12 @@ node datasync/sync.js --config health-mart --resume-run <run-id>
 The script prints the run id before it starts uploading. Use only a run id for
 the same `--config`; the database verifies that the Sheet metadata matches.
 
+A failed run can be resumed until a newer run of the same tab finalizes or a
+new run prunes it after ten minutes. The database rejects a stale promotion
+(`SUPERSEDED_RUN`) even when two finalizers overlap. It also removes unfinished
+runs older than ten minutes when another run starts or finalizes. A manual
+upload that runs longer than ten minutes can be pruned and must be retried.
+
 The `health-mart` job upserts raw Google Sheet rows into `health_raw_data`, then
 runs `refresh_health_mart()` to rebuild the cleaned `health_mart` table.
 

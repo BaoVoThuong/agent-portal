@@ -812,6 +812,40 @@ $$;
 revoke all on function public.clear_health_payment_summary() from public, anon, authenticated;
 grant execute on function public.clear_health_payment_summary() to service_role;
 
+create or replace function public.prune_stale_sheet_sync_runs(
+  p_target_table text,
+  p_source_sheet_id text,
+  p_source_gid text,
+  p_keep_run_id uuid
+)
+returns integer
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  removed_count integer;
+begin
+  -- Ten minutes is a retention policy, not proof that a manual upload stopped.
+  -- Skip rows locked by a concurrent finalizer; an uncommitted upload between
+  -- batches has no lock and may still be removed after the retention window.
+  delete from public.sheet_sync_runs
+  where run_id in (
+    select s.run_id
+    from public.sheet_sync_runs s
+    where s.target_table = p_target_table
+      and s.source_sheet_id = p_source_sheet_id
+      and s.source_gid = p_source_gid
+      and s.status = 'running'
+      and s.run_id is distinct from p_keep_run_id
+      and s.created_at < now() - interval '10 minutes'
+    for update skip locked
+  );
+  get diagnostics removed_count = row_count;
+  return removed_count;
+end;
+$$;
+
 create or replace function public.begin_sheet_sync(
   p_run_id uuid,
   p_target_table text,
@@ -851,6 +885,8 @@ begin
   ) then
     raise exception 'run id is already finalized with different metadata';
   end if;
+
+  perform public.prune_stale_sheet_sync_runs(p_target_table, p_source_sheet_id, p_source_gid, p_run_id);
 end;
 $$;
 
@@ -929,6 +965,18 @@ begin
     hashtextextended(p_target_table || '|' || p_source_sheet_id || '|' || p_source_gid, 0)
   );
 
+  -- Advisory locking serializes promotions but does not order them.
+  if exists (
+    select 1 from public.sheet_sync_runs newer
+    where newer.target_table = p_target_table
+      and newer.source_sheet_id = p_source_sheet_id
+      and newer.source_gid = p_source_gid
+      and newer.status = 'finalized'
+      and newer.created_at > run_row.created_at
+  ) then
+    raise exception 'SUPERSEDED_RUN: a newer run of this sheet tab already finalized';
+  end if;
+
   execute format(
     'delete from public.%I where source_sheet_id = $1 and source_gid = $2',
     p_target_table
@@ -977,6 +1025,7 @@ begin
   where run_id = p_run_id;
 
   delete from public.sheet_sync_staging where run_id = p_run_id;
+  perform public.prune_stale_sheet_sync_runs(p_target_table, p_source_sheet_id, p_source_gid, p_run_id);
   return v_inserted_count;
 end;
 $$;
@@ -1005,6 +1054,8 @@ revoke all on function public.finalize_sheet_sync(uuid, text, text, text) from p
 grant execute on function public.finalize_sheet_sync(uuid, text, text, text) to service_role;
 revoke all on function public.purge_sheet_sync_staging(timestamptz) from public, anon, authenticated;
 grant execute on function public.purge_sheet_sync_staging(timestamptz) to service_role;
+revoke all on function public.prune_stale_sheet_sync_runs(text, text, text, uuid) from public, anon, authenticated;
+grant execute on function public.prune_stale_sheet_sync_runs(text, text, text, uuid) to service_role;
 
 create or replace function public.replace_health_payment_summary(p_rows jsonb)
 returns integer
