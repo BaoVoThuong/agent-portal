@@ -1,6 +1,6 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { buildLeadActor, isLeadViewAdmin } from "@/lib/leads/access";
+import { buildLeadActor } from "@/lib/leads/access";
 import { resolveLeadCapabilities } from "@/lib/leads/capabilities";
 import { resolveEventByName } from "@/lib/leads/events";
 import { isAssistantToLeadMember } from "@/lib/leads/membership";
@@ -51,9 +51,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
     return NextResponse.json({ error: "Invalid lead id." }, { status: 400 });
   }
 
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
+  const actor = buildLeadActor(session.user.permissions, email);
   const supabase = getSupabaseAdmin();
   const { data: current, error: currentError } = await supabase
     .from("leads")
@@ -308,9 +306,7 @@ export async function DELETE(request: Request, { params }: Ctx) {
     return NextResponse.json({ error: "Invalid lead id." }, { status: 400 });
   }
 
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
+  const actor = buildLeadActor(session.user.permissions, email);
   const supabase = getSupabaseAdmin();
   const { data: current, error: currentError } = await supabase
     .from("leads")

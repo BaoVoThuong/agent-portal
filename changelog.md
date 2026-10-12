@@ -6,6 +6,143 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-12 — Sửa lỗi sau review DB optimize + Role Manager (SQL đã chạy; code deploy 2026-10-12)
+
+- **Nhóm CS:** role có `task.manage` vẫn tham gia Overview và được nhận task như `task.work`; role Admin cố định vẫn ở ngoài nhóm. Rollout SQL có guard và rollback đã chạy production, xác minh cả hai điều kiện; phần Overview cần deploy code.
+- **Role Manager:** chặn `PATCH {}` khi thiếu quyền; không chấp nhận payload rỗng; bật lại role phải qua trần quyền; tạo và sửa role bằng RPC giao dịch để tránh ghi một nửa. Sửa thông báo cho role mặc định.
+- **Account Manager:** không cho tự sửa Agent/Assistant membership, áp trần quyền khi sửa membership; sửa/xóa account bằng RPC giao dịch có khóa kiểm tra còn ít nhất một Admin đang hoạt động.
+- **RBAC:** ô chọn người nhận Task/Lead chỉ lấy role đang bật; gộp truy vấn người giữ quyền. Sau khi sửa/xóa account hoặc role, xóa cache quyền trên instance hiện tại. Mỗi lần kiểm quyền tham chiếu lookup dùng chung để JWT cũ không giữ quyền quá 5 phút; instance khác cập nhật trong tối đa 60 giây.
+- **Google sign-in:** tạo account và gán role mặc định trong một giao dịch; lỗi tạo account hoặc gán role sẽ chặn đăng nhập.
+- **Sheet sync:** chặn run cũ ghi đè khi run mới đã finalize; dọn run `running` cùng tab quá 10 phút trong database. Run manual còn upload quá 10 phút có thể bị dọn và cần chạy lại. Rollout SQL có guard và rollback đã chạy production; đồng bộ thử P&C thành công 4.239 dòng, `refresh_pc_mart` thành công.
+- **Push:** có VAPID keys nhưng thiếu `VAPID_SUBJECT` thì ghi cảnh báo một lần.
+- Các rollout SQL mới đã chạy trên production theo thứ tự. Cần deploy code tương ứng trước khi kiểm tra API/UI sau deploy.
+- Smoke test RPC trong giao dịch rollback đã qua; không để lại account/role test. Đã kiểm quyền gọi RPC: `service_role` được gọi, `authenticated` không được gọi.
+
+## 2026-10-10 — Hiệu năng database: region, cache tra cứu, ảnh đính kèm, dọn sync
+
+Số đo Supabase (log 24h + pg_stat_statements từ 30/4): DB chỉ xử lý ~5 ms mỗi
+request, nhưng mỗi lượt Vercel → Supabase mất ~190 ms vì Vercel ở Singapore còn
+Supabase ở Sydney.
+
+- **Region Vercel `sin1` → `syd1`** (`vercel.json`): cùng vùng với Supabase. User
+  US không chậm hơn; user VN chậm thêm ~90 ms/lượt tải nhưng bớt ~190 ms cho mỗi
+  lần gọi DB. Deploy 2026-10-12. Đo lại sau deploy: `response.origin_time` trong edge
+  logs của Supabase phải tụt từ ~190 ms xuống vài ms.
+- **Tra quyền (`auth.ts`):** cửa sổ 5 phút `rbacRefreshedAt` không có tác dụng —
+  `await auth()` ở page/route không ghi cookie mới (next-auth 5 beta trả về JSON,
+  bỏ Set-Cookie), còn `proxy.ts` không có callback `jwt`. Từ phút thứ 5 sau đăng
+  nhập, mọi `auth()` đều query `portal_account` (~24.500 lần/ngày). Giờ dùng chung
+  một lần tra theo email trong 60 giây trên mỗi instance (`src/lib/shared-lookup.ts`).
+  **Đổi quyền / khoá tài khoản có hiệu lực trong ≤ 60 giây** (trước: gần như tức
+  thì, do lỗi trên). Lần đọc lỗi không được dùng lại.
+  Hệ quả phụ cho đợt RBAC: `delete token.role/roles` trong callback `jwt` cũng
+  không bao giờ được ghi xuống cookie, cùng lý do.
+- **`task_agents` và `agent_members` theo CS** (`fetchSelectedAgentEmails`,
+  `fetchAgentsForCs`, `fetchAssistantAgentsForCs`): dùng chung 60 giây trên mỗi
+  instance. `/api/config/agents` và `/api/config/assistants` xoá cache sau khi
+  ghi (`invalidateTaskMembershipLookups`); instance khác cập nhật trong ≤ 60 giây.
+  Giữ nguyên fail-closed: `fetchAssistantAgentsForCs` / `fetchSelectedAgentEmails`
+  vẫn ném lỗi, `fetchAgentsForCs` vẫn trả `[]`; lần đọc lỗi không bao giờ được cache.
+- **Ảnh đính kèm task tải lại liên tục:** drawer tải lại chi tiết mỗi 60 giây và
+  mỗi lần server ký link mới → `<img>` thấy URL khác → tải lại nguyên ảnh (~180
+  lượt/ảnh/ngày). `detail-cache.ts` giữ link cũ theo id file tới khi link được 45
+  phút (link sống 1 giờ). Server vẫn quyết định ai thấy file nào: link cũ chỉ thay
+  cho đúng file server vừa trả về.
+- **Dọn `sheet_sync_staging` — ĐÃ CHẠY trên production 2026-10-10:**
+  `supabase/rollouts/2026-10-09-sheet-sync-staging-cleanup.sql` xoá 10 lần sync
+  Health hỏng (6 cron tháng 9, 4 lần chạy tay 3/10) — 163.878 dòng staging, rồi
+  `TRUNCATE` bảng đã trống. Database 483 MB → 118 MB.
+- **Sync dọn run hỏng:** bản JS dọn sau finalize đã được thay bằng hàm SQL trong
+  entry 2026-10-12 ở trên; cần rollout SQL trước khi deploy code mới.
+- **Ảnh đính kèm Enrollment (2026-10-12):** cùng lỗi tải lại như Task (drawer tải
+  lại mỗi 60 giây) — dùng chung `src/lib/attachments/reuse-signed-urls.ts`.
+- **Xoá 3 index thừa trên `health_raw_data` — ĐÃ CHẠY trên production 2026-10-12:**
+  `supabase/rollouts/2026-10-10-health-raw-data-drop-unused-indexes.sql`.
+- **`search_path` cho 3 hàm SECURITY DEFINER — ĐÃ CHẠY trên production 2026-10-12**
+  (đã gọi thử `refresh_health_mart` / `refresh_pc_mart`: số dòng mart không đổi):
+  `supabase/rollouts/2026-10-12-definer-functions-search-path.sql`
+  (`refresh_health_mart`, `refresh_pc_mart`, `clear_health_payment_summary`).
+  11 hàm còn lại advisor báo thì cố ý bỏ qua: không phải definer, và SET làm
+  Postgres hết inline được `parse_health_*` trong refresh mart.
+
+## 2026-10-09 — Phân quyền chỉ theo ô tick: bỏ tên role, bỏ quyền chéo
+
+- **Task + Enrollment:** `task.manage` là manager đầy đủ. Không còn cần role tên
+  "Admin" / "Admin Health Task" / "Task Admin" (`isTaskViewAdmin` đã xoá). CS
+  Overview đòi `task.manage` (trước chỉ xét TÊN role). Linh Le (role "Linh Le")
+  thành manager Task + Enrollment.
+- **Lead:** manager chỉ theo `lead.manage`, worker theo `lead.work`. Bỏ đường tắt
+  "admin là lead manager" (`isLeadViewAdmin` đã xoá) và bỏ quyền chéo
+  `task.manage` → xem mọi lead / vào trang Lead. Rollout cấp `lead.work` cho
+  role Linh Le và Admin Health Task để họ giữ lead đang làm (Linh Le có 9 lead
+  mở; Kay Huynh là Assistant của Khang Nguyen, 10 lead): vẫn xem / làm lead của
+  mình và của Agent mình phụ, chỉ mất "xem mọi lead" + tab Overview Lead. Không
+  vào chia lead tự động (roster theo `task_agents`).
+- **Manage bao gồm Work** (Task, Lead): Role Manager tự bỏ và mờ ô Work khi tick
+  Manage; API cũng lọc (`normalizeExclusivePermissionKeys`). Nhóm chia task CS ở
+  Overview chỉ xét `task.work` — bỏ luật "trừ Admin"; Admin ra khỏi nhóm vì role
+  Admin không còn `task.work`.
+- **Role Admin:** role cố định, toàn quyền, chỉ xem trong Role Manager. Tên
+  "Admin" dành riêng (không phân biệt hoa thường) — chỉ dùng cho khoá, nhãn và
+  luật "luôn còn ≥ 1 Admin" (`lib/rbac/admin-role.ts`), không quyết định quyền.
+  Bỏ hẳn "Super Admin". Xoá `lib/rbac/system-roles.ts`.
+- **Uỷ quyền** (`lib/rbac/delegation.ts`): chỉ cấp quyền / gán role / sửa tài
+  khoản khi quyền của nó nằm trong quyền của mình; không ai tự đổi role của
+  mình. API tạo / sửa user bỏ trường `role` cũ ("admin"/"agent") và bắt buộc
+  chọn đúng 1 role.
+- **Cột `portal_account.role`:** ngừng đọc, ngừng ghi. Phiên đăng nhập không còn
+  `role` / `roles` (tên role), chỉ còn `permissions`.
+- **Thông báo giám sát** (task gấp chưa ai nhận, quá SLA, quá Due Date, giải
+  trình quá hạn): gửi cho người có `task.manage` (trước: cột cũ = 3 Admin).
+  Thêm 5 Admin Health Task và Linh Le.
+- **Quyền chéo đã bỏ:**
+  - Export / Import Provider List chỉ theo `automation.provider_manage` (bỏ
+    `task.export` / `task.import`);
+  - Registration xem mọi agent theo quyền MỚI `customer_registration.view_all`;
+    `company.view_all` chỉ còn cho Dashboard;
+  - `management.role_manager` không còn sửa được bộ lọc mặc định Dashboard;
+  - chuông thông báo hiện cho mọi người đăng nhập (trước cần quyền Task, nên
+    người chỉ có Time Off không thấy thông báo nghỉ phép);
+  - Agent membership (`/api/config/agents|assistants`) theo
+    `management.account_manager` (trước theo task manager).
+- **Role mặc định** cho user Google mới: cột `roles.is_default` (Agent), không
+  tìm theo tên. Role mặc định không xoá / tắt được.
+- **RPC `assign_unassigned_task`:** bỏ so tên role và cột cũ; thu quyền gọi của
+  anon / authenticated (trước có thể gọi bằng anon key).
+- **Apps Script:** secret và ID sheet Policy Tracker chuyển sang Script
+  Properties (`ENTRIES_SHARED_SECRET`, `PC_POLICY_SOURCE_SPREADSHEET_ID`). Chủ
+  repo chọn **giữ secret cũ** (không đổi): bản Apps Script đang chạy để nguyên;
+  lần tới dán `Code.gs` mới thì đặt 2 Script Properties trước (secret = giá trị
+  `APPS_SCRIPT_SECRET` hiện tại). `VAPID_SUBJECT` bắt buộc, bỏ email dự phòng. Script
+  seed đọc email từ `.env.local`.
+- **Test chặn tái phát:** `lib/rbac/no-role-name-authz.test.ts` (cấm so tên
+  role / cột cũ), `lib/rbac/module-boundaries.test.ts` (cấm quyền chéo).
+- **SQL rollout — ĐÃ CHẠY trên production 2026-10-10** (trước deploy):
+  `supabase/rollouts/2026-10-09-rbac-cleanup.sql`. Kiểm chứng: không role nào giữ
+  cả Manage và Work; `customer_registration.view_all` ở Admin, Linh Le, Sub Admin;
+  `lead.work` ở Admin Health Task, Health Agent, Linh Le; role mặc định Agent;
+  Admin không thiếu quyền nào. Hàm `assign_unassigned_task` vốn chỉ
+  postgres / service_role gọi được (anon chưa từng gọi được).
+
+## 2026-10-09 — Time Off: sửa cron cộng phép hằng tháng chưa từng chạy được
+
+- **Lỗi:** cron `/api/cron/time-off-monthly-accrual` (07:15 UTC mỗi ngày) và nút
+  apply tay `/api/time-off/accruals/apply` đều chết với `column reference
+  "policy_code" is ambiguous` từ lúc tạo (2026-09-04). Hàm
+  `apply_time_off_monthly_accruals()` trả về cột tên `policy_code`, trùng tên cột
+  bảng, nên `order by policy_code` / `on conflict (... policy_code ...)` bị mơ hồ.
+  Chưa từng có batch `monthly_accrual` nào → chưa ai được cộng phép tháng 9, 10.
+- **Sửa:** thêm `#variable_conflict use_column` đầu thân hàm; phần còn lại giữ
+  nguyên. Hàm vẫn idempotent theo policy + tháng.
+- **Tắt cả 2 quy tắc cộng phép** (`time_off_monthly_accrual_rules.is_active =
+  false`): `sick` vì policy đã bỏ; `vacation` vì Time Off chưa đi vào hoạt động.
+  Cron vẫn chạy mỗi ngày nhưng không cộng gì. Lúc go-live bật lại `vacation` ở
+  trang Time Off (admin); cron sẽ cộng từ tháng đang chạy.
+- **Không bù tháng 9, 10.**
+- **SQL rollout — ĐÃ CHẠY trên production 2026-10-09:**
+  `supabase/rollouts/2026-10-09-time-off-accrual-ambiguous-fix.sql`. Không cần
+  deploy code.
+
 ## 2026-10-08 — Provider List: tầng quyền Manage (Add / Delete address, cột, Export / Import)
 
 - **Trước:** MỘT quyền `automation.provider_finder` (~41 người: Task CS, Health

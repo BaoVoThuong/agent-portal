@@ -7,46 +7,21 @@
 // is by email (no account id in session).
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import {
-  LEGACY_SUPER_ADMIN_ROLE_NAME,
-  SYSTEM_ROLE_NAMES,
-} from "@/lib/rbac/system-roles";
 import type { TaskActor, TaskRow, TaskStatus } from "./types";
 
-const TASK_ADMIN_ROLE_NAMES = new Set([
-  "Admin Health Task",
-  "Task Admin",
-]);
-
-// Task admin = full Admin/Super Admin, legacy admin, or a task-admin RBAC role.
-// Still deliberately NOT the same as holding task.manage alone: an
-// agent/assistant can keep manage-like task permissions without getting the
-// admin-wide queue/dashboard view unless their role is explicitly listed here.
-export function isTaskViewAdmin(user: {
-  role?: string | null;
-  roles?: readonly string[];
-}): boolean {
-  const roles = user.roles ?? [];
-  return (
-    user.role === "admin" ||
-    roles.includes(SYSTEM_ROLE_NAMES.SUPER_ADMIN) ||
-    roles.includes(LEGACY_SUPER_ADMIN_ROLE_NAME) ||
-    roles.some((role) => TASK_ADMIN_ROLE_NAMES.has(role))
-  );
-}
-
+// Task CS and Enrollment share one permission pair. task.manage is the whole
+// manager role — every record, the backlog, assigning, CS Overview, table
+// configuration — and already includes task.work. Until 2026-10-09 it also
+// required one of four hard-coded role names; it no longer looks at names.
 export function buildTaskActor(
   permissions: readonly string[] | undefined,
-  email: string,
-  opts?: { isAdmin?: boolean }
+  email: string
 ): TaskActor {
-  const hasManage = can(permissions, PERMISSIONS.TASK_MANAGE);
+  const isManager = can(permissions, PERMISSIONS.TASK_MANAGE);
   return {
     email,
-    // Admin view requires BOTH the manage permission and the admin role.
-    isManager: hasManage && Boolean(opts?.isAdmin),
-    // A demoted agent/assistant (manage but not admin) keeps board access.
-    isWorker: can(permissions, PERMISSIONS.TASK_WORK) || hasManage,
+    isManager,
+    isWorker: isManager || can(permissions, PERMISSIONS.TASK_WORK),
   };
 }
 

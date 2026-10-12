@@ -4,7 +4,7 @@ import { currentStintDueAt, effectiveSlaMinutes, isTaskOverdue } from "@/lib/tas
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
 import { fetchTaskAssigneeEmails } from "@/lib/tasks/assignees";
 import {
-  fetchAdminEmails,
+  fetchSupervisionRecipientEmails,
   fetchAgentAssistantEmails,
   fetchAgentOwnerAndAssistantEmails,
 } from "@/lib/tasks/membership";
@@ -283,7 +283,7 @@ async function runReminderSweep(): Promise<NextResponse> {
             ? fetchAgentAssistantEmails(task.agent_email)
             : Promise.resolve([]),
           task.priority === "urgent" || task.priority === "high"
-            ? fetchAdminEmails()
+            ? fetchSupervisionRecipientEmails()
             : Promise.resolve([]),
         ]);
         const escalationRecipients = uniqueNotificationRecipients(
@@ -485,7 +485,7 @@ async function runReminderSweep(): Promise<NextResponse> {
       fetchTaskAssigneeEmails(task.id, supabase),
       // Hàm này đã gộp sẵn agent VÀ assistant của agent đó.
       fetchAgentOwnerAndAssistantEmails(task.agent_email),
-      fetchAdminEmails(),
+      fetchSupervisionRecipientEmails(),
     ]);
     // Người được giao chỉ nhận MỘT thông báo dù họ cũng là agent hay admin.
     const watchers = uniqueNotificationRecipients(

@@ -29,9 +29,10 @@ type View = "agents" | "memberships";
  * Agents + Assistant membership (2026-10-03, chuyển từ Table Configuration).
  *
  * Danh sách Agent (`task_agents`) và quan hệ Agent → Assistant (`agent_members`)
- * là chuyện con người, nên nằm cạnh quản lý tài khoản. Dữ liệu và API không
- * đổi: vẫn `/api/config/agents` và `/api/config/assistants`, vẫn quyền admin
- * cấu hình (`loadConfigAdmin`) — trang chỉ hiện phần này cho đúng người đó.
+ * là chuyện con người, nên nằm cạnh quản lý tài khoản. API vẫn là
+ * `/api/config/agents` và `/api/config/assistants`, và dùng ĐÚNG quyền của trang
+ * này — `management.account_manager` (`loadAccountManager`). Trước 2026-10-09
+ * chúng gác bằng quyền Task, một quyền chéo.
  *
  * Mọi nơi đọc hai bảng này (Task board, Lead, Enrollment, thông báo, Import
  * lead theo cột Agent) đọc thẳng DB, không phụ thuộc màn hình nào sửa nó.

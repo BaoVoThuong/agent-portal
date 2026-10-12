@@ -8,7 +8,6 @@ import {
   buildLeadActor,
   canManageLeads,
   canWorkLeads,
-  isLeadViewAdmin,
 } from "@/lib/leads/access";
 import { canManageProviders } from "@/lib/providers/access";
 import { can } from "@/lib/rbac/client";
@@ -46,9 +45,7 @@ async function loadLeadConfigGate(need: "work" | "manage"): Promise<ScopeGateRes
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return { ok: false, error: "Unauthorized", status: 401 };
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
+  const actor = buildLeadActor(session.user.permissions, email);
   const allowed = need === "manage" ? canManageLeads(actor) : canWorkLeads(actor);
   if (!allowed) return { ok: false, error: "Forbidden", status: 403 };
   return { ok: true, actor: { email: actor.email } };
@@ -57,8 +54,8 @@ async function loadLeadConfigGate(need: "work" | "manage"): Promise<ScopeGateRes
 /**
  * Ai được GHI cấu hình của scope này.
  *
- * Bảng Health giữ nguyên luật cũ (`loadConfigAdmin` — `task.manage` VÀ vai trò
- * task-admin). Bảng lead đi theo `canManageLeads`. Một cổng chung cho cả bốn là
+ * Bảng Health theo `loadConfigAdmin` (đòi `task.manage`). Bảng lead đi theo
+ * `canManageLeads`. Một cổng chung cho cả bốn là
  * hoặc nới quyền Health, hoặc chặn mất người quản lead: 12 handler dưới
  * `/api/config/*` đều gác bằng `loadConfigAdmin`, nên hai tài khoản trên
  * production chỉ có quyền lead **chưa bao giờ** sửa được cấu hình bảng lead —

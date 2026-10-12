@@ -1,6 +1,6 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { buildLeadActor, isLeadViewAdmin } from "@/lib/leads/access";
+import { buildLeadActor } from "@/lib/leads/access";
 import { resolveLeadCapabilities } from "@/lib/leads/capabilities";
 import { isAssistantToLeadMember } from "@/lib/leads/membership";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
@@ -29,9 +29,7 @@ async function loadAccess(id: string, timing?: RouteTiming) {
   const email = session?.user?.email;
   if (!email) return { error: "Unauthorized" as const, status: 401 };
 
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
+  const actor = buildLeadActor(session.user.permissions, email);
   const supabase = getSupabaseAdmin();
   const { data, error } = await measure(timing, "lead_scope", async () =>
     supabase

@@ -1,7 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { flattenAccess, type AccessRow, type UserAccess } from "@/lib/rbac/access";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { isTaskViewAdmin, buildTaskActor } from "@/lib/tasks/access";
+import { buildTaskActor } from "@/lib/tasks/access";
 import { fetchSelectedAgentEmails } from "@/lib/tasks/assignees";
 import type { EnrollmentNotificationInsertInput } from "./notifications";
 import { canAccessEnrollment, type EnrollmentActor } from "./access";
@@ -40,7 +39,7 @@ async function loadActiveAccounts(emails?: readonly string[]): Promise<Recipient
   let query = getSupabaseAdmin()
     .from("portal_account")
     .select(
-      "id,email,role,is_active,agent_id,user_roles(roles(id,name,is_active,role_permissions(permission_key)))"
+      "id,email,is_active,agent_id,user_roles(roles(id,is_active,role_permissions(permission_key)))"
     )
     .eq("is_active", true);
   if (normalized) query = query.in("email", normalized);
@@ -50,9 +49,7 @@ async function loadActiveAccounts(emails?: readonly string[]): Promise<Recipient
 }
 
 function actorFromAccess(access: UserAccess, email: string): EnrollmentActor {
-  return buildTaskActor(access.permissions, email, {
-    isAdmin: isTaskViewAdmin({ role: access.legacyRole, roles: access.roles }),
-  });
+  return buildTaskActor(access.permissions, email);
 }
 
 /** Resolve the current Enrollment scope for a set of notification recipients. */
@@ -122,7 +119,6 @@ export async function fetchEnrollmentManagerEmails(): Promise<string[]> {
       accounts
         .map((row) => {
           const access = flattenAccess(row);
-          if (!access.permissions.includes(PERMISSIONS.TASK_MANAGE)) return null;
           const actor = actorFromAccess(access, normalize(row.email));
           return actor.isManager ? normalize(row.email) : null;
         })

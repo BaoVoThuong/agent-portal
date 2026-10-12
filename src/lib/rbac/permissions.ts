@@ -1,6 +1,7 @@
 export const PERMISSIONS = {
   CUSTOMER_REGISTRATION_HEALTH: "customer_registration.health",
   CUSTOMER_REGISTRATION_PC: "customer_registration.pc",
+  CUSTOMER_REGISTRATION_VIEW_ALL: "customer_registration.view_all",
   AUTOMATION_HEALTH_STATEMENT: "automation.health_statement",
   AUTOMATION_PC_STATEMENT: "automation.pc_statement",
   AUTOMATION_PROVIDER_FINDER: "automation.provider_finder",
@@ -35,8 +36,40 @@ export type PermissionDefinition = {
   sortOrder: number;
 };
 
+/**
+ * Manage bao gồm Work. Role có Manage thì không lưu Work: tick cả hai chỉ gây
+ * hiểu nhầm — người có `task.manage` + `task.work` từng bị chia task CS như CS
+ * thường, dù đã là manager.
+ */
+export const IMPLIED_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
+  [PERMISSIONS.TASK_MANAGE]: [PERMISSIONS.TASK_WORK],
+  [PERMISSIONS.LEAD_MANAGE]: [PERMISSIONS.LEAD_WORK],
+};
+
+/** Bỏ các quyền đã được một quyền khác bao gồm. Dùng khi LƯU quyền của role. */
 export function normalizeExclusivePermissionKeys(permissionKeys: string[]) {
-  return [...new Set(permissionKeys)];
+  const keys = new Set(permissionKeys);
+  for (const [manage, implied] of Object.entries(IMPLIED_PERMISSIONS)) {
+    if (keys.has(manage)) for (const key of implied) keys.delete(key);
+  }
+  return [...keys];
+}
+
+/** Thêm các quyền được bao gồm. Dùng khi SO quyền (trần uỷ quyền). */
+export function expandImpliedPermissions(permissionKeys: readonly string[]): string[] {
+  const keys = new Set(permissionKeys);
+  for (const [manage, implied] of Object.entries(IMPLIED_PERMISSIONS)) {
+    if (keys.has(manage)) for (const key of implied) keys.add(key);
+  }
+  return [...keys];
+}
+
+/** Quyền nào (nếu có) đang bao gồm `key`. */
+export function permissionImpliedBy(key: string): string | null {
+  for (const [manage, implied] of Object.entries(IMPLIED_PERMISSIONS)) {
+    if (implied.includes(key)) return manage;
+  }
+  return null;
 }
 
 export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
@@ -55,6 +88,14 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     groupLabel: "Customer Registration",
     description: "View and manage P&C registration records.",
     sortOrder: 200,
+  },
+  {
+    key: PERMISSIONS.CUSTOMER_REGISTRATION_VIEW_ALL,
+    label: "Registration - View All Agents",
+    groupKey: "customer_registration",
+    groupLabel: "Customer Registration",
+    description: "See every agent's entries in Health and P&C Customer Registration.",
+    sortOrder: 300,
   },
   {
     key: PERMISSIONS.AUTOMATION_HEALTH_STATEMENT,
@@ -126,7 +167,7 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     label: "View All Agents",
     groupKey: "dashboard",
     groupLabel: "Dashboard",
-    description: "See all agents' data in Agent Dashboard and Customer Registration.",
+    description: "See all agents' data in the Agent Dashboard.",
     sortOrder: 500,
   },
   {
@@ -134,7 +175,8 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     label: "Account Manager",
     groupKey: "management",
     groupLabel: "Management",
-    description: "Create accounts, assign roles, update status, and reset passwords.",
+    description:
+      "Create accounts, assign roles, update status, reset passwords, and manage Agents and Assistants.",
     sortOrder: 100,
   },
   {
@@ -183,7 +225,8 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     label: "Tasks - Manage",
     groupKey: "tasks",
     groupLabel: "Tasks",
-    description: "Create, assign and manage all tasks, and see the backlog.",
+    description:
+      "Full control of Health CS tasks and Enrollment: every record, the backlog, create, assign, delete, CS Overview, SLA and table configuration. Includes Tasks - Work.",
     sortOrder: 100,
   },
   {
@@ -191,7 +234,8 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     label: "Tasks - Work",
     groupKey: "tasks",
     groupLabel: "Tasks",
-    description: "Work on tasks assigned to you.",
+    description:
+      "Work on Health CS tasks and Enrollment records you are part of. Puts you in the CS assignment pool.",
     sortOrder: 200,
   },
   {
@@ -199,8 +243,7 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     label: "Tasks - Export",
     groupKey: "tasks",
     groupLabel: "Tasks",
-    description:
-      "Export task, enrollment and provider tables to Excel. Required on its own — a manager role alone does not grant export.",
+    description: "Export the Health CS task and Enrollment tables to Excel.",
     sortOrder: 300,
   },
   {
@@ -209,7 +252,7 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     groupKey: "tasks",
     groupLabel: "Tasks",
     description:
-      "Import enrollment and provider tables from Excel. Tách khỏi Export vì nó GHI đè dữ liệu hàng loạt, còn Export chỉ đọc — cho quyền đọc không có nghĩa là cho quyền ghi. Required on its own, same as Export.",
+      "Import Enrollment tables from Excel. Separate from Export because it overwrites rows in bulk.",
     sortOrder: 350,
   },
   {
@@ -217,7 +260,8 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     label: "Manage Leads",
     groupKey: "leads",
     groupLabel: "Lead Management",
-    description: "Import leads, assign them, and see every agent's queue.",
+    description:
+      "Import, assign and manage every lead, Lead settings and the Lead table configuration. Includes Work Leads.",
     sortOrder: 100,
   },
   {

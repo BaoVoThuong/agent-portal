@@ -1,10 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
 import { normalizeExclusivePermissionKeys } from "@/lib/rbac/permissions";
-import {
-  LEGACY_SUPER_ADMIN_ROLE_NAME,
-  SYSTEM_ROLE_NAMES,
-} from "@/lib/rbac/system-roles";
+import { isAdminRoleName } from "@/lib/rbac/admin-role";
 
 export type PermissionRecord = {
   key: string;
@@ -21,6 +17,8 @@ export type RoleRecord = {
   description: string | null;
   is_system: boolean;
   is_active: boolean;
+  /** The role new Google sign-ups receive (roles.is_default, at most one). */
+  is_default: boolean;
   created_at: string;
   updated_at: string;
   user_count: number;
@@ -40,20 +38,12 @@ type UserRoleRow = {
   created_at: string | null;
 };
 
-type UserRoleWithUserRow = {
-  user_id: string;
-  portal_account: { is_active: boolean | null } | null;
-};
-
-type LegacyAdminRow = {
-  id: string;
-  user_roles: { role_id: string }[] | null;
-};
-
 export type RoleOption = Pick<
   RoleRecord,
-  "id" | "name" | "description" | "is_system" | "is_active"
+  "id" | "name" | "description" | "is_system" | "is_active" | "is_default"
 >;
+
+const ROLE_COLUMNS = "id,name,description,is_system,is_active,is_default,created_at,updated_at";
 
 export async function fetchPermissions() {
   const supabase = getSupabaseAdmin();
@@ -74,7 +64,7 @@ export async function fetchRolesWithPermissions() {
     await Promise.all([
       supabase
         .from("roles")
-        .select("id,name,description,is_system,is_active,created_at,updated_at")
+        .select(ROLE_COLUMNS)
         .order("is_system", { ascending: false })
         .order("name", { ascending: true }),
       fetchPermissions(),
@@ -138,12 +128,8 @@ export async function fetchRolesWithPermissions() {
         ),
     }))
     .sort((firstRole, secondRole) => {
-      const firstIsAdmin =
-        firstRole.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
-        firstRole.name === LEGACY_SUPER_ADMIN_ROLE_NAME;
-      const secondIsAdmin =
-        secondRole.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
-        secondRole.name === LEGACY_SUPER_ADMIN_ROLE_NAME;
+      const firstIsAdmin = isAdminRoleName(firstRole.name);
+      const secondIsAdmin = isAdminRoleName(secondRole.name);
 
       if (firstIsAdmin !== secondIsAdmin) return firstIsAdmin ? -1 : 1;
       if (firstRole.is_system !== secondRole.is_system) {
@@ -161,12 +147,8 @@ function compareUserRolePriority(
 ) {
   const firstRole = roleById.get(firstRow.role_id);
   const secondRole = roleById.get(secondRow.role_id);
-  const firstIsAdmin =
-    firstRole?.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
-    firstRole?.name === LEGACY_SUPER_ADMIN_ROLE_NAME;
-  const secondIsAdmin =
-    secondRole?.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
-    secondRole?.name === LEGACY_SUPER_ADMIN_ROLE_NAME;
+  const firstIsAdmin = isAdminRoleName(firstRole?.name);
+  const secondIsAdmin = isAdminRoleName(secondRole?.name);
 
   if (firstIsAdmin !== secondIsAdmin) return firstIsAdmin ? -1 : 1;
 
@@ -179,26 +161,11 @@ function compareUserRolePriority(
   return (firstRole?.name ?? "").localeCompare(secondRole?.name ?? "");
 }
 
-export async function replaceRolePermissions(
-  roleId: string,
-  permissionKeys: string[]
-) {
-  const supabase = getSupabaseAdmin();
-  const uniquePermissionKeys = [...new Set(permissionKeys)];
-
-  const { error } = await supabase.rpc("replace_role_permissions", {
-    target_role_id: roleId,
-    permission_keys: uniquePermissionKeys,
-  });
-
-  if (error) throw new Error(error.message);
-}
-
 export async function fetchRoleById(roleId: string) {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("roles")
-    .select("id,name,description,is_system,is_active,created_at,updated_at")
+    .select(ROLE_COLUMNS)
     .eq("id", roleId)
     .single();
 
@@ -224,7 +191,7 @@ export async function fetchActiveRolesByIds(roleIds: string[]) {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
     .from("roles")
-    .select("id,name,description,is_system,is_active,created_at,updated_at")
+    .select(ROLE_COLUMNS)
     .in("id", uniqueRoleIds)
     .eq("is_active", true);
 
@@ -244,65 +211,64 @@ export async function replaceUserRoles(userId: string, roleIds: string[]) {
   if (error) throw new Error(error.message);
 }
 
-export async function countActiveUsersForRoleName(
-  roleName: string,
-  excludeUserId?: string
-) {
+/** Permission keys stored on one role. */
+export async function fetchRolePermissionKeys(roleId: string): Promise<string[]> {
   const supabase = getSupabaseAdmin();
-  const { data: role, error: roleError } = await supabase
-    .from("roles")
-    .select("id")
-    .eq("name", roleName)
-    .maybeSingle();
+  const { data, error } = await supabase
+    .from("role_permissions")
+    .select("permission_key")
+    .eq("role_id", roleId);
+  if (error) throw new Error(error.message);
+  return [
+    ...new Set(((data ?? []) as { permission_key: string }[]).map((row) => row.permission_key)),
+  ];
+}
 
-  if (roleError) throw new Error(roleError.message);
-  if (!role) return 0;
-
-  let query = supabase
+/**
+ * Permission keys an account holds through its ACTIVE roles. Deliberately
+ * ignores portal_account.is_active: a disabled account must stay protected,
+ * or someone could re-enable it and reset its password.
+ */
+export async function fetchUserPermissionKeys(userId: string): Promise<string[]> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
     .from("user_roles")
-    .select("user_id, portal_account!inner(is_active)")
-    .eq("role_id", (role as { id: string }).id)
-    .eq("portal_account.is_active", true);
-
-  if (excludeUserId) {
-    query = query.neq("user_id", excludeUserId);
-  }
-
-  const { data, error } = await query;
+    .select("roles(is_active,role_permissions(permission_key))")
+    .eq("user_id", userId);
   if (error) throw new Error(error.message);
-
-  return ((data ?? []) as unknown as UserRoleWithUserRow[]).filter(
-    (row) => row.portal_account?.is_active !== false
-  ).length;
+  const rows = (data ?? []) as unknown as Array<{
+    roles: { is_active: boolean; role_permissions: { permission_key: string }[] } | null;
+  }>;
+  return [
+    ...new Set(
+      rows.flatMap((row) =>
+        row.roles?.is_active ? row.roles.role_permissions.map((p) => p.permission_key) : []
+      )
+    ),
+  ];
 }
 
-export async function countActiveLegacyAdminUsers(excludeUserId?: string) {
+export async function fetchUserPermissionKeysByEmail(email: string): Promise<string[]> {
   const supabase = getSupabaseAdmin();
-  let query = supabase
-    .from(PORTAL_ACCOUNT_TABLE)
-    .select("id,user_roles(role_id)")
-    .eq("role", "admin")
-    .eq("is_active", true);
-
-  if (excludeUserId) {
-    query = query.neq("id", excludeUserId);
-  }
-
-  const { data, error } = await query;
+  const { data, error } = await supabase
+    .from("portal_account")
+    .select("id")
+    .eq("email", email.trim().toLowerCase())
+    .maybeSingle();
   if (error) throw new Error(error.message);
-
-  return ((data ?? []) as unknown as LegacyAdminRow[]).filter(
-    (row) => (row.user_roles ?? []).length === 0
-  ).length;
+  if (!data) return [];
+  return fetchUserPermissionKeys((data as { id: string }).id);
 }
 
-export async function hasActiveSuperAdminOtherThan(userId: string) {
-  const [activeAdminUsers, activeLegacySuperAdminUsers, activeLegacyAdmins] =
-    await Promise.all([
-      countActiveUsersForRoleName(SYSTEM_ROLE_NAMES.SUPER_ADMIN, userId),
-      countActiveUsersForRoleName(LEGACY_SUPER_ADMIN_ROLE_NAME, userId),
-      countActiveLegacyAdminUsers(userId),
-    ]);
-
-  return activeAdminUsers + activeLegacySuperAdminUsers + activeLegacyAdmins > 0;
+/** Current role id of an account (an account holds at most one role). */
+export async function fetchUserRoleId(userId: string): Promise<string | null> {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase
+    .from("user_roles")
+    .select("role_id")
+    .eq("user_id", userId)
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as { role_id: string } | null)?.role_id ?? null;
 }

@@ -87,12 +87,12 @@ export function buildLeadListFilter(
       ? ownerEmails
       : [actor.email.trim().toLowerCase()];
   return {
-    ownerEmails: actor.isManager || actor.canViewAll
+    ownerEmails: actor.isManager
       ? requested
         ? [requested.toLowerCase()]
         : null
       : scoped,
-    collaboratorEmails: actor.isManager || actor.canViewAll
+    collaboratorEmails: actor.isManager
       ? []
       : scoped ?? [actor.email.trim().toLowerCase()],
     eventId: text(params.event_id),

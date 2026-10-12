@@ -462,11 +462,11 @@ export function aggregateOverview(input: OverviewInput): OverviewSnapshot {
   const assistantEmails = new Set(
     input.accounts.filter((account) => account.isAssistant).map((account) => account.email)
   );
+  // The CS pool includes task.work and task.manage, except the fixed Admin role.
   const pool = input.accounts.filter(
     (account) =>
       account.isActive &&
       account.canWork &&
-      !account.isAdmin &&
       !account.isAssistant &&
       !input.taskAgents.includes(account.email)
   );

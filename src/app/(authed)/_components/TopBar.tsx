@@ -11,10 +11,9 @@ type TopBarProps = {
   userName: string | null;
   userEmail: string;
   agentId: string | null;
-  canUseTasks: boolean;
 };
 
-export default function TopBar({ userName, userEmail, agentId, canUseTasks }: TopBarProps) {
+export default function TopBar({ userName, userEmail, agentId }: TopBarProps) {
   // Đọc từ cùng một danh bạ mà mọi avatar khác dùng, nên đổi ảnh ở Settings là
   // chỗ này đổi theo, không cần đường dữ liệu riêng.
   const ownAvatarUrl = useAvatarUrl(userEmail);
@@ -49,11 +48,12 @@ export default function TopBar({ userName, userEmail, agentId, canUseTasks }: To
         <div className={styles.userId}>ID: {agentId || "Not provided"}</div>
       </div>
 
-      {canUseTasks && (
-        <div className="mr-2">
-          <NotificationBell />
-        </div>
-      )}
+      {/* Everyone signed in gets the bell: it merges Task, Enrollment and Time
+          Off notifications, each already addressed to the right person. It used
+          to need a Task permission, so Time Off-only users never saw theirs. */}
+      <div className="mr-2">
+        <NotificationBell />
+      </div>
 
       <div className={styles.menuWrap} ref={menuRef}>
         <button

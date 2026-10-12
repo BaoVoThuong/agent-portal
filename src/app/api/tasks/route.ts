@@ -3,7 +3,6 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   buildTaskActor,
-  isTaskViewAdmin,
   canAccessBoard,
   canCreateTaskWithScope,
   resolveCreateAssignment,
@@ -24,7 +23,7 @@ import {
   readTaskMutationSourceId,
 } from "@/lib/tasks/realtime";
 import {
-  fetchAdminEmails,
+  fetchSupervisionRecipientEmails,
   fetchAgentAssistantEmails,
   fetchAgentsForCs,
   isAgentOwnerOrAssistant,
@@ -72,9 +71,7 @@ export async function GET() {
     const session = await timing.measure("auth", async () => auth());
     const email = session?.user?.email;
     if (!email) return respond({ error: "Unauthorized" }, 401);
-    const actor = buildTaskActor(session.user.permissions, email, {
-      isAdmin: isTaskViewAdmin(session.user),
-    });
+    const actor = buildTaskActor(session.user.permissions, email);
     if (!canAccessBoard(actor)) {
       return respond({ error: "Unauthorized" }, 401);
     }
@@ -126,9 +123,7 @@ export async function POST(request: Request) {
   const session = await timing.measure("auth", async () => auth());
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = buildTaskActor(session.user.permissions, email);
   if (!canAccessBoard(actor))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
@@ -406,7 +401,7 @@ export async function POST(request: Request) {
               ? [
                   // Phụ tá, không gồm agent: agent thôi nhận thông báo tự động.
                   ...(await fetchAgentAssistantEmails(agentEmail)),
-                  ...(await fetchAdminEmails()),
+                  ...(await fetchSupervisionRecipientEmails()),
                 ]
               : [];
             // An Agent Assistant is normally the one creating a task, so the

@@ -3,7 +3,6 @@ import { requireAnyPermission } from "@/lib/rbac/server";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import {
   buildLeadActor,
-  isLeadViewAdmin,
   personalLeadAgentEmailsForWorker,
 } from "@/lib/leads/access";
 import { fetchLeadAssignees } from "@/lib/leads/assignees";
@@ -29,14 +28,11 @@ export default async function LeadsPage({
   const session = await requireAnyPermission([
     PERMISSIONS.LEAD_MANAGE,
     PERMISSIONS.LEAD_WORK,
-    PERMISSIONS.TASK_MANAGE,
   ]);
   const email = session.user.email ?? "";
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
+  const actor = buildLeadActor(session.user.permissions, email);
   const view = Array.isArray(params.view) ? params.view[0] : params.view;
-  if (view === "overview" && !actor.canViewAll) redirect("/unauthorized");
+  if (view === "overview" && !actor.isManager) redirect("/unauthorized");
   const supabase = getSupabaseAdmin();
 
   // Resolved once: a worker's queue is their own leads plus every agent they
@@ -67,7 +63,7 @@ export default async function LeadsPage({
     email: agent.email.trim().toLowerCase(),
     name: agent.name,
   }));
-  const assignees = actor.canViewAll ? agentPeople : [];
+  const assignees = actor.isManager ? agentPeople : [];
   // Add lead: manager chọn được mọi Agent; worker chỉ mở Personal lead cho chính
   // mình (nếu là Agent) và các Agent mình làm Assistant. ownerEmails của worker
   // đã là [mình, ...Agent mình hỗ trợ] nên không phải đọc agent_members lần nữa.
@@ -97,7 +93,7 @@ export default async function LeadsPage({
   return (
     <LeadsClient
       currentUserEmail={email}
-      canViewAll={Boolean(actor.canViewAll)}
+      canViewAll={actor.isManager}
       editableOwnerEmails={ownerEmails}
       alertSettings={alertSettings}
       isManager={actor.isManager}

@@ -70,9 +70,14 @@ create table if not exists roles (
   description text,
   is_system boolean not null default false,
   is_active boolean not null default true,
+  -- The role new Google sign-ups receive. At most one (partial unique index).
+  is_default boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table roles add column if not exists is_default boolean not null default false;
+create unique index if not exists roles_single_default_idx on roles (is_default) where is_default;
 
 create table if not exists permissions (
   key text primary key,
@@ -160,10 +165,213 @@ begin
 end;
 $$;
 
+-- Account Manager writes in one transaction (review 2026-10-12, Codex 2 + 3).
+--
+-- Before: PATCH /api/admin/users/[id] replaced user_roles, THEN updated
+-- portal_account in a second request. If the update failed (e.g. the trigger
+-- that blocks deactivating an Agent who still owns Personal leads), the API
+-- answered 409 but the role had already changed. The "at least one active
+-- Admin" rule was a read before the write, so two concurrent demotions could
+-- both pass it.
+--
+-- Now one RPC per write. Both take the same advisory lock and check the Admin
+-- rule AFTER writing, inside the transaction, so a failure rolls everything
+-- back. Only adds functions. Run BEFORE deploying the code that calls them.
+
+create or replace function public.assert_active_admin_remains()
+returns void
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  -- "Admin" is the one role known by name (src/lib/rbac/admin-role.ts).
+  if not exists (
+    select 1
+    from public.user_roles ur
+    join public.roles r on r.id = ur.role_id and r.is_active
+    join public.portal_account a on a.id = ur.user_id and a.is_active
+    where lower(btrim(r.name)) = 'admin'
+  ) then
+    raise exception 'LAST_ADMIN';
+  end if;
+end;
+$$;
+
+create or replace function public.update_account_atomic(
+  p_user_id uuid,
+  p_patch jsonb,
+  p_role_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  result jsonb;
+begin
+  -- Every write that can remove an Admin takes this lock, so two concurrent
+  -- demotions cannot both see "another Admin remains".
+  perform pg_advisory_xact_lock(hashtextextended('portal_account:admin_invariant', 0));
+
+  p_patch := coalesce(p_patch, '{}'::jsonb);
+  update public.portal_account set
+    email = case when p_patch ? 'email' then p_patch->>'email' else email end,
+    name = case when p_patch ? 'name' then p_patch->>'name' else name end,
+    agent_id = case when p_patch ? 'agent_id' then p_patch->>'agent_id' else agent_id end,
+    is_active = case when p_patch ? 'is_active' then (p_patch->>'is_active')::boolean else is_active end,
+    password_hash = case when p_patch ? 'password_hash' then p_patch->>'password_hash' else password_hash end
+  where id = p_user_id;
+  if not found then
+    raise exception 'USER_NOT_FOUND';
+  end if;
+
+  if p_role_id is not null then
+    perform public.replace_user_roles(p_user_id, array[p_role_id]);
+  end if;
+
+  perform public.assert_active_admin_remains();
+
+  select jsonb_build_object(
+           'id', a.id, 'email', a.email, 'name', a.name, 'agent_id', a.agent_id,
+           'is_active', a.is_active, 'created_at', a.created_at)
+    into result
+  from public.portal_account a
+  where a.id = p_user_id;
+  return result;
+end;
+$$;
+
+create or replace function public.delete_account_atomic(p_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  perform pg_advisory_xact_lock(hashtextextended('portal_account:admin_invariant', 0));
+  -- user_roles rows go with it (on delete cascade).
+  delete from public.portal_account where id = p_user_id;
+  if not found then
+    raise exception 'USER_NOT_FOUND';
+  end if;
+  perform public.assert_active_admin_remains();
+end;
+$$;
+
+revoke all on function public.assert_active_admin_remains() from public, anon, authenticated;
+revoke all on function public.update_account_atomic(uuid, jsonb, uuid) from public, anon, authenticated;
+grant execute on function public.update_account_atomic(uuid, jsonb, uuid) to service_role;
+revoke all on function public.delete_account_atomic(uuid) from public, anon, authenticated;
+grant execute on function public.delete_account_atomic(uuid) to service_role;
+
+-- Role Manager writes in one transaction (review 2026-10-12, Codex 3).
+-- Before: POST inserted the role, then replaced its permissions in a second
+-- request — a failure left a role with no permissions; PATCH could rename or
+-- disable a role and then fail on its permissions. Only adds functions. Run
+-- BEFORE deploying the code that calls them.
+
+create or replace function public.create_role_atomic(
+  p_name text,
+  p_description text,
+  p_is_active boolean,
+  p_permission_keys text[]
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  new_role_id uuid;
+begin
+  insert into public.roles (name, description, is_active, is_system)
+  values (p_name, p_description, coalesce(p_is_active, true), false)
+  returning id into new_role_id;
+
+  perform public.replace_role_permissions(new_role_id, p_permission_keys);
+  return new_role_id;
+end;
+$$;
+
+create or replace function public.update_role_atomic(
+  p_role_id uuid,
+  p_patch jsonb,
+  p_permission_keys text[]
+)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  p_patch := coalesce(p_patch, '{}'::jsonb);
+  update public.roles set
+    name = case when p_patch ? 'name' then p_patch->>'name' else name end,
+    description = case when p_patch ? 'description' then p_patch->>'description' else description end,
+    is_active = case when p_patch ? 'is_active' then (p_patch->>'is_active')::boolean else is_active end,
+    updated_at = now()
+  where id = p_role_id;
+  if not found then
+    raise exception 'ROLE_NOT_FOUND';
+  end if;
+
+  -- null = permissions unchanged; an empty array clears them.
+  if p_permission_keys is not null then
+    perform public.replace_role_permissions(p_role_id, p_permission_keys);
+  end if;
+end;
+$$;
+
+revoke all on function public.create_role_atomic(text, text, boolean, text[]) from public, anon, authenticated;
+grant execute on function public.create_role_atomic(text, text, boolean, text[]) to service_role;
+revoke all on function public.update_role_atomic(uuid, jsonb, text[]) from public, anon, authenticated;
+grant execute on function public.update_role_atomic(uuid, jsonb, text[]) to service_role;
+
+-- First Google sign-in creates the account and gives it the default role in
+-- one transaction (review 2026-10-12, Codex 4). Before: an insert error was
+-- ignored and the sign-in still succeeded; a failed role assignment left an
+-- account with no role that was never retried. Email is stored exactly as
+-- Google sends it, as before — the RBAC lookup matches it verbatim.
+-- Only adds a function. Run BEFORE deploying the code that calls it.
+
+create or replace function public.create_account_with_default_role(
+  p_email text,
+  p_name text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  default_role_id uuid;
+  new_user_id uuid;
+begin
+  -- At most one default role (roles_single_default_idx).
+  select id into default_role_id from public.roles where is_default and is_active;
+  if default_role_id is null then
+    raise exception 'NO_DEFAULT_ROLE';
+  end if;
+
+  insert into public.portal_account (email, name, password_hash, is_active)
+  values (p_email, p_name, 'google-auth', true)
+  returning id into new_user_id;
+
+  insert into public.user_roles (user_id, role_id) values (new_user_id, default_role_id);
+  return new_user_id;
+end;
+$$;
+
+revoke all on function public.create_account_with_default_role(text, text) from public, anon, authenticated;
+grant execute on function public.create_account_with_default_role(text, text) to service_role;
+
+
 insert into permissions (key, label, description, group_key, group_label, sort_order)
 values
   ('customer_registration.health', 'Health Registration', 'View and manage Health registration records.', 'customer_registration', 'Customer Registration', 100),
   ('customer_registration.pc', 'P&C Registration', 'View and manage P&C registration records.', 'customer_registration', 'Customer Registration', 200),
+  ('customer_registration.view_all', 'Registration - View All Agents', 'See every agent''s entries in Health and P&C Customer Registration.', 'customer_registration', 'Customer Registration', 300),
   ('automation.health_statement', 'Health Statement', 'Access and run the Health Statement tool.', 'automation', 'Automation', 100),
   ('automation.pc_statement', 'P&C Statement', 'Access and run the P&C Statement tool.', 'automation', 'Automation', 200),
   ('automation.provider_finder', 'Provider Finder', 'Access and run the Provider Finder tool.', 'automation', 'Automation', 300),
@@ -172,18 +380,18 @@ values
   ('agent_dashboard.pc', 'Agent - P&C', 'View P&C dashboard. Scope limited to own data unless View All Agents is granted.', 'dashboard', 'Dashboard', 200),
   ('company_dashboard.health', 'Company - Health', 'View the company-wide Health Sales Dashboard.', 'dashboard', 'Dashboard', 300),
   ('company_dashboard.pc', 'Company - P&C', 'View the company-wide P&C Sales Dashboard.', 'dashboard', 'Dashboard', 400),
-  ('company.view_all', 'View All Agents', 'See all agents'' data in Agent Dashboard and Customer Registration.', 'dashboard', 'Dashboard', 500),
-  ('management.account_manager', 'Account Manager', 'Create accounts, assign roles, update status, and reset passwords.', 'management', 'Management', 100),
+  ('company.view_all', 'View All Agents', 'See all agents'' data in the Agent Dashboard.', 'dashboard', 'Dashboard', 500),
+  ('management.account_manager', 'Account Manager', 'Create accounts, assign roles, update status, reset passwords, and manage Agents and Assistants.', 'management', 'Management', 100),
   ('management.notification_alerts', 'Notification Alerts', 'Turn notification sounds, pop-ups and push on or off for each user. Mentions and assignments still alert.', 'management', 'Management', 150),
   ('management.role_manager', 'Role Manager', 'Create roles and manage role permissions.', 'management', 'Management', 200),
   ('timeoff.user', 'Time Off - User', 'Request personal leave, view own requests, and see the shared availability calendar.', 'time_off', 'Time Off', 100),
   ('timeoff.admin', 'Time Off - Admin', 'Review team leave, manage balances, view leave history, and manage company days off.', 'time_off', 'Time Off', 200),
   ('settings.access', 'Settings', 'Access account settings and change own password.', 'settings', 'Settings', 100),
-  ('task.manage', 'Tasks - Manage', 'Create, assign and manage all tasks, and see the backlog.', 'tasks', 'Tasks', 100),
-  ('task.work', 'Tasks - Work', 'Work on tasks assigned to you.', 'tasks', 'Tasks', 200),
-  ('task.export', 'Tasks - Export', 'Export task, enrollment and provider tables to Excel. Required on its own — a manager role alone does not grant export.', 'tasks', 'Tasks', 300),
-  ('task.import', 'Tasks - Import', 'Import enrollment and provider tables from Excel. Separate from Export because it OVERWRITES rows in bulk — read access is not write access. Required on its own.', 'tasks', 'Tasks', 350),
-  ('lead.manage', 'Manage Leads', 'Import leads, assign them, and see every agent''s queue.', 'leads', 'Lead Management', 100),
+  ('task.manage', 'Tasks - Manage', 'Full control of Health CS tasks and Enrollment: every record, the backlog, create, assign, delete, CS Overview, SLA and table configuration. Includes Tasks - Work.', 'tasks', 'Tasks', 100),
+  ('task.work', 'Tasks - Work', 'Work on Health CS tasks and Enrollment records you are part of. Puts you in the CS assignment pool.', 'tasks', 'Tasks', 200),
+  ('task.export', 'Tasks - Export', 'Export the Health CS task and Enrollment tables to Excel.', 'tasks', 'Tasks', 300),
+  ('task.import', 'Tasks - Import', 'Import Enrollment tables from Excel. Separate from Export because it overwrites rows in bulk.', 'tasks', 'Tasks', 350),
+  ('lead.manage', 'Manage Leads', 'Import, assign and manage every lead, Lead settings and the Lead table configuration. Includes Work Leads.', 'leads', 'Lead Management', 100),
   ('lead.work', 'Work Leads', 'See and log interactions on leads assigned to you.', 'leads', 'Lead Management', 200)
 on conflict (key) do update set
   label = excluded.label,
@@ -222,6 +430,7 @@ delete from permissions
 where key not in (
   'customer_registration.health',
   'customer_registration.pc',
+  'customer_registration.view_all',
   'automation.health_statement',
   'automation.pc_statement',
   'automation.provider_finder',
@@ -232,6 +441,7 @@ where key not in (
   'company_dashboard.pc',
   'company.view_all',
   'management.account_manager',
+  'management.notification_alerts',
   'management.role_manager',
   'timeoff.user',
   'timeoff.admin',
@@ -298,11 +508,14 @@ using roles r
 where rp.role_id = r.id
   and r.name in ('Admin', 'Agent');
 
+-- Admin is the fixed, full-access role (view-only in Role Manager). Work keys
+-- are left out because Manage includes them (normalizeExclusivePermissionKeys).
 insert into role_permissions (role_id, permission_key)
 select r.id, p.key
 from roles r
 cross join permissions p
 where r.name = 'Admin'
+  and p.key not in ('task.work', 'lead.work')
 on conflict (role_id, permission_key) do nothing;
 
 insert into role_permissions (role_id, permission_key)
@@ -320,6 +533,9 @@ join permissions p on p.key in (
 )
 where r.name = 'Agent'
 on conflict (role_id, permission_key) do nothing;
+
+update roles set is_default = true
+where name = 'Agent' and not exists (select 1 from roles where is_default);
 
 insert into user_roles (user_id, role_id)
 select a.id, r.id
@@ -3704,15 +3920,15 @@ begin
     from portal_account account
     where lower(trim(account.email)) = normalized_cs_email
       and account.is_active
-      and account.role <> 'admin'
       and exists (
         select 1
         from user_roles ur
         join role_permissions rp on rp.role_id = ur.role_id
         join roles r on r.id = ur.role_id
         where ur.user_id = account.id
-          and rp.permission_key = 'task.work'
+          and rp.permission_key in ('task.work', 'task.manage')
           and r.is_active
+          and lower(btrim(r.name)) <> 'admin'
       )
       and not exists (
         select 1 from task_agents ta
@@ -3727,14 +3943,6 @@ begin
         select 1 from task_assignment_queue_members queue_member
         where lower(trim(queue_member.email)) = normalized_cs_email
           and not queue_member.is_enabled
-      )
-      and not exists (
-        select 1
-        from user_roles ur
-        join roles r on r.id = ur.role_id
-        where ur.user_id = account.id
-          and r.is_active
-          and r.name in ('Admin', 'Super Admin')
       )
   ) then
     raise exception 'INVALID_CS';
@@ -3838,6 +4046,9 @@ begin
   );
 end;
 $$;
+
+revoke all on function assign_unassigned_task(uuid, text, timestamptz, text) from public, anon, authenticated;
+grant execute on function assign_unassigned_task(uuid, text, timestamptz, text) to service_role;
 
 -- Backfill selected task agents from existing groups (idempotent).
 insert into task_agents (email)

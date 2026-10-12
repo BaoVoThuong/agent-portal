@@ -8,11 +8,7 @@ import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { formatTableDate } from "@/lib/table-config/date-format";
 import type { RoleOption } from "@/lib/rbac/role-management";
-import {
-  LEGACY_SUPER_ADMIN_ROLE_NAME,
-  getDefaultSystemRoleName,
-  SYSTEM_ROLE_NAMES,
-} from "@/lib/rbac/system-roles";
+import { isAdminRoleName } from "@/lib/rbac/admin-role";
 import { useBodyScrollLock } from "./../_shared/useBodyScrollLock";
 import { usePendingKeys } from "@/lib/collaboration/use-pending-keys";
 import { AgentMembershipSection, type AgentMembershipData } from "./AgentMembershipSection";
@@ -23,7 +19,7 @@ type AccountManagerClientProps = {
   canManageAlerts: boolean;
   initialUsers: ManagedAccountUser[];
   availableRoles: RoleOption[];
-  /** null = người này không phải admin cấu hình, không thấy tab Agent membership. */
+  /** Agent membership thuộc trang này: ai vào được Account Manager là thấy. */
   agentMembership: AgentMembershipData | null;
 };
 
@@ -63,12 +59,9 @@ const emptyForm: FormState = {
   roleIds: [],
 };
 
+// Display only (sort order, badge colour). Never decides what anyone may do.
 function isAdminRole(role: Pick<RoleOption, "name">) {
-
-  return (
-    role.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
-    role.name === LEGACY_SUPER_ADMIN_ROLE_NAME
-  );
+  return isAdminRoleName(role.name);
 }
 
 export default function AccountManagerClient({
@@ -152,10 +145,8 @@ export default function AccountManagerClient({
   const canResetPassword = canManageAccounts;
   const canAssignRoles = canManageAccounts;
   const defaultRoleIds = useMemo(() => {
-    const agentRole = availableRoles.find(
-      (role) => role.name === SYSTEM_ROLE_NAMES.AGENT
-    );
-    return agentRole ? [agentRole.id] : [];
+    const defaultRole = availableRoles.find((role) => role.is_default);
+    return defaultRole ? [defaultRole.id] : [];
   }, [availableRoles]);
 
   const sortedUsers = useMemo(
@@ -188,7 +179,6 @@ export default function AccountManagerClient({
         user.name,
         user.email,
         user.agent_id,
-        user.role,
         ...user.roles.map((role) => role.name),
       ];
 
@@ -285,7 +275,7 @@ export default function AccountManagerClient({
 
   async function updateUser(
     user: ManagedAccountUser,
-    payload: Partial<Pick<AccountUser, "role" | "is_active">> & {
+    payload: Partial<Pick<AccountUser, "is_active">> & {
       email?: string;
       name?: string | null;
       agentId?: string;
@@ -1117,7 +1107,7 @@ export default function AccountManagerClient({
 }
 
 function isPasswordOnlyUpdate(
-  payload: Partial<Pick<AccountUser, "role" | "is_active">> & {
+  payload: Partial<Pick<AccountUser, "is_active">> & {
     email?: string;
     name?: string | null;
     password?: string;
@@ -1128,7 +1118,6 @@ function isPasswordOnlyUpdate(
     payload.password !== undefined &&
     payload.email === undefined &&
     payload.name === undefined &&
-    payload.role === undefined &&
     payload.roleIds === undefined &&
     payload.is_active === undefined
   );
@@ -1151,22 +1140,17 @@ async function readJsonResponse(response: Response) {
 }
 
 function RoleBadges({ user }: { user: ManagedAccountUser }) {
-  const roles =
-    user.roles.length > 0
-      ? user.roles
-      : [
-          {
-            id: user.role,
-            name: getDefaultSystemRoleName(user.role),
-            description: null,
-            is_system: true,
-            is_active: true,
-          },
-        ];
+  if (user.roles.length === 0) {
+    return (
+      <span className="inline-flex rounded-md bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+        No role
+      </span>
+    );
+  }
 
   return (
     <div className="flex flex-wrap gap-1.5">
-      {roles.map((role) => (
+      {user.roles.map((role) => (
         <span
           key={role.id}
           className={`inline-flex rounded-md px-2.5 py-1 text-xs font-semibold ${

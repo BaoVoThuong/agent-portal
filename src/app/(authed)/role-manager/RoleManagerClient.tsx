@@ -6,16 +6,14 @@ import { Toast } from "../_shared/Toast";
 import { can } from "@/lib/rbac/client";
 import {
   normalizeExclusivePermissionKeys,
+  permissionImpliedBy,
   PERMISSIONS,
 } from "@/lib/rbac/permissions";
 import type {
   PermissionRecord,
   RoleRecord,
 } from "@/lib/rbac/role-management";
-import {
-  LEGACY_SUPER_ADMIN_ROLE_NAME,
-  SYSTEM_ROLE_NAMES,
-} from "@/lib/rbac/system-roles";
+import { isAdminRoleName } from "@/lib/rbac/admin-role";
 import { useBodyScrollLock } from "../_shared/useBodyScrollLock";
 
 type RoleManagerClientProps = {
@@ -75,11 +73,10 @@ function toForm(role: RoleRecord): RoleFormState {
   };
 }
 
+// The Admin role is fixed and view-only: it holds every permission and is
+// changed only by SQL rollouts.
 function isProtectedRole(role: Pick<RoleRecord, "name">) {
-  return (
-    role.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
-    role.name === LEGACY_SUPER_ADMIN_ROLE_NAME
-  );
+  return isAdminRoleName(role.name);
 }
 
 export default function RoleManagerClient({
@@ -141,6 +138,27 @@ export default function RoleManagerClient({
     return groupPermissions(filtered);
   }, [permissionSearch, permissions]);
 
+  const permissionLabelByKey = useMemo(
+    () => new Map(permissions.map((permission) => [permission.key, permission.label])),
+    [permissions]
+  );
+
+  // Manage includes Work: a Work box under a ticked Manage shows as ticked and
+  // locked, and is never saved on its own (normalizeExclusivePermissionKeys).
+  function includedBy(permissionKey: string, selectedKeys: readonly string[]) {
+    const manageKey = permissionImpliedBy(permissionKey);
+    return manageKey && selectedKeys.includes(manageKey) ? manageKey : null;
+  }
+
+  function isPermissionSelected(permissionKey: string, selectedKeys: readonly string[]) {
+    return selectedKeys.includes(permissionKey) || includedBy(permissionKey, selectedKeys) !== null;
+  }
+
+  // Locked state follows the role as stored, not the name being typed.
+  const editingProtectedRole = Boolean(
+    form?.id && roles.some((role) => role.id === form.id && isProtectedRole(role))
+  );
+
   function openCreateRole() {
     setError(null);
     setMessage(null);
@@ -173,7 +191,10 @@ export default function RoleManagerClient({
       const nextKeys = checked
         ? [...new Set([...current.permissionKeys, permissionKey])]
         : current.permissionKeys.filter((key) => key !== permissionKey);
-      return { ...current, permissionKeys: nextKeys };
+      return {
+        ...current,
+        permissionKeys: normalizeExclusivePermissionKeys(nextKeys),
+      };
     });
   }
 
@@ -491,7 +512,7 @@ export default function RoleManagerClient({
                       )
                     }
                     disabled={
-                      (Boolean(form.id) && isProtectedRole(form)) ||
+                      editingProtectedRole ||
                       (Boolean(form.id) && !canEdit)
                     }
                     className="mt-1 w-full rounded-md border border-[#cfd6e3] px-3 py-2 text-sm text-[#16233a] outline-none focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15 disabled:bg-slate-50 disabled:text-slate-500"
@@ -512,7 +533,7 @@ export default function RoleManagerClient({
                       )
                     }
                     disabled={
-                      (Boolean(form.id) && isProtectedRole(form)) ||
+                      editingProtectedRole ||
                       (Boolean(form.id) && !canEdit)
                     }
                     className="mt-1 min-h-24 w-full rounded-md border border-[#cfd6e3] px-3 py-2 text-sm text-[#16233a] outline-none focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15"
@@ -523,7 +544,7 @@ export default function RoleManagerClient({
                     type="checkbox"
                     checked={form.is_active}
                     disabled={
-                      (Boolean(form.id) && isProtectedRole(form)) ||
+                      editingProtectedRole ||
                       (Boolean(form.id) && !canEdit)
                     }
                     onChange={(event) =>
@@ -553,7 +574,7 @@ export default function RoleManagerClient({
                 {filteredPermissionGroups.map((group) => {
                   const groupKeys = group.items.map((item) => item.key);
                   const selectedCount = groupKeys.filter((key) =>
-                    form.permissionKeys.includes(key)
+                    isPermissionSelected(key, form.permissionKeys)
                   ).length;
                   const allSelected =
                     group.items.length > 0 &&
@@ -578,7 +599,7 @@ export default function RoleManagerClient({
                             type="checkbox"
                             checked={allSelected}
                             disabled={
-                              (Boolean(form.id) && isProtectedRole(form)) ||
+                              editingProtectedRole ||
                               !canAssignPermissions
                             }
                             onChange={(event) =>
@@ -592,38 +613,48 @@ export default function RoleManagerClient({
                         </label>
                       </div>
                       <div className="grid gap-2 p-4 md:grid-cols-2">
-                        {group.items.map((permission) => (
-                          <label
-                            key={permission.key}
-                            className="flex items-start gap-2 rounded-md border border-[#edf1f7] px-3 py-2 text-sm"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={form.permissionKeys.includes(
-                                permission.key
-                              )}
-                              disabled={
-                                (Boolean(form.id) && isProtectedRole(form)) ||
-                                !canAssignPermissions
-                              }
-                              onChange={(event) =>
-                                updatePermission(
+                        {group.items.map((permission) => {
+                          const includingKey = includedBy(
+                            permission.key,
+                            form.permissionKeys
+                          );
+                          return (
+                            <label
+                              key={permission.key}
+                              className="flex items-start gap-2 rounded-md border border-[#edf1f7] px-3 py-2 text-sm"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={isPermissionSelected(
                                   permission.key,
-                                  event.target.checked
-                                )
-                              }
-                              className="mt-1"
-                            />
-                            <span>
-                              <span className="block font-medium text-[#16233a]">
-                                {permission.label}
+                                  form.permissionKeys
+                                )}
+                                disabled={
+                                  editingProtectedRole ||
+                                  !canAssignPermissions ||
+                                  includingKey !== null
+                                }
+                                onChange={(event) =>
+                                  updatePermission(
+                                    permission.key,
+                                    event.target.checked
+                                  )
+                                }
+                                className="mt-1"
+                              />
+                              <span>
+                                <span className="block font-medium text-[#16233a]">
+                                  {permission.label}
+                                </span>
+                                <span className="mt-0.5 block break-all text-xs text-[#667085]">
+                                  {includingKey
+                                    ? `Included in ${permissionLabelByKey.get(includingKey) ?? includingKey}`
+                                    : permission.key}
+                                </span>
                               </span>
-                              <span className="mt-0.5 block break-all text-xs text-[#667085]">
-                                {permission.key}
-                              </span>
-                            </span>
-                          </label>
-                        ))}
+                            </label>
+                          );
+                        })}
                       </div>
                     </section>
                   );

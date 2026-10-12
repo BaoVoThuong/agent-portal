@@ -1,6 +1,6 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { buildLeadActor, canManageLeads, isLeadViewAdmin } from "@/lib/leads/access";
+import { buildLeadActor, canManageLeads } from "@/lib/leads/access";
 import { autoAssignLeads } from "@/lib/leads/auto-assign";
 import { isPersonalLeadEventName } from "@/lib/leads/lead-type";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
@@ -32,9 +32,7 @@ async function managerActor() {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return { response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
+  const actor = buildLeadActor(session.user.permissions, email);
   if (!canManageLeads(actor)) return { response: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
   return { actor };
 }

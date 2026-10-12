@@ -3,7 +3,7 @@ import { resolveTaskPatch } from "@/lib/tasks/transitions";
 import { buildTaskActor } from "@/lib/tasks/access";
 import { hasBeenParked, isSlaActiveInProgress } from "@/lib/tasks/sla";
 
-const manager = buildTaskActor(["task.manage"], "mgr@x.com", { isAdmin: true });
+const manager = buildTaskActor(["task.manage"], "mgr@x.com");
 const cs = buildTaskActor(["task.work"], "cs@x.com");
 const assigned = {
   status: "todo" as const,

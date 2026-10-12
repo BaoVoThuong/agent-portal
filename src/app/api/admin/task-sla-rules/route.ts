@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, canAccessBoard, isTaskViewAdmin } from "@/lib/tasks/access";
+import { buildTaskActor, canAccessBoard } from "@/lib/tasks/access";
 import { SLA_DURATION_BOUNDS, isSlaDurationInBounds, isUuid } from "@/lib/tasks/sla-config";
 import { TASK_PRIORITIES } from "@/lib/tasks/types";
 
@@ -11,9 +11,7 @@ export async function GET() {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = buildTaskActor(session.user.permissions, email);
   // Reads are for anyone on the task board — the client needs SLA rules to
   // render overdue/countdown for CS + agents. Only writes below are admin-only.
   if (!canAccessBoard(actor)) {
@@ -33,9 +31,7 @@ export async function POST(req: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = buildTaskActor(session.user.permissions, email);
   if (!actor.isManager) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
@@ -89,9 +85,7 @@ export async function DELETE(req: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = buildTaskActor(session.user.permissions, email);
   if (!actor.isManager) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }

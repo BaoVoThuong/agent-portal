@@ -68,7 +68,7 @@ export async function PATCH(
   }
   const canManageAll = can(
     session.user.permissions,
-    PERMISSIONS.COMPANY_VIEW_ALL
+    PERMISSIONS.CUSTOMER_REGISTRATION_VIEW_ALL
   );
 
   const body = await request.json().catch(() => null);
@@ -138,7 +138,7 @@ export async function DELETE(
   }
   const canManageAll = can(
     session.user.permissions,
-    PERMISSIONS.COMPANY_VIEW_ALL
+    PERMISSIONS.CUSTOMER_REGISTRATION_VIEW_ALL
   );
 
   const supabase = getSupabaseAdmin();

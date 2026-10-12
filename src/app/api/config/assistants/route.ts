@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchTaskAgentCandidates, fetchTaskAgents } from "@/lib/tasks/assignees";
-import { loadConfigAdmin } from "@/lib/table-config/access";
+import { loadAccountManager } from "@/lib/admin/account-manager-access";
 import { broadcastTableConfigChanged } from "@/lib/table-config/realtime";
 import { mapAssistantMembershipError } from "@/lib/tasks/membership-mutation";
+import { invalidateTaskMembershipLookups } from "@/lib/tasks/membership";
+import { checkMembershipChange } from "@/lib/rbac/delegation";
+import { fetchUserPermissionKeysByEmail } from "@/lib/rbac/role-management";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const admin = await loadConfigAdmin();
+  const admin = await loadAccountManager();
   if (!admin.ok) {
     return NextResponse.json({ error: admin.error }, { status: admin.status });
   }
@@ -46,7 +49,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const admin = await loadConfigAdmin();
+  const admin = await loadAccountManager();
   if (!admin.ok) {
     return NextResponse.json({ error: admin.error }, { status: admin.status });
   }
@@ -62,6 +65,13 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
+
+  const membership = checkMembershipChange({
+    actorPermissions: admin.permissions,
+    isSelf: cs_email === admin.email.trim().toLowerCase(),
+    targetPermissionKeys: await fetchUserPermissionKeysByEmail(cs_email),
+  });
+  if (!membership.ok) return NextResponse.json({ error: membership.error }, { status: membership.status });
 
   const { error } = await getSupabaseAdmin().rpc("create_agent_membership_atomic", {
     p_agent_email: agent_email,
@@ -75,12 +85,13 @@ export async function POST(request: Request) {
     );
   }
 
+  invalidateTaskMembershipLookups();
   await broadcastTableConfigChanged();
   return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(request: Request) {
-  const admin = await loadConfigAdmin();
+  const admin = await loadAccountManager();
   if (!admin.ok) {
     return NextResponse.json({ error: admin.error }, { status: admin.status });
   }
@@ -97,6 +108,13 @@ export async function DELETE(request: Request) {
     );
   }
 
+  const membership = checkMembershipChange({
+    actorPermissions: admin.permissions,
+    isSelf: cs_email === admin.email.trim().toLowerCase(),
+    targetPermissionKeys: await fetchUserPermissionKeysByEmail(cs_email),
+  });
+  if (!membership.ok) return NextResponse.json({ error: membership.error }, { status: membership.status });
+
   const { error } = await getSupabaseAdmin()
     .from("agent_members")
     .delete()
@@ -105,6 +123,7 @@ export async function DELETE(request: Request) {
     .eq("is_assistant", true);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  invalidateTaskMembershipLookups();
   await broadcastTableConfigChanged();
   return NextResponse.json({ ok: true });
 }

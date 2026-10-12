@@ -3,7 +3,6 @@ import { auth } from "@/auth";
 import {
   buildLeadActor,
   canManageLeads,
-  isLeadViewAdmin,
 } from "@/lib/leads/access";
 import { fetchTaskAgents } from "@/lib/tasks/assignees";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -30,9 +29,7 @@ export async function GET() {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
+  const actor = buildLeadActor(session.user.permissions, email);
   if (!canManageLeads(actor)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }

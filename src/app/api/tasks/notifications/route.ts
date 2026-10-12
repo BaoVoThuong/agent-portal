@@ -5,7 +5,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { notifTopic } from "@/lib/tasks/realtime";
 import type { EnrollmentProgram } from "@/lib/enrollment/types";
 import { RouteTiming } from "@/lib/server-timing";
-import { buildTaskActor, isTaskViewAdmin } from "@/lib/tasks/access";
+import { buildTaskActor } from "@/lib/tasks/access";
 import { canAccessEnrollment } from "@/lib/enrollment/access";
 import { isRecordInScope, resolveEnrollmentScope } from "@/lib/enrollment/scope";
 import { redactEnrollmentNotification } from "@/lib/enrollment/notification-redaction";
@@ -426,9 +426,7 @@ export async function GET(req: Request) {
     ].map((c) => [c.id, c.body] as const)
   );
 
-  const viewerActor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const viewerActor = buildTaskActor(session.user.permissions, email);
   let enrollmentScope: Awaited<ReturnType<typeof resolveEnrollmentScope>> | null = null;
   if (enrollmentIds.length > 0 && canAccessEnrollment(viewerActor)) {
     try {

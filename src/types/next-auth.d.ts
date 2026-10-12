@@ -1,19 +1,16 @@
 import type { DefaultSession } from "next-auth";
-import type { UserRole } from "@/lib/domain/account.types";
 
+// The session carries permissions only. Role names and the legacy admin/agent
+// role were dropped 2026-10-09: nothing may decide access from them.
 declare module "next-auth" {
   interface Session {
     user: {
-      role?: UserRole;
-      roles?: string[];
       permissions?: string[];
       agentId?: string | null;
     } & DefaultSession["user"];
   }
 
   interface User {
-    role?: UserRole;
-    roles?: string[];
     permissions?: string[];
     agentId?: string | null;
     rbacRefreshedAt?: number;
@@ -22,8 +19,6 @@ declare module "next-auth" {
 
 declare module "next-auth/jwt" {
   interface JWT {
-    role?: UserRole;
-    roles?: string[];
     permissions?: string[];
     agentId?: string | null;
   }

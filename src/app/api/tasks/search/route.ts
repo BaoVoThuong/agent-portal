@@ -3,7 +3,6 @@ import { auth } from "@/auth";
 import {
   buildTaskActor,
   canAccessBoard,
-  isTaskViewAdmin,
 } from "@/lib/tasks/access";
 import { runTaskSearch } from "@/lib/tasks/search";
 
@@ -16,9 +15,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = buildTaskActor(session.user.permissions, email);
   if (!canAccessBoard(actor)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

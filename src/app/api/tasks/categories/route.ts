@@ -4,7 +4,6 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import {
   buildTaskActor,
   canAccessBoard,
-  isTaskViewAdmin,
   canManageCategories,
 } from "@/lib/tasks/access";
 import { broadcastTaskCategoriesChanged } from "@/lib/tasks/realtime";
@@ -16,9 +15,7 @@ export async function GET() {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = buildTaskActor(session.user.permissions, email);
   // Reads are for anyone on the board — category labels/filter render for all
   // roles. Only writes (POST below / PATCH+DELETE in [id]) are admin-only.
   if (!canAccessBoard(actor))
@@ -39,9 +36,7 @@ export async function POST(req: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = buildTaskActor(session.user.permissions, email);
   if (!canManageCategories(actor))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 

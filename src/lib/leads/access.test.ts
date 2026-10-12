@@ -5,7 +5,6 @@ import {
   canLogInteraction,
   canManageLeads,
   canViewLead,
-  isLeadViewAdmin,
   personalLeadAgentEmailsForWorker,
 } from "./access";
 import type { LeadRow } from "./types";
@@ -46,9 +45,12 @@ describe("lead access", () => {
     expect(lead.assigned_to_email).toBe("agent@x.com");
   });
 
-  it("lets task.manage see every lead without granting edits or assignment", () => {
-    expect(canViewLead(taskManager, theirs)).toBe(true);
-    expect(canViewLead(taskManager, unassigned)).toBe(true);
+  // No cross-module grant: task.manage is a Task permission and opens nothing
+  // in Lead (it used to show every lead).
+  it("gives task.manage no lead access at all", () => {
+    expect(taskManager.isWorker).toBe(false);
+    expect(canViewLead(taskManager, theirs)).toBe(false);
+    expect(canViewLead(taskManager, unassigned)).toBe(false);
     expect(canEditLead(taskManager, theirs)).toBe(false);
     expect(canManageLeads(taskManager)).toBe(false);
   });
@@ -103,20 +105,18 @@ describe("assistant membership", () => {
   });
 });
 
-describe("account-role admin", () => {
-  it("counts the legacy admin role and the super-admin RBAC role", () => {
-    expect(isLeadViewAdmin({ role: "admin" })).toBe(true);
-    expect(isLeadViewAdmin({ roles: ["Admin"] })).toBe(true);
-    expect(isLeadViewAdmin({ roles: ["Super Admin"] })).toBe(true);
-    expect(isLeadViewAdmin({ role: "agent", roles: ["Agent"] })).toBe(false);
+// Lead access follows the Lead ticks only. Until 2026-10-09 an admin-named
+// account was a manager without lead.manage, and task.manage saw every lead.
+describe("only lead permissions grant lead access", () => {
+  it("lead.manage is the manager and includes work", () => {
+    expect(manager.isManager).toBe(true);
+    expect(manager.isWorker).toBe(true);
   });
 
-  // An admin manages leads without lead.manage being granted separately.
-  it("makes an admin a lead manager without the permission", () => {
-    const admin = buildLeadActor(["lead.work"], "boss@x.com", { isAdmin: true });
-    expect(admin.isManager).toBe(true);
-    expect(canViewLead(admin, theirs)).toBe(true);
-    expect(canEditLead(admin, theirs)).toBe(true);
+  it("lead.work without lead.manage is not a manager, whatever the role is called", () => {
+    const worker = buildLeadActor(["lead.work"], "boss@x.com");
+    expect(worker.isManager).toBe(false);
+    expect(canViewLead(worker, theirs)).toBe(false);
   });
 });
 

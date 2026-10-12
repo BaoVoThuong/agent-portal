@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, isTaskViewAdmin, canViewTask } from "@/lib/tasks/access";
+import { buildTaskActor, canViewTask } from "@/lib/tasks/access";
 import { loadTaskDetail } from "@/lib/tasks/detail";
 import {
   actorSeesAllTasks,
@@ -67,9 +67,7 @@ export async function GET(req: Request, { params }: Ctx) {
     const email = session?.user?.email;
     if (!email) return respond({ error: "Unauthorized" }, 401);
 
-    const actor = buildTaskActor(session.user.permissions, email, {
-      isAdmin: isTaskViewAdmin(session.user),
-    });
+    const actor = buildTaskActor(session.user.permissions, email);
     const supabase = getSupabaseAdmin();
     const { data: task, error } = await timing.measure("task", async () =>
       supabase

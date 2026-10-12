@@ -61,8 +61,14 @@ const ACCESSIBLE_ROUTES: PermissionRoute[] = [
     anyPermission: [PERMISSIONS.LEAD_MANAGE, PERMISSIONS.LEAD_WORK],
   },
   {
+    // Same rule as the "Table Configuration" menu item: each table is
+    // configured by its own module's manage permission.
     href: "/config",
-    permission: PERMISSIONS.TASK_MANAGE,
+    anyPermission: [
+      PERMISSIONS.TASK_MANAGE,
+      PERMISSIONS.LEAD_MANAGE,
+      PERMISSIONS.AUTOMATION_PROVIDER_MANAGE,
+    ],
   },
   {
     href: "/time-off",

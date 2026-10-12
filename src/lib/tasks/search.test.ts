@@ -38,9 +38,7 @@ describe("isHitVisible", () => {
     seesAllTasks: false,
   };
   const cs = buildTaskActor(["task.work"], "cs@x.com");
-  const admin = buildTaskActor(["task.manage"], "admin@x.com", {
-    isAdmin: true,
-  });
+  const admin = buildTaskActor(["task.manage"], "admin@x.com");
 
   it("admin sees every hit", () => {
     expect(

@@ -32,7 +32,7 @@ export async function GET() {
 
   const canViewAll = can(
     session.user.permissions,
-    PERMISSIONS.COMPANY_VIEW_ALL
+    PERMISSIONS.CUSTOMER_REGISTRATION_VIEW_ALL
   );
   const supabase = getSupabaseAdmin();
   let query = supabase

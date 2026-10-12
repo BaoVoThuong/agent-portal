@@ -1,6 +1,6 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { buildLeadActor, canManageLeads, canWorkLeads, isLeadViewAdmin } from "@/lib/leads/access";
+import { buildLeadActor, canManageLeads, canWorkLeads } from "@/lib/leads/access";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import { resolveEventByName } from "@/lib/leads/events";
 import { isPersonalLeadEventName } from "@/lib/leads/lead-type";
@@ -14,9 +14,7 @@ export async function GET() {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
+  const actor = buildLeadActor(session.user.permissions, email);
   if (!canWorkLeads(actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   // Lấy dư một dòng để biết còn nữa hay không. Trước đây cắt cứng ở 200 mà
@@ -44,9 +42,7 @@ export async function POST(request: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
+  const actor = buildLeadActor(session.user.permissions, email);
   if (!canManageLeads(actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;

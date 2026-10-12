@@ -134,8 +134,6 @@ function canEditDashboardDefault(
   permissions: string[],
   dashboardKey: DashboardFilterKey
 ) {
-  if (can(permissions, PERMISSIONS.ROLE_MANAGER)) return true;
-
   if (dashboardKey === DASHBOARD_FILTER_KEYS.COMPANY_DASHBOARD_HEALTH) {
     return can(permissions, PERMISSIONS.COMPANY_DASHBOARD_HEALTH);
   }
@@ -144,7 +142,7 @@ function canEditDashboardDefault(
     return can(permissions, PERMISSIONS.COMPANY_DASHBOARD_PC);
   }
 
-  // Agent dashboard defaults — only managers (company.view_all) or role_manager can edit
+  // Agent dashboard defaults — only company.view_all (Dashboard permission) can edit
   return can(permissions, PERMISSIONS.COMPANY_VIEW_ALL);
 }
 

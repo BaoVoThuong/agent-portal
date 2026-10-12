@@ -5,10 +5,9 @@ import {
 } from "@/lib/pagination/concurrency";
 import { cache } from "react";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import {
-  LEGACY_SUPER_ADMIN_ROLE_NAME,
-  SYSTEM_ROLE_NAMES,
-} from "@/lib/rbac/system-roles";
+import { isAdminRoleName } from "@/lib/rbac/admin-role";
+import { createSharedLookup } from "@/lib/shared-lookup";
+import { fetchActiveRoleIdsWithAnyPermission } from "@/lib/rbac/permission-holders";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type TaskPersonRole = {
@@ -33,19 +32,37 @@ type AccountRoleRow = {
   id: string;
   email: string;
   name: string | null;
-  role: string | null;
   user_roles?: Array<{
     roles: { name: string; is_active: boolean } | null;
   }> | null;
 };
 
-export const fetchSelectedAgentEmails = cache(async (): Promise<Set<string>> => {
-  const { data, error } = await getSupabaseAdmin()
-    .from("task_agents")
-    .select("email");
-  if (error) throw new Error(error.message);
-  return new Set((data ?? []).map((row) => (row as { email: string }).email));
-});
+// task_agents and agent_members change only through /api/config/agents and
+// /api/config/assistants, which call invalidateTaskMembershipLookups(). Other
+// server instances pick a change up within this window, so adding or removing
+// an agent or assistant can take up to a minute to change what someone sees.
+export const TASK_MEMBERSHIP_REUSE_MS = 60 * 1000;
+
+const selectedAgentEmails = createSharedLookup(
+  async (): Promise<string[]> => {
+    const { data, error } = await getSupabaseAdmin()
+      .from("task_agents")
+      .select("email");
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((row) => (row as { email: string }).email);
+  },
+  { ttlMs: TASK_MEMBERSHIP_REUSE_MS },
+);
+
+export function invalidateSelectedAgentEmails(): void {
+  selectedAgentEmails.invalidate();
+}
+
+// Still throws on a read failure (see fetchAssistantAgentsForCs): a failed read
+// is never reused, so it stays fail-closed.
+export const fetchSelectedAgentEmails = cache(
+  async (): Promise<Set<string>> => new Set(await selectedAgentEmails.get("all")),
+);
 
 const fetchAssistantMemberRows = cache(
   async (): Promise<Array<{ agent_email: string; cs_email: string }>> => {
@@ -58,18 +75,15 @@ const fetchAssistantMemberRows = cache(
   }
 );
 
-// Active accounts whose role grants task.work or task.manage. Used by the
+// Active accounts whose active role grants task.work or task.manage. Used by the
 // assignee picker (manager only).
 export const fetchTaskAssignees = cache(async (): Promise<TaskAssignee[]> => {
   const supabase = getSupabaseAdmin();
 
-  const { data: rp, error: rpErr } = await supabase
-    .from("role_permissions")
-    .select("role_id")
-    .in("permission_key", [PERMISSIONS.TASK_WORK, PERMISSIONS.TASK_MANAGE]);
-  if (rpErr) throw new Error(rpErr.message);
-
-  const roleIds = [...new Set((rp ?? []).map((r) => (r as { role_id: string }).role_id))];
+  const roleIds = await fetchActiveRoleIdsWithAnyPermission([
+    PERMISSIONS.TASK_WORK,
+    PERMISSIONS.TASK_MANAGE,
+  ]);
   if (roleIds.length === 0) return [];
 
   const { data: ur, error: urErr } = await supabase
@@ -83,7 +97,7 @@ export const fetchTaskAssignees = cache(async (): Promise<TaskAssignee[]> => {
 
   const { data: accounts, error: accErr } = await supabase
     .from("portal_account")
-    .select("id,email,name,is_active,role,user_roles(roles(name,is_active))")
+    .select("id,email,name,is_active,user_roles(roles(name,is_active))")
     .in("id", userIds)
     .eq("is_active", true);
   if (accErr) throw new Error(accErr.message);
@@ -125,7 +139,7 @@ export async function fetchTaskAgents(): Promise<TaskAgent[]> {
 
   const { data: accounts, error } = await supabase
     .from("portal_account")
-    .select("id,email,name,is_active,role,user_roles(roles(name,is_active))")
+    .select("id,email,name,is_active,user_roles(roles(name,is_active))")
     .in("email", emails)
     .eq("is_active", true);
   if (error) throw new Error(error.message);
@@ -136,7 +150,7 @@ export async function fetchTaskAgents(): Promise<TaskAgent[]> {
 export async function fetchTaskAgentCandidates(): Promise<TaskAgent[]> {
   const { data: accounts, error } = await getSupabaseAdmin()
     .from("portal_account")
-    .select("id,email,name,is_active,role,user_roles(roles(name,is_active))")
+    .select("id,email,name,is_active,user_roles(roles(name,is_active))")
     .eq("is_active", true);
   if (error) throw new Error(error.message);
 
@@ -206,17 +220,10 @@ async function enrichTaskPeopleRoles(rows: AccountRoleRow[]): Promise<TaskAssign
   );
 }
 
+// "Admin" badge only — display, never access. Holds the fixed Admin role.
 function isAdminAccount(account: AccountRoleRow): boolean {
-  const activeRoleNames = (account.user_roles ?? [])
-    .map((row) => row.roles)
-    .filter((role): role is { name: string; is_active: boolean } =>
-      Boolean(role?.is_active)
-    )
-    .map((role) => role.name);
-  return (
-    account.role === "admin" ||
-    activeRoleNames.includes(SYSTEM_ROLE_NAMES.SUPER_ADMIN) ||
-    activeRoleNames.includes(LEGACY_SUPER_ADMIN_ROLE_NAME)
+  return (account.user_roles ?? []).some(
+    (row) => Boolean(row.roles?.is_active) && isAdminRoleName(row.roles?.name)
   );
 }
 

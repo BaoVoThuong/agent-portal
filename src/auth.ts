@@ -5,16 +5,13 @@ import Credentials from "next-auth/providers/credentials";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import bcrypt from "bcryptjs";
 import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
-import type { UserRole } from "@/lib/domain/account.types";
-import {
-  assignDefaultRoleToUser,
-  getUserAccessByEmail,
-} from "@/lib/rbac/access";
+import { getUserAccessByEmail } from "@/lib/rbac/access";
 import {
   getClientIp,
   isLoginRateLimited,
   recordLoginAttempt,
 } from "@/lib/auth/rate-limit";
+import { createSharedLookup } from "@/lib/shared-lookup";
 
 // Fixed valid hash so bcrypt.compare runs at full cost even when the user does
 // not exist — prevents timing-based account enumeration. Keep it lazy so every
@@ -27,11 +24,22 @@ function getDummyPasswordHash(): string {
   ));
 }
 
-// Permission changes take effect on the next sign-in or within this bounded
-// window. The value travels in the encrypted JWT, so this avoids a repeated
-// portal_account/user_roles join on every auth() call without a process-global
-// cache leaking access between users.
-const RBAC_REFRESH_TTL_MS = 5 * 60 * 1000;
+// Every auth check consults the shared lookup. Its one-minute TTL bounds stale
+// permissions across instances; invalidation clears this instance immediately.
+const RBAC_REFRESH_TTL_MS = 0;
+
+// `await auth()` does not persist a refreshed JWT cookie in this next-auth
+// version. Every request checks this per-instance lookup instead; the key is
+// the token email, and failed reads are not reused.
+const RBAC_LOOKUP_REUSE_MS = 60 * 1000;
+const rbacLookup = createSharedLookup(getUserAccessByEmail, {
+  ttlMs: RBAC_LOOKUP_REUSE_MS,
+  keep: (access) => access.userId !== null,
+});
+
+export function invalidateRbacLookups(): void {
+  rbacLookup.invalidate();
+}
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   // Nền chung với `proxy.ts`: pages + callback `authorized` khai một chỗ duy
@@ -55,7 +63,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         const supabase = getSupabaseAdmin();
         const { data: user } = await supabase
           .from(PORTAL_ACCOUNT_TABLE)
-          .select("id,email,name,agent_id,password_hash,role,is_active")
+          .select("id,email,name,agent_id,password_hash,is_active")
           .eq("email", email)
           .single();
 
@@ -85,8 +93,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           email: user.email,
           name: user.name,
           agentId: user.agent_id ?? null,
-          role: access.legacyRole,
-          roles: access.roles,
           permissions: access.permissions,
         };
       },
@@ -109,24 +115,14 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         const allowedDomain = process.env.AUTH_GOOGLE_ALLOWED_DOMAIN?.trim();
         if (allowedDomain && user.email.endsWith(`@${allowedDomain}`)) {
-          const { data: createdUser } = await supabase
-            .from(PORTAL_ACCOUNT_TABLE)
-            .insert([
-              {
-                email: user.email,
-                name: user.name,
-                password_hash: "google-auth", // Đánh dấu đây là user dùng Google
-                role: "agent",
-                is_active: true,
-              },
-            ])
-            .select("id")
-            .single();
-
-          if (createdUser?.id) {
-            await assignDefaultRoleToUser(createdUser.id, "agent");
+          const { error: createError } = await supabase.rpc("create_account_with_default_role", {
+            p_email: user.email,
+            p_name: user.name ?? null,
+          });
+          if (createError) {
+            console.error("[auth] could not create Google account", { error: createError.message });
+            return false;
           }
-
           return true;
         }
 
@@ -136,14 +132,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       return true;
     },
     async jwt({ token, user }) {
-      if (user?.role) {
-        token.role = user.role;
-      }
-
-      if (user?.roles) {
-        token.roles = user.roles;
-      }
-
       if (user?.permissions) {
         token.permissions = user.permissions;
       }
@@ -156,7 +144,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       // for the first JWT callback; OAuth users and expired tokens refresh
       // from the canonical RBAC tables.
       const accessProvidedAtSignIn = Boolean(
-        user && Array.isArray(user.roles) && Array.isArray(user.permissions),
+        user && Array.isArray(user.permissions),
       );
       if (accessProvidedAtSignIn) {
         token.rbacRefreshedAt = Date.now();
@@ -167,16 +155,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         Date.now() - lastRbacRefresh >= RBAC_REFRESH_TTL_MS;
 
       if (token.email && shouldRefreshRbac) {
-        const access = await getUserAccessByEmail(token.email);
-        if (access.isActive) {
-          token.role = access.legacyRole;
-          token.roles = access.roles;
-          token.permissions = access.permissions;
-        } else {
-          token.role = "agent";
-          token.roles = [];
-          token.permissions = [];
-        }
+        const access = await rbacLookup.get(token.email);
+        token.permissions = access.isActive ? access.permissions : [];
+        // Tokens issued before 2026-10-09 still carry role names and the
+        // legacy admin/agent role. Nothing reads them; drop them from the token
+        // so no future code is tempted to. The cookie retains them until sign-in.
+        delete token.role;
+        delete token.roles;
         token.agentId = access.agentId;
         token.rbacRefreshedAt = Date.now();
       }
@@ -185,8 +170,6 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     },
     async session({ session, token }) {
       if (session.user) {
-        session.user.role = (token.role ?? "agent") as UserRole;
-        session.user.roles = Array.isArray(token.roles) ? token.roles : [];
         session.user.permissions = Array.isArray(token.permissions)
           ? token.permissions
           : [];

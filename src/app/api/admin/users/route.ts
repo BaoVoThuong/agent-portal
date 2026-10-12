@@ -2,15 +2,14 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
-import type { UserRole } from "@/lib/domain/account.types";
 import { can } from "@/lib/rbac/client";
-import { assignDefaultRoleToUser } from "@/lib/rbac/access";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import {
   fetchActiveRolesByIds,
+  fetchRolePermissionKeys,
   replaceUserRoles,
 } from "@/lib/rbac/role-management";
-import { getLegacyRoleFromRoleNames } from "@/lib/rbac/system-roles";
+import { checkAccountChange } from "@/lib/rbac/delegation";
 import { parseCreateUserInput } from "@/lib/admin/user-input";
 import bcrypt from "bcryptjs";
 
@@ -36,7 +35,6 @@ export async function POST(req: Request) {
       password,
       name,
       agentId: normalizedAgentId,
-      legacyRoleFallback: selectedRole,
       roleIds: selectedRoleIds,
     } = parsed.value;
 
@@ -75,17 +73,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const selectedRoles = selectedRoleIds.length
-      ? await fetchActiveRolesByIds(selectedRoleIds)
-      : [];
-
-    if (selectedRoleIds.length > 0 && selectedRoles.length === 0) {
-      return NextResponse.json(
-        { error: "Select at least one active role." },
-        { status: 400 }
-      );
-    }
-
+    const selectedRoles = await fetchActiveRolesByIds(selectedRoleIds);
     if (selectedRoles.length !== selectedRoleIds.length) {
       return NextResponse.json(
         { error: "One or more selected roles are invalid or disabled." },
@@ -93,11 +81,16 @@ export async function POST(req: Request) {
       );
     }
 
-    const selectedRoleNames = selectedRoles.map((item) => item.name);
-    const legacyRole: UserRole =
-      selectedRoleIds.length > 0
-        ? getLegacyRoleFromRoleNames(selectedRoleNames)
-        : selectedRole;
+    // Only hand out a role whose permissions fit inside your own.
+    const delegation = checkAccountChange({
+      actorPermissions: session?.user?.permissions ?? [],
+      isSelf: false,
+      targetPermissionKeys: [],
+      nextRolePermissionKeys: await fetchRolePermissionKeys(selectedRoleIds[0]),
+    });
+    if (!delegation.ok) {
+      return NextResponse.json({ error: delegation.error }, { status: delegation.status });
+    }
 
     const hashedPassword = await bcrypt.hash(password, 10);
     const { data, error } = await supabase
@@ -108,11 +101,10 @@ export async function POST(req: Request) {
           name,
           agent_id: normalizedAgentId,
           password_hash: hashedPassword,
-          role: legacyRole,
           is_active: true,
         },
       ])
-      .select("id,email,name,agent_id,role,is_active,created_at")
+      .select("id,email,name,agent_id,is_active,created_at")
       .single();
 
     if (error) {
@@ -125,18 +117,13 @@ export async function POST(req: Request) {
 
     if (data?.id) {
       createdUserId = data.id;
-      if (selectedRoleIds.length > 0) {
-        await replaceUserRoles(data.id, selectedRoleIds);
-      } else {
-        await assignDefaultRoleToUser(data.id, selectedRole);
-      }
+      await replaceUserRoles(data.id, selectedRoleIds);
     }
 
     console.info("[account-manager:create] success", {
       email: normalizedEmail,
       userId: data.id,
       roleIds: selectedRoleIds,
-      legacyRole,
     });
 
     return NextResponse.json({ user: data }, { status: 201 });

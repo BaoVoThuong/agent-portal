@@ -1,7 +1,7 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, isTaskViewAdmin, canViewTask } from "@/lib/tasks/access";
+import { buildTaskActor, canViewTask } from "@/lib/tasks/access";
 import { isTaskAssignee } from "@/lib/tasks/assignees";
 import { fetchTaskAssignees } from "@/lib/tasks/assignees";
 import { actorSeesAllTasks, fetchAgentsForCs } from "@/lib/tasks/membership";
@@ -50,9 +50,7 @@ async function loadAuthorContext(id: string, cid: string) {
   const email = session?.user?.email;
   if (!email) return { error: "Unauthorized" as const, status: 401 };
 
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = buildTaskActor(session.user.permissions, email);
   const supabase = getSupabaseAdmin();
 
   // 2. Load comment (id, author_email, task_id)

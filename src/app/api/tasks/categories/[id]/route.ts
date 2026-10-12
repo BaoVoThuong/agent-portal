@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, isTaskViewAdmin, canManageCategories } from "@/lib/tasks/access";
+import { buildTaskActor, canManageCategories } from "@/lib/tasks/access";
 import { broadcastTaskCategoriesChanged } from "@/lib/tasks/realtime";
 import { inactiveConfigValueResponse } from "@/lib/table-config/mutation-errors";
 import { parseConfiguredColor } from "@/lib/table-config/value-colors";
@@ -14,9 +14,7 @@ async function requireManager() {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return { error: "Unauthorized" as const, status: 401 };
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = buildTaskActor(session.user.permissions, email);
   if (!canManageCategories(actor)) return { error: "Unauthorized" as const, status: 401 };
   return { supabase: getSupabaseAdmin() };
 }

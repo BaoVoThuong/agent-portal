@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { PERMISSIONS, PERMISSION_DEFINITIONS } from "@/lib/rbac/permissions";
+import {
+  expandImpliedPermissions,
+  normalizeExclusivePermissionKeys,
+  permissionImpliedBy,
+  PERMISSIONS,
+  PERMISSION_DEFINITIONS,
+} from "@/lib/rbac/permissions";
 
 describe("task permissions", () => {
   it("declares the two task permission keys", () => {
@@ -56,6 +62,38 @@ describe("provider permissions", () => {
         key: "automation.provider_manage",
         groupKey: "automation",
         sortOrder: 350,
+      }),
+    );
+  });
+});
+
+describe("manage includes work", () => {
+  it("drops Work when the matching Manage is stored", () => {
+    expect(normalizeExclusivePermissionKeys(["task.manage", "task.work"])).toEqual(["task.manage"]);
+    expect(normalizeExclusivePermissionKeys(["lead.manage", "lead.work", "x"]).sort()).toEqual(
+      ["lead.manage", "x"]
+    );
+  });
+
+  it("keeps Work on its own", () => {
+    expect(normalizeExclusivePermissionKeys(["task.work"])).toEqual(["task.work"]);
+  });
+
+  it("expands Manage to the Work it includes when comparing", () => {
+    expect(expandImpliedPermissions(["task.manage"])).toContain("task.work");
+    expect(expandImpliedPermissions(["lead.manage"])).toContain("lead.work");
+    expect(permissionImpliedBy("task.work")).toBe("task.manage");
+    expect(permissionImpliedBy("task.manage")).toBeNull();
+  });
+});
+
+describe("registration view-all", () => {
+  it("is a Customer Registration permission, separate from the dashboard one", () => {
+    expect(PERMISSIONS.CUSTOMER_REGISTRATION_VIEW_ALL).toBe("customer_registration.view_all");
+    expect(PERMISSION_DEFINITIONS).toContainEqual(
+      expect.objectContaining({
+        key: "customer_registration.view_all",
+        groupKey: "customer_registration",
       }),
     );
   });

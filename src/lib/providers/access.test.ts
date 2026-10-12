@@ -30,10 +30,11 @@ describe("provider list access", () => {
     expect(canImportProviders(permissions)).toBe(false);
   });
 
-  it("keeps task.export and task.import working for Finder users", () => {
-    expect(canExportProviders([FINDER, "task.export"])).toBe(true);
-    expect(canImportProviders([FINDER, "task.export"])).toBe(false);
-    expect(canImportProviders([FINDER, "task.import"])).toBe(true);
+  // No cross-module grant (2026-10-09): Task export / import open nothing in
+  // the Provider List; only Provider List - Manage does.
+  it("ignores task.export and task.import", () => {
+    expect(canExportProviders([FINDER, "task.export"])).toBe(false);
+    expect(canImportProviders([FINDER, "task.import"])).toBe(false);
     expect(canManageProviders([FINDER, "task.export", "task.import"])).toBe(false);
   });
 

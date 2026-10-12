@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { buildLeadActor, canManageLeads, canWorkLeads, isLeadViewAdmin } from "@/lib/leads/access";
+import { buildLeadActor, canManageLeads, canWorkLeads } from "@/lib/leads/access";
 import { fetchAssignmentWeights, isAutoAssignEnabled } from "@/lib/leads/auto-assign";
 import { pickWeighted, previewDistribution } from "@/lib/leads/round-robin";
 import { isPersonalLeadEventName } from "@/lib/leads/lead-type";
@@ -38,9 +38,7 @@ async function actorForRequest() {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return { response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
+  const actor = buildLeadActor(session.user.permissions, email);
   return { actor };
 }
 

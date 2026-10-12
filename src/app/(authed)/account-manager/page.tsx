@@ -9,13 +9,9 @@ import {
   type RoleOption,
 } from "@/lib/rbac/role-management";
 import { requirePermission } from "@/lib/rbac/server";
-import {
-  getDefaultSystemRoleName,
-  SYSTEM_ROLE_NAMES,
-} from "@/lib/rbac/system-roles";
+import { isAdminRoleName } from "@/lib/rbac/admin-role";
 import AccountManagerClient from "./AccountManagerClient";
 import type { AgentMembershipData, AssistantMember } from "./AgentMembershipSection";
-import { loadConfigAdmin } from "@/lib/table-config/access";
 import {
   fetchTaskAgentCandidates,
   fetchTaskAgents,
@@ -51,15 +47,14 @@ export type ManagedAccountUser = AccountUser & {
 
 /**
  * Agents + Assistant membership (chuyển từ Table Configuration 2026-10-03).
- * Chỉ nạp cho admin cấu hình — đúng cổng của `/api/config/agents|assistants`,
- * nên ai thấy tab là sửa được, và danh bạ công ty (`candidates`) không bị gửi
- * xuống cho người không có quyền.
+ * Thuộc trang Account Manager nên dùng ĐÚNG quyền của trang này
+ * (`management.account_manager`) — cùng cổng với `/api/config/agents|assistants`.
+ * Trước 2026-10-09 phần này gác bằng quyền Task (task manager): một quyền chéo
+ * cho phép người không vào được trang vẫn gọi thẳng API để sửa Agent/Assistant.
  */
 async function loadAgentMembership(
   supabase: ReturnType<typeof getSupabaseAdmin>,
-): Promise<AgentMembershipData | null> {
-  const admin = await loadConfigAdmin();
-  if (!admin.ok) return null;
+): Promise<AgentMembershipData> {
   try {
     const [agents, candidates, assignees, membersResult] = await Promise.all([
       fetchTaskAgents(),
@@ -111,7 +106,7 @@ export default async function AccountManagerPage() {
   ] = await Promise.all([
     supabase
       .from(PORTAL_ACCOUNT_TABLE)
-      .select("id,email,name,agent_id,role,is_active,created_at")
+      .select("id,email,name,agent_id,is_active,created_at")
       .order("created_at", { ascending: false }),
     fetchRolesWithPermissions(),
     supabase.from("user_roles").select("user_id,role_id"),
@@ -154,6 +149,7 @@ export default async function AccountManagerPage() {
     description: role.description,
     is_system: role.is_system,
     is_active: role.is_active,
+    is_default: role.is_default,
   }));
   const rolesById = new Map(availableRoles.map((role) => [role.id, role]));
   const roleIdsByUserId = new Map<string, string[]>();
@@ -171,21 +167,15 @@ export default async function AccountManagerPage() {
           const firstRole = rolesById.get(firstRoleId);
           const secondRole = rolesById.get(secondRoleId);
 
-          if (firstRole?.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN) return -1;
-          if (secondRole?.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN) return 1;
+          if (isAdminRoleName(firstRole?.name)) return -1;
+          if (isAdminRoleName(secondRole?.name)) return 1;
 
           return (firstRole?.name ?? "").localeCompare(secondRole?.name ?? "");
         })
         .slice(0, 1);
-      const fallbackRole = availableRoles.find((role) =>
-        role.name === getDefaultSystemRoleName(user.role)
-      );
-      const roleIds =
-        directRoleIds.length > 0
-          ? directRoleIds
-          : fallbackRole
-            ? [fallbackRole.id]
-            : [];
+      // No fallback to the legacy portal_account.role column any more: an
+      // account without a role shows "No role" instead of a guessed one.
+      const roleIds = directRoleIds;
 
       return {
         ...user,

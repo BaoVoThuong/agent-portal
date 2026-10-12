@@ -18,7 +18,6 @@ describe("flattenAccess", () => {
     const a = flattenAccess(row);
     expect(a.isActive).toBe(true);
     expect(a.agentId).toBe("EPS0001");
-    expect(a.roles).toEqual(["CS"]);
     expect([...a.permissions].sort()).toEqual(["settings.access", "task.work"]);
   });
 
@@ -29,31 +28,18 @@ describe("flattenAccess", () => {
   });
 });
 
-describe("flattenAccess legacy admin", () => {
-  const row = (role: string, roleNames: string[]) => ({
-    id: "u1",
-    role,
-    is_active: true,
-    agent_id: null,
-    user_roles: roleNames.map((name) => ({
-      roles: { id: name, name, is_active: true, role_permissions: [] },
-    })),
-  });
-
-  it("honours the RBAC role", () => {
-    expect(flattenAccess(row("agent", ["Admin"]) as never).legacyRole).toBe("admin");
-  });
-
-  // The trap: legacyRole was computed from portal_account.role and then thrown
-  // away for active accounts. The two sources agree in practice because
-  // /api/admin/users writes the column from the role names — but a row edited
-  // directly in the database would silently stop counting as admin.
-  it("honours the legacy column when the RBAC roles do not say admin", () => {
-    expect(flattenAccess(row("admin", ["Task CS"]) as never).legacyRole).toBe("admin");
-    expect(flattenAccess(row("admin", []) as never).legacyRole).toBe("admin");
-  });
-
-  it("still says agent when neither source says admin", () => {
-    expect(flattenAccess(row("agent", ["Task CS"]) as never).legacyRole).toBe("agent");
+// Role names and the legacy portal_account.role column grant nothing: only the
+// permission ticks of active roles count.
+describe("flattenAccess ignores names and the legacy column", () => {
+  it("an Admin-named role with no ticks gives no permissions", () => {
+    const access = flattenAccess({
+      id: "u1",
+      is_active: true,
+      agent_id: null,
+      user_roles: [{ roles: { id: "r1", is_active: true, role_permissions: [] } }],
+    });
+    expect(access.permissions).toEqual([]);
+    expect(access).not.toHaveProperty("legacyRole");
+    expect(access).not.toHaveProperty("roles");
   });
 });

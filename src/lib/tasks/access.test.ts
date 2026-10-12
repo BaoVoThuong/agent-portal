@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   buildTaskActor,
-  isTaskViewAdmin,
   canAccessBoard,
   canSeeBacklog,
   canCreateTask,
@@ -18,8 +17,8 @@ import {
   resolveTaskCapabilities,
 } from "@/lib/tasks/access";
 
-const manager = buildTaskActor(["task.manage"], "mgr@x.com", { isAdmin: true });
-const admin = buildTaskActor(["task.manage"], "admin@x.com", { isAdmin: true });
+const manager = buildTaskActor(["task.manage"], "mgr@x.com");
+const admin = buildTaskActor(["task.manage"], "admin@x.com");
 const cs = buildTaskActor(["task.work"], "cs@x.com");
 const none = buildTaskActor([], "no@x.com");
 const outsider = buildTaskActor(["settings.access"], "out@x.com");
@@ -34,36 +33,25 @@ describe("buildTaskActor", () => {
     expect(manager.email).toBe("mgr@x.com");
   });
 
-  it("admin account with task.manage is a manager", () => {
-    const a = buildTaskActor(["task.manage"], "admin@x.com", { isAdmin: true });
+  // task.manage alone is the whole manager role — no role name involved.
+  // Until 2026-10-09 it also needed an admin-named role, so a role called
+  // "Linh Le" holding task.manage silently stayed a worker.
+  it("task.manage alone makes a manager, and it includes work", () => {
+    const a = buildTaskActor(["task.manage"], "anyone@x.com");
     expect(a.isManager).toBe(true);
     expect(a.isWorker).toBe(true);
   });
 
-  it("agent with legacy task.manage is not a manager but stays a worker", () => {
-    const a = buildTaskActor(["task.manage"], "agent@x.com", { isAdmin: false });
+  it("no permission means neither", () => {
+    const a = buildTaskActor([], "anyone@x.com");
     expect(a.isManager).toBe(false);
-    expect(a.isWorker).toBe(true);
+    expect(a.isWorker).toBe(false);
   });
 
   it("plain CS with task.work is a worker only", () => {
     const a = buildTaskActor(["task.work"], "cs@x.com");
     expect(a.isManager).toBe(false);
     expect(a.isWorker).toBe(true);
-  });
-});
-
-describe("isTaskViewAdmin", () => {
-  it("true for legacy admin role or admin/task-admin RBAC roles", () => {
-    expect(isTaskViewAdmin({ role: "admin" })).toBe(true);
-    expect(isTaskViewAdmin({ roles: ["Admin"] })).toBe(true);
-    expect(isTaskViewAdmin({ roles: ["Super Admin"] })).toBe(true);
-    expect(isTaskViewAdmin({ roles: ["Admin Health Task"] })).toBe(true);
-    expect(isTaskViewAdmin({ roles: ["Task Admin"] })).toBe(true);
-  });
-
-  it("false for a plain agent", () => {
-    expect(isTaskViewAdmin({ role: "agent", roles: ["Agent"] })).toBe(false);
   });
 });
 
@@ -417,27 +405,14 @@ describe("canViewTask — company queue flag", () => {
   });
 });
 
-// /api/tasks/[id]/assign used to gate on isTaskViewAdmin alone. These cases pin
-// down why that was not equivalent to the assignment rule.
-describe("isTaskViewAdmin is not an assignment check", () => {
-  it("an admin role with task.manage revoked is still a task-view admin", () => {
-    const user = { role: "admin", roles: ["Admin Health Task"] };
-    expect(isTaskViewAdmin(user)).toBe(true);
+// /api/tasks/[id]/assign is the only gate in front of a security-definer RPC.
+// Assigning follows task.manage and nothing else.
+describe("assigning follows task.manage only", () => {
+  it("task.work alone cannot assign", () => {
+    expect(canAssign(buildTaskActor(["task.work"], "a@x.com"))).toBe(false);
   });
 
-  it("...but must not be able to assign", () => {
-    const user = { role: "admin", roles: ["Admin Health Task"] };
-    const actor = buildTaskActor(["task.work"], "a@x.com", {
-      isAdmin: isTaskViewAdmin(user),
-    });
-    expect(canAssign(actor)).toBe(false);
-  });
-
-  it("a full admin keeps the ability", () => {
-    const user = { role: "admin", roles: ["Admin Health Task"] };
-    const actor = buildTaskActor(["task.manage"], "a@x.com", {
-      isAdmin: isTaskViewAdmin(user),
-    });
-    expect(canAssign(actor)).toBe(true);
+  it("task.manage can assign", () => {
+    expect(canAssign(buildTaskActor(["task.manage"], "a@x.com"))).toBe(true);
   });
 });

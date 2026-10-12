@@ -36,9 +36,11 @@ describe("resolveLeadCapabilities", () => {
     );
   });
 
-  it("task.manage can see every lead but cannot edit or assign unrelated leads", () => {
+  // No cross-module grant (2026-10-09): task.manage is a Task permission and
+  // opens nothing in Lead.
+  it("task.manage alone gives no lead capability", () => {
     expect(resolveLeadCapabilities(taskManager, theirs)).toEqual({
-      canView: true, canEdit: false, canLog: false, canAssign: false,
+      canView: false, canEdit: false, canLog: false, canAssign: false,
     });
   });
 });

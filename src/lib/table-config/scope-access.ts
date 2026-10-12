@@ -15,7 +15,7 @@ const PROVIDER_SCOPES: readonly TableScope[] = ["provider"];
  * hình Health CS / ACA / Medicare — cả hai đều sai.
  *
  * Nhận CỜ ĐÃ TÍNH chứ không nhận danh sách quyền thô: `isTaskAdmin` đến từ
- * `loadConfigAdmin()` (đòi `task.manage` VÀ vai trò task-admin), `isLeadManager`
+ * `loadConfigAdmin()` (đòi `task.manage`), `isLeadManager`
  * từ `canManageLeads()`. Tự suy ra ở đây là dựng một luật quyền thứ hai bên cạnh
  * luật đang chạy, và hai luật thì sớm muộn cũng lệch.
  *

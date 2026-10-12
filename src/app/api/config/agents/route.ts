@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { loadConfigAdmin } from "@/lib/table-config/access";
+import { loadAccountManager } from "@/lib/admin/account-manager-access";
 import { broadcastTableConfigChanged } from "@/lib/table-config/realtime";
+import { invalidateTaskMembershipLookups } from "@/lib/tasks/membership";
+import { checkMembershipChange } from "@/lib/rbac/delegation";
+import { fetchUserPermissionKeysByEmail } from "@/lib/rbac/role-management";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const admin = await loadConfigAdmin();
+  const admin = await loadAccountManager();
   if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
   const sb = getSupabaseAdmin();
@@ -27,12 +30,19 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const admin = await loadConfigAdmin();
+  const admin = await loadAccountManager();
   if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
   const body = await request.json().catch(() => null);
   const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
   if (!email) return NextResponse.json({ error: "email required" }, { status: 400 });
+
+  const membership = checkMembershipChange({
+    actorPermissions: admin.permissions,
+    isSelf: email === admin.email.trim().toLowerCase(),
+    targetPermissionKeys: await fetchUserPermissionKeysByEmail(email),
+  });
+  if (!membership.ok) return NextResponse.json({ error: membership.error }, { status: membership.status });
 
   const sb = getSupabaseAdmin();
   const { data: account, error: accountErr } = await sb
@@ -49,18 +59,26 @@ export async function POST(request: Request) {
     .upsert({ email }, { onConflict: "email", ignoreDuplicates: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  invalidateTaskMembershipLookups();
   await broadcastTableConfigChanged();
   const row = account as { email: string; name: string | null };
   return NextResponse.json({ agent: { email: row.email, name: row.name } });
 }
 
 export async function DELETE(request: Request) {
-  const admin = await loadConfigAdmin();
+  const admin = await loadAccountManager();
   if (!admin.ok) return NextResponse.json({ error: admin.error }, { status: admin.status });
 
   const body = await request.json().catch(() => null);
   const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
   if (!email) return NextResponse.json({ error: "email required" }, { status: 400 });
+
+  const membership = checkMembershipChange({
+    actorPermissions: admin.permissions,
+    isSelf: email === admin.email.trim().toLowerCase(),
+    targetPermissionKeys: await fetchUserPermissionKeysByEmail(email),
+  });
+  if (!membership.ok) return NextResponse.json({ error: membership.error }, { status: membership.status });
 
   const { error } = await getSupabaseAdmin().rpc("delete_task_agent_atomic", {
     p_email: email,
@@ -77,6 +95,7 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  invalidateTaskMembershipLookups();
   await broadcastTableConfigChanged();
   return NextResponse.json({ ok: true });
 }

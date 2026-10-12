@@ -1,6 +1,6 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { buildLeadActor, isLeadViewAdmin } from "@/lib/leads/access";
+import { buildLeadActor } from "@/lib/leads/access";
 import { resolveLeadCapabilities } from "@/lib/leads/capabilities";
 import { isAssistantToLeadMember } from "@/lib/leads/membership";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
@@ -29,9 +29,7 @@ export async function GET(_req: Request, { params }: Ctx) {
   if (!email) return respond({ error: "Unauthorized" }, 401);
   if (!UUID_RE.test(id)) return respond({ error: "Invalid lead id." }, 400);
 
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
+  const actor = buildLeadActor(session.user.permissions, email);
   const supabase = getSupabaseAdmin();
   const { data: lead, error: leadError } = await timing.measure("lead_scope", async () =>
     supabase
@@ -78,9 +76,7 @@ export async function POST(req: Request, { params }: Ctx) {
   }
   if (!UUID_RE.test(id)) return NextResponse.json({ error: "Invalid lead id." }, { status: 400 });
 
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
+  const actor = buildLeadActor(session.user.permissions, email);
   const supabase = getSupabaseAdmin();
   // Tên event đọc kèm ở đây vì RPC trả về dòng `leads` thô, không có nó — và
   // client thay CẢ dòng bằng bản trả về, nên thiếu tên là cột Event trống ngay

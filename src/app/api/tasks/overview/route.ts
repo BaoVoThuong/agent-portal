@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { auth } from "@/auth";
-import { isTaskViewAdmin } from "@/lib/tasks/access";
+import { buildTaskActor } from "@/lib/tasks/access";
 import { fetchTaskOverview } from "@/lib/tasks/overview-data";
 
 export const dynamic = "force-dynamic";
@@ -10,8 +10,10 @@ export async function GET(request: NextRequest) {
   if (!session?.user?.email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!isTaskViewAdmin(session.user)) {
-    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  // CS Overview belongs to task managers (task.manage). It used to check only
+  // the role NAME, so a renamed role silently lost it.
+  if (!buildTaskActor(session.user.permissions, session.user.email).isManager) {
+    return NextResponse.json({ error: "Manager access required" }, { status: 403 });
   }
 
   try {

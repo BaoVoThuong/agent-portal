@@ -1,21 +1,47 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { fetchSelectedAgentEmails } from "./assignees";
+import { createSharedLookup } from "@/lib/shared-lookup";
+import { fetchEmailsWithPermission } from "@/lib/rbac/permission-holders";
+import {
+  TASK_MEMBERSHIP_REUSE_MS,
+  fetchSelectedAgentEmails,
+  invalidateSelectedAgentEmails,
+} from "./assignees";
 import type { TaskActor } from "./types";
 
-// NOTE: byte-for-byte the same query as fetchAssistantAgentsForCs below, but the
-// two are read differently: an empty list here only ever REMOVES an OR-branch or
-// clears isAgentMember, i.e. it denies access, so returning [] on error stays
+// One agent_members read per CS email, shared by fetchAgentsForCs and
+// fetchAssistantAgentsForCs and reused across requests for
+// TASK_MEMBERSHIP_REUSE_MS. The load throws on a query failure and a failed
+// read is never reused, so each helper keeps its own error semantics below.
+const assistantAgentsByCs = createSharedLookup(
+  async (email: string): Promise<string[]> => {
+    const { data, error } = await getSupabaseAdmin()
+      .from("agent_members")
+      .select("agent_email")
+      .eq("cs_email", email)
+      .eq("is_assistant", true);
+    if (error) throw new Error(error.message);
+    return [...new Set((data ?? []).map((r) => (r as { agent_email: string }).agent_email))];
+  },
+  { ttlMs: TASK_MEMBERSHIP_REUSE_MS },
+);
+
+/** Call after any write to task_agents or agent_members. */
+export function invalidateTaskMembershipLookups(): void {
+  assistantAgentsByCs.invalidate();
+  invalidateSelectedAgentEmails();
+}
+
+// NOTE: the same rows as fetchAssistantAgentsForCs below, but the two are read
+// differently: an empty list here only ever REMOVES an OR-branch or clears
+// isAgentMember, i.e. it denies access, so returning [] on error stays
 // fail-closed and is left as-is. Worth collapsing the two helpers, but that is a
 // naming decision, not a security one — see the 23/08 review, HIGH-01.
 export async function fetchAgentsForCs(email: string): Promise<string[]> {
-  const { data, error } = await getSupabaseAdmin()
-    .from("agent_members")
-    .select("agent_email")
-    .eq("cs_email", email)
-    .eq("is_assistant", true);
-  if (error) return [];
-  return [...new Set((data ?? []).map((r) => (r as { agent_email: string }).agent_email))];
+  return assistantAgentsByCs.get(email).then(
+    (agents) => [...agents],
+    () => [],
+  );
 }
 
 export function groupAssistantMembers(
@@ -73,13 +99,7 @@ export async function fetchCsForAgents(
 // Its sibling fetchSelectedAgentEmails already throws, so a full outage was
 // always fail-closed; only a failure isolated to this table opened the hole.
 export async function fetchAssistantAgentsForCs(email: string): Promise<string[]> {
-  const { data, error } = await getSupabaseAdmin()
-    .from("agent_members")
-    .select("agent_email")
-    .eq("cs_email", email)
-    .eq("is_assistant", true);
-  if (error) throw new Error(error.message);
-  return [...new Set((data ?? []).map((r) => (r as { agent_email: string }).agent_email))];
+  return [...(await assistantAgentsByCs.get(email))];
 }
 
 export type TaskQueueScope = {
@@ -181,18 +201,19 @@ export async function fetchAgentAssistantEmails(
   ];
 }
 
-// All admin accounts — recipients for oversight notifications (e.g. an overdue
-// resolved with a reason). Role lives on portal_account.
-export async function fetchAdminEmails(): Promise<string[]> {
-  const { data, error } = await getSupabaseAdmin()
-    .from("portal_account")
-    .select("email")
-    .eq("role", "admin")
-    .eq("is_active", true);
-  if (error) return [];
-  return [
-    ...new Set((data ?? []).map((row) => (row as { email: string }).email)),
-  ];
+/**
+ * Oversight notifications (urgent backlog nobody picked up, SLA and Due Date
+ * overdue, an overdue resolved with a reason) go to everyone who manages tasks
+ * — the people who can act on them. Until 2026-10-09 this read the legacy
+ * portal_account.role column. Never throws: callers run after the user's write
+ * has committed.
+ */
+export async function fetchSupervisionRecipientEmails(): Promise<string[]> {
+  try {
+    return await fetchTaskManagerEmails();
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -202,55 +223,7 @@ export async function fetchAdminEmails(): Promise<string[]> {
  * may not use the legacy admin label.
  */
 export async function fetchTaskManagerEmails(): Promise<string[]> {
-  const supabase = getSupabaseAdmin();
-  const { data: permissionRows, error: permissionError } = await supabase
-    .from("role_permissions")
-    .select("role_id")
-    .eq("permission_key", PERMISSIONS.TASK_MANAGE);
-  if (permissionError) throw new Error(permissionError.message);
-
-  const roleIds = [
-    ...new Set((permissionRows ?? []).map((row) => (row as { role_id: string }).role_id)),
-  ];
-  if (roleIds.length === 0) return [];
-
-  const { data: activeRoleRows, error: activeRoleError } = await supabase
-    .from("roles")
-    .select("id")
-    .in("id", roleIds)
-    .eq("is_active", true);
-  if (activeRoleError) throw new Error(activeRoleError.message);
-
-  const activeRoleIds = [
-    ...new Set((activeRoleRows ?? []).map((row) => (row as { id: string }).id)),
-  ];
-  if (activeRoleIds.length === 0) return [];
-
-  const { data: userRoleRows, error: userRoleError } = await supabase
-    .from("user_roles")
-    .select("user_id")
-    .in("role_id", activeRoleIds);
-  if (userRoleError) throw new Error(userRoleError.message);
-
-  const userIds = [
-    ...new Set((userRoleRows ?? []).map((row) => (row as { user_id: string }).user_id)),
-  ];
-  if (userIds.length === 0) return [];
-
-  const { data: accounts, error: accountError } = await supabase
-    .from("portal_account")
-    .select("email")
-    .in("id", userIds)
-    .eq("is_active", true);
-  if (accountError) throw new Error(accountError.message);
-
-  return [
-    ...new Set(
-      (accounts ?? [])
-        .map((row) => (row as { email: string }).email.trim())
-        .filter(Boolean),
-    ),
-  ];
+  return fetchEmailsWithPermission(PERMISSIONS.TASK_MANAGE);
 }
 
 // A "see-all" task viewer: managers plus plain-CS (the company-wide queue).

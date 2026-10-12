@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { requireAnyPermission } from "@/lib/rbac/server";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { buildTaskActor, isTaskViewAdmin } from "@/lib/tasks/access";
+import { buildTaskActor } from "@/lib/tasks/access";
 import { fetchTasksForActor } from "@/lib/tasks/queries";
 import {
   fetchTaskAgentCandidates,
@@ -32,9 +32,7 @@ export default async function TasksPage() {
     PERMISSIONS.TASK_WORK,
   ]);
   const email = session.user.email ?? "";
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = buildTaskActor(session.user.permissions, email);
 
   // Wave 1 — every independent fetch in parallel (was ~7 sequential awaits).
   const [
@@ -86,7 +84,7 @@ export default async function TasksPage() {
   ];
   const agentMembersByAgent = await fetchCsForAgents(agentEmailsForMembers);
   const boardTitle = getTaskBoardTitle({
-    isAdmin: isTaskViewAdmin(session.user),
+    isManager: actor.isManager,
     isTaskAgent: agents.some((agent) => agent.email === email),
     isAssistant: myAssistantAgents.length > 0,
   });
@@ -116,15 +114,15 @@ export default async function TasksPage() {
 }
 
 function getTaskBoardTitle({
-  isAdmin,
+  isManager,
   isTaskAgent,
   isAssistant,
 }: {
-  isAdmin: boolean;
+  isManager: boolean;
   isTaskAgent: boolean;
   isAssistant: boolean;
 }) {
-  if (isAdmin) return "Admin Task Board";
+  if (isManager) return "Admin Task Board";
   if (isTaskAgent) return "Agent Task Board";
   if (isAssistant) return "Assistant Task Board";
   return "Customer Service Task Board";

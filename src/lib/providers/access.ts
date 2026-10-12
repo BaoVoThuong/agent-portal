@@ -11,9 +11,9 @@ import { PERMISSIONS } from "@/lib/rbac/permissions";
  * Tầng 2 đứng TRÊN tầng 1, không thay nó: người không vào được Provider List thì
  * vẫn không đụng được dữ liệu của nó, dù có cấp nhầm quyền manage.
  *
- * Export / Import vốn đòi `task.export` / `task.import` (dùng chung với Task và
- * Enrollment). Quyền manage mở thêm một lối vào cho CHỈ bảng Provider — nó không
- * cho Export / Import ở Task hay Enrollment.
+ * Export / Import của bảng Provider chỉ đi theo tầng Manage. Trước 2026-10-09
+ * `task.export` / `task.import` (quyền của Task + Enrollment) cũng mở được — một
+ * quyền chéo; giờ mỗi trang chỉ dùng quyền của chính nó.
  *
  * Một nơi duy nhất quyết định luật này; trang, route và nút bấm đều gọi vào đây
  * để chúng không bao giờ nói khác nhau.
@@ -35,17 +35,11 @@ export function canManageProviders(
 export function canExportProviders(
   permissions: readonly string[] | undefined
 ): boolean {
-  return (
-    hasFinder(permissions) &&
-    (can(permissions, PERMISSIONS.TASK_EXPORT) || canManageProviders(permissions))
-  );
+  return canManageProviders(permissions);
 }
 
 export function canImportProviders(
   permissions: readonly string[] | undefined
 ): boolean {
-  return (
-    hasFinder(permissions) &&
-    (can(permissions, PERMISSIONS.TASK_IMPORT) || canManageProviders(permissions))
-  );
+  return canManageProviders(permissions);
 }

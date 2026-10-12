@@ -1,24 +1,18 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { auth, invalidateRbacLookups } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
-import type { UserRole } from "@/lib/domain/account.types";
 import { can } from "@/lib/rbac/client";
-import { assignDefaultRoleToUser } from "@/lib/rbac/access";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import {
-  hasActiveSuperAdminOtherThan,
   fetchActiveRolesByIds,
-  replaceUserRoles,
+  fetchRolePermissionKeys,
+  fetchUserPermissionKeys,
+  fetchUserRoleId,
 } from "@/lib/rbac/role-management";
-import {
-  LEGACY_SUPER_ADMIN_ROLE_NAME,
-  getLegacyRoleFromRoleNames,
-  SYSTEM_ROLE_NAMES,
-} from "@/lib/rbac/system-roles";
+import { checkAccountChange } from "@/lib/rbac/delegation";
+import { accountWriteFailure } from "@/lib/admin/account-write-errors";
 import bcrypt from "bcryptjs";
-
-const roles: UserRole[] = ["admin", "agent"];
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -215,7 +209,7 @@ export async function PATCH(req: Request, context: RouteContext) {
 
     const { data: targetUser, error: targetError } = await supabase
       .from(PORTAL_ACCOUNT_TABLE)
-      .select("id,email,role,is_active")
+      .select("id,email,is_active")
       .eq("id", id)
       .single();
 
@@ -225,27 +219,60 @@ export async function PATCH(req: Request, context: RouteContext) {
 
     const isSelf =
       targetUser.email.toLowerCase() === session.user.email.toLowerCase();
-    const { data: targetUserRoles, error: targetRolesError } = await supabase
-      .from("user_roles")
-      .select("roles(name)")
-      .eq("user_id", id);
 
-    if (targetRolesError) {
-      return NextResponse.json({ error: targetRolesError.message }, { status: 500 });
+    // The legacy admin/agent switch is gone: roles change through roleIds only.
+    if (role !== undefined) {
+      return NextResponse.json(
+        { error: "Use roleIds to change the role." },
+        { status: 400 }
+      );
     }
 
-    const targetHasSuperAdmin =
-      targetUser.role === "admin" ||
-      ((targetUserRoles ?? []) as unknown as Array<{ roles: { name: string } | null }>).some(
-        (row) =>
-          row.roles?.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
-          row.roles?.name === LEGACY_SUPER_ADMIN_ROLE_NAME
-      );
+    const [targetPermissionKeys, currentRoleId] = await Promise.all([
+      fetchUserPermissionKeys(id),
+      fetchUserRoleId(id),
+    ]);
+
+    // A role counts as changed only when it differs from the current one, so an
+    // edit form that re-sends the same roleIds never trips "your own role".
+    let nextRole: { id: string; name: string } | null = null;
+    let nextRolePermissionKeys: string[] | undefined;
+    if (roleIds !== undefined) {
+      if (!selectedRoleIds || selectedRoleIds.length !== 1) {
+        return NextResponse.json(
+          { error: "Select exactly one active role." },
+          { status: 400 }
+        );
+      }
+
+      const selectedRoles = await fetchActiveRolesByIds(selectedRoleIds);
+      if (selectedRoles.length !== selectedRoleIds.length) {
+        return NextResponse.json(
+          { error: "One or more selected roles are invalid or disabled." },
+          { status: 400 }
+        );
+      }
+
+      if (selectedRoleIds[0] !== currentRoleId) {
+        nextRole = selectedRoles[0];
+        nextRolePermissionKeys = await fetchRolePermissionKeys(nextRole.id);
+      }
+    }
+
+    const delegation = checkAccountChange({
+      actorPermissions: session.user.permissions ?? [],
+      isSelf,
+      targetPermissionKeys,
+      nextRolePermissionKeys,
+    });
+    if (!delegation.ok) {
+      return NextResponse.json({ error: delegation.error }, { status: delegation.status });
+    }
+
     const updates: {
       email?: string;
       name?: string | null;
       agent_id?: string | null;
-      role?: UserRole;
       is_active?: boolean;
       password_hash?: string;
     } = {};
@@ -340,51 +367,6 @@ export async function PATCH(req: Request, context: RouteContext) {
       updates.agent_id = normalizedAgentId || null;
     }
 
-    if (role !== undefined) {
-      if (!roles.includes(role)) {
-        return NextResponse.json({ error: "Invalid role." }, { status: 400 });
-      }
-
-      if (isSelf && role !== "admin") {
-        return NextResponse.json(
-          { error: "You cannot remove your own admin role." },
-          { status: 400 }
-        );
-      }
-
-      updates.role = role;
-    }
-
-    if (roleIds !== undefined) {
-      if (!selectedRoleIds || selectedRoleIds.length !== 1) {
-        return NextResponse.json(
-          { error: "Select exactly one active role." },
-          { status: 400 }
-        );
-      }
-
-      const selectedRoles = await fetchActiveRolesByIds(selectedRoleIds);
-      if (selectedRoles.length !== selectedRoleIds.length) {
-        return NextResponse.json(
-          { error: "One or more selected roles are invalid or disabled." },
-          { status: 400 }
-        );
-      }
-
-      const nextLegacyRole = getLegacyRoleFromRoleNames(
-        selectedRoles.map((item) => item.name)
-      );
-
-      if (isSelf && nextLegacyRole !== "admin") {
-        return NextResponse.json(
-          { error: "You cannot remove your own admin role." },
-          { status: 400 }
-        );
-      }
-
-      updates.role = nextLegacyRole;
-    }
-
     if (is_active !== undefined) {
       if (typeof is_active !== "boolean") {
         return NextResponse.json(
@@ -403,21 +385,6 @@ export async function PATCH(req: Request, context: RouteContext) {
       updates.is_active = is_active;
     }
 
-    const willRemoveSuperAdmin =
-      targetHasSuperAdmin &&
-      ((updates.role !== undefined && updates.role !== "admin") ||
-        updates.is_active === false);
-
-    if (
-      willRemoveSuperAdmin &&
-      !(await hasActiveSuperAdminOtherThan(id))
-    ) {
-      return NextResponse.json(
-        { error: "At least one active Admin account is required." },
-        { status: 400 }
-      );
-    }
-
     if (password !== undefined) {
       if (typeof password !== "string" || password.length < 8) {
         return NextResponse.json(
@@ -429,40 +396,26 @@ export async function PATCH(req: Request, context: RouteContext) {
       updates.password_hash = await bcrypt.hash(password, 10);
     }
 
-    if (Object.keys(updates).length === 0) {
+    const hasAccountUpdates = Object.keys(updates).length > 0;
+    if (!hasAccountUpdates && roleIds === undefined) {
       return NextResponse.json(
         { error: "No account changes provided." },
         { status: 400 }
       );
     }
 
-    if (selectedRoleIds) {
-      await replaceUserRoles(id, selectedRoleIds);
-    }
-
-    const { data, error } = await supabase
-      .from(PORTAL_ACCOUNT_TABLE)
-      .update(updates)
-      .eq("id", id)
-      .select("id,email,name,agent_id,role,is_active,created_at")
-      .single();
+    const { data, error } = await supabase.rpc("update_account_atomic", {
+      p_user_id: id,
+      p_patch: updates,
+      p_role_id: nextRole?.id ?? null,
+    });
 
     if (error) {
-      // Trigger DB: không tắt được tài khoản của Agent còn giữ Personal lead.
-      if (error.message.includes("AGENT_HAS_PERSONAL_LEADS")) {
-        return NextResponse.json(
-          { error: "This Agent still owns Personal leads. Reassign them to another Agent before deactivating the account." },
-          { status: 409 }
-        );
-      }
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      const failure = accountWriteFailure(error);
+      return NextResponse.json({ error: failure.error }, { status: failure.status });
     }
 
-    if (!selectedRoleIds && updates.role) {
-      await supabase.from("user_roles").delete().eq("user_id", id);
-      await assignDefaultRoleToUser(id, updates.role);
-    }
-
+    invalidateRbacLookups();
     return NextResponse.json({ user: data });
   } catch (error) {
     console.error("[account-manager:update] failed", {
@@ -495,7 +448,7 @@ export async function DELETE(_req: Request, context: RouteContext) {
 
     const { data: targetUser, error: targetError } = await supabase
       .from(PORTAL_ACCOUNT_TABLE)
-      .select("id,email,role")
+      .select("id,email")
       .eq("id", id)
       .single();
 
@@ -510,33 +463,13 @@ export async function DELETE(_req: Request, context: RouteContext) {
       );
     }
 
-    const { data: targetUserRoles, error: targetRolesError } = await supabase
-      .from("user_roles")
-      .select("roles(name)")
-      .eq("user_id", id);
-
-    if (targetRolesError) {
-      return NextResponse.json(
-        { error: targetRolesError.message },
-        { status: 500 }
-      );
-    }
-
-    const targetHasSuperAdmin =
-      targetUser.role === "admin" ||
-      ((targetUserRoles ?? []) as unknown as Array<{
-        roles: { name: string } | null;
-      }>).some(
-        (row) =>
-          row.roles?.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
-          row.roles?.name === LEGACY_SUPER_ADMIN_ROLE_NAME
-      );
-
-    if (targetHasSuperAdmin && !(await hasActiveSuperAdminOtherThan(id))) {
-      return NextResponse.json(
-        { error: "At least one active Admin account is required." },
-        { status: 400 }
-      );
+    const delegation = checkAccountChange({
+      actorPermissions: session.user.permissions ?? [],
+      isSelf: false,
+      targetPermissionKeys: await fetchUserPermissionKeys(id),
+    });
+    if (!delegation.ok) {
+      return NextResponse.json({ error: delegation.error }, { status: delegation.status });
     }
 
     const reference = await findEmailReference(supabase, targetUser.email);
@@ -551,16 +484,16 @@ export async function DELETE(_req: Request, context: RouteContext) {
       );
     }
 
-    // user_roles xóa theo cascade (FK on delete cascade).
-    const { error: deleteError } = await supabase
-      .from(PORTAL_ACCOUNT_TABLE)
-      .delete()
-      .eq("id", id);
+    const { error: deleteError } = await supabase.rpc("delete_account_atomic", {
+      p_user_id: id,
+    });
 
     if (deleteError) {
-      return NextResponse.json({ error: deleteError.message }, { status: 500 });
+      const failure = accountWriteFailure(deleteError);
+      return NextResponse.json({ error: failure.error }, { status: failure.status });
     }
 
+    invalidateRbacLookups();
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("[account-manager:delete] failed", {

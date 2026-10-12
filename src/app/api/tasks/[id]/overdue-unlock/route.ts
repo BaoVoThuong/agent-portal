@@ -1,10 +1,10 @@
 import { NextResponse, after } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, isTaskViewAdmin, canChangeTaskStatus } from "@/lib/tasks/access";
+import { buildTaskActor, canChangeTaskStatus } from "@/lib/tasks/access";
 import { attachAssigneesToTasks, isTaskAssignee } from "@/lib/tasks/assignees";
 import {
-  fetchAdminEmails,
+  fetchSupervisionRecipientEmails,
   fetchAgentAssistantEmails,
   isAgentOwnerOrAssistant,
 } from "@/lib/tasks/membership";
@@ -41,9 +41,7 @@ export async function POST(req: Request, { params }: Ctx) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = buildTaskActor(session.user.permissions, email);
 
   const body = await req.json().catch(() => null);
   const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
@@ -149,14 +147,14 @@ export async function POST(req: Request, { params }: Ctx) {
 
   const mutationWarnings: string[] = [];
 
-  // Notify the agent owner/assistants + all admins that this overdue was
+  // Notify the agent's assistants + every task manager that this overdue was
   // resolved, carrying the reason in the notification itself.
   let overdueRecipients: string[] = [];
   try {
     const [agentRecipients, adminRecipients] = await Promise.all([
       // Phụ tá, không gồm agent: agent thôi nhận thông báo tự động.
       fetchAgentAssistantEmails(task.agent_email),
-      fetchAdminEmails(),
+      fetchSupervisionRecipientEmails(),
     ]);
     overdueRecipients = [...new Set([...agentRecipients, ...adminRecipients])].filter(
       (recipient) => recipient !== actor.email

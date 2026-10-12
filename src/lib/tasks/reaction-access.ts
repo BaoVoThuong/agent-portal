@@ -1,6 +1,6 @@
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, canViewTask, isTaskViewAdmin } from "./access";
+import { buildTaskActor, canViewTask } from "./access";
 import { isTaskAssignee } from "./assignees";
 import { actorSeesAllTasks, fetchAgentsForCs } from "./membership";
 import { isTaskParticipant } from "./participants";
@@ -34,9 +34,7 @@ export async function authorizeTaskReactionAccess(
       return { ok: false, error: "Unauthorized", status: 401 };
     }
 
-    const actor = buildTaskActor(session.user.permissions, sessionEmail, {
-      isAdmin: isTaskViewAdmin(session.user),
-    });
+    const actor = buildTaskActor(session.user.permissions, sessionEmail);
     const supabase = getSupabaseAdmin();
     const { data: task, error } = await supabase
       .from("tasks")

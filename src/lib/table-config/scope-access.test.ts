@@ -4,7 +4,7 @@ import { configScopesFor } from "./scope-access";
 const NOBODY = { isTaskAdmin: false, isLeadManager: false, isProviderManager: false };
 
 describe("configScopesFor", () => {
-  it("task-admin mở mọi bảng Health", () => {
+  it("người có task.manage mở mọi bảng Health", () => {
     expect(configScopesFor({ ...NOBODY, isTaskAdmin: true })).toEqual([
       "cs",
       "aca",

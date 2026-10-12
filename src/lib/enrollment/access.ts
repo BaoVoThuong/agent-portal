@@ -2,7 +2,6 @@ import { auth } from "@/auth";
 import {
   buildTaskActor,
   canAccessBoard,
-  isTaskViewAdmin,
 } from "@/lib/tasks/access";
 import type { TaskActor } from "@/lib/tasks/types";
 
@@ -126,9 +125,7 @@ export async function loadEnrollmentActor():
   const email = session?.user?.email;
   if (!email) return { ok: false, error: "Unauthorized", status: 401 };
 
-  const actor = buildTaskActor(session.user.permissions, email, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = buildTaskActor(session.user.permissions, email);
   if (!canAccessEnrollment(actor)) {
     return { ok: false, error: "Forbidden", status: 403 };
   }

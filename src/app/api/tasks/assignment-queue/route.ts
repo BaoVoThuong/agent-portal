@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildTaskActor, isTaskViewAdmin } from "@/lib/tasks/access";
+import { buildTaskActor } from "@/lib/tasks/access";
 import { isEligibleTaskAssigneeEmail } from "@/lib/tasks/assignees";
 import { broadcastTasksChanged } from "@/lib/tasks/realtime";
 
@@ -14,9 +14,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const actor = buildTaskActor(session.user.permissions, actorEmail, {
-    isAdmin: isTaskViewAdmin(session.user),
-  });
+  const actor = buildTaskActor(session.user.permissions, actorEmail);
   if (!actor.isManager) {
     return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }

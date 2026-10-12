@@ -13,7 +13,7 @@ export default async function PcRegistrationPage() {
   const email = session!.user!.email!;
   const canViewAll = can(
     session.user.permissions,
-    PERMISSIONS.COMPANY_VIEW_ALL
+    PERMISSIONS.CUSTOMER_REGISTRATION_VIEW_ALL
   );
 
   const supabase = getSupabaseAdmin();

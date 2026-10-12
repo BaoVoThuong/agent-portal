@@ -26,6 +26,7 @@ describe("parseCreateUserInput", () => {
     const r = parseCreateUserInput({
       email: "a@b.com",
       password: "12345678",
+      roleIds: ["r1"],
     });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value.agentId).toBeNull();
@@ -36,6 +37,7 @@ describe("parseCreateUserInput", () => {
       email: "a@b.com",
       password: "12345678",
       agentId: "   ",
+      roleIds: ["r1"],
     });
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value.agentId).toBeNull();
@@ -51,13 +53,25 @@ describe("parseCreateUserInput", () => {
     expect(r).toMatchObject({ ok: false, status: 400 });
   });
 
-  it("chuẩn hoá email (trim + lowercase), name, Agent ID; role mặc định agent", () => {
+  it("thiếu role -> 400 (không còn role mặc định ngầm)", () => {
+    const r = parseCreateUserInput({
+      email: "a@b.com",
+      password: "12345678",
+    });
+    expect(r).toEqual({
+      ok: false,
+      error: "Select exactly one role for this account.",
+      status: 400,
+    });
+  });
+
+  it("chuẩn hoá email (trim + lowercase), name, Agent ID; bỏ qua trường role cũ", () => {
     const r = parseCreateUserInput({
       email: "  A@B.COM  ",
       password: "12345678",
       name: "  John  ",
       agentId: "  A1 ",
-      role: "weird",
+      role: "admin",
       roleIds: ["r1"],
     });
     expect(r.ok).toBe(true);
@@ -67,25 +81,20 @@ describe("parseCreateUserInput", () => {
         password: "12345678",
         name: "John",
         agentId: "A1",
-        legacyRoleFallback: "agent",
         roleIds: ["r1"],
       });
     }
   });
 
-  it("name rỗng -> null; legacy role 'admin' giữ nguyên", () => {
+  it("name rỗng -> null", () => {
     const r = parseCreateUserInput({
       email: "a@b.com",
       password: "12345678",
       name: "   ",
       agentId: "A1",
-      role: "admin",
+      roleIds: ["r1"],
     });
     expect(r.ok).toBe(true);
-    if (r.ok) {
-      expect(r.value.name).toBeNull();
-      expect(r.value.legacyRoleFallback).toBe("admin");
-      expect(r.value.roleIds).toEqual([]);
-    }
+    if (r.ok) expect(r.value.name).toBeNull();
   });
 });

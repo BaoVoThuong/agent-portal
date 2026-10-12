@@ -2,6 +2,7 @@ import { cache } from "react";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchTaskAgents } from "@/lib/tasks/assignees";
+import { fetchActiveRoleIdsWithAnyPermission } from "@/lib/rbac/permission-holders";
 
 export type LeadAssignee = { email: string; name: string | null };
 
@@ -10,24 +11,17 @@ export type LeadAssignee = { email: string; name: string | null };
  * may be handed to, and the only choices the assign control offers.
  *
  * Mirrors fetchTaskAssignees in src/lib/tasks/assignees.ts: role_permissions →
- * user_roles → portal_account, filtered to active accounts. The lead list is
+ * user_roles → portal_account, filtered to active roles and accounts. The lead list is
  * simpler because it feeds a picker rather than the task board's role badges,
  * so it stops at email and name.
  */
 export const fetchLeadAssignees = cache(async (): Promise<LeadAssignee[]> => {
   const supabase = getSupabaseAdmin();
 
-  const { data: rolePermissions, error: rpError } = await supabase
-    .from("role_permissions")
-    .select("role_id")
-    .in("permission_key", [PERMISSIONS.LEAD_WORK, PERMISSIONS.LEAD_MANAGE]);
-  if (rpError) throw new Error(rpError.message);
-
-  const roleIds = [
-    ...new Set(
-      (rolePermissions ?? []).map((row) => (row as { role_id: string }).role_id)
-    ),
-  ];
+  const roleIds = await fetchActiveRoleIdsWithAnyPermission([
+    PERMISSIONS.LEAD_WORK,
+    PERMISSIONS.LEAD_MANAGE,
+  ]);
   if (roleIds.length === 0) return [];
 
   const { data: userRoles, error: urError } = await supabase

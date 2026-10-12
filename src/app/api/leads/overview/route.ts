@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { buildLeadActor, isLeadViewAdmin } from "@/lib/leads/access";
+import { buildLeadActor } from "@/lib/leads/access";
 import { summarizeLeads } from "@/lib/leads/overview";
 import { fetchLeadAlertSettings } from "@/lib/leads/queries";
 import type { LeadRow, LeadStatus } from "@/lib/leads/types";
@@ -67,10 +67,8 @@ export async function GET() {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
-  if (!actor.canViewAll) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const actor = buildLeadActor(session.user.permissions, email);
+  if (!actor.isManager) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const supabase = getSupabaseAdmin();
   const [leadsResult, statusesResult, settingsResult, eventsResult] = await Promise.all([

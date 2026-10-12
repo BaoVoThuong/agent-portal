@@ -176,6 +176,22 @@ describe("aggregateOverview", () => {
     );
   });
 
+  // The pool follows task.work (canWork), not the Admin label. Admins stay out
+  // because their role holds task.manage instead of task.work — so canWork is
+  // false for them — never because of a role name.
+  it("decides the pool by canWork, not by the Admin label", () => {
+    const labelledAdmin = { ...account("labelled@example.com"), isAdmin: true };
+    const manager = { ...account("manager@example.com"), canWork: false };
+    const snapshot = aggregateOverview(
+      input({ accounts: [labelledAdmin, manager, account("cs@example.com")] })
+    );
+
+    expect(snapshot.csRows.map((row) => row.email).sort()).toEqual([
+      "cs@example.com",
+      "labelled@example.com",
+    ]);
+  });
+
   it("excludes both assistants and agent owners from the workload pool", () => {
     const snapshot = aggregateOverview(
       input({

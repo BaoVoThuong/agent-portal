@@ -2,8 +2,6 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/auth/session";
 import Sidebar from "./_components/Sidebar";
 import TopBar from "./_components/TopBar";
-import { canAny } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { fetchAvatarDirectory } from "@/lib/people/avatar-directory";
 import { AvatarProvider } from "@/lib/people/AvatarProvider";
 
@@ -40,10 +38,6 @@ export default async function AuthedLayout({
           userName={session.user.name ?? null}
           userEmail={session.user.email}
           agentId={session.user.agentId ?? null}
-          canUseTasks={canAny(session.user.permissions, [
-            PERMISSIONS.TASK_MANAGE,
-            PERMISSIONS.TASK_WORK,
-          ])}
         />
         {/* min-h-0 makes <main> a bounded flex child; overflow-y-auto lets
             ordinary (non-frame) pages scroll here while the shell stays put. */}

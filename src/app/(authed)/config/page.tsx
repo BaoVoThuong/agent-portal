@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { buildLeadActor, canManageLeads, isLeadViewAdmin } from "@/lib/leads/access";
+import { buildLeadActor, canManageLeads } from "@/lib/leads/access";
 import { fetchLeadVocabulary } from "@/lib/leads/queries";
 import { loadConfigAdmin } from "@/lib/table-config/access";
 import { configScopesFor } from "@/lib/table-config/scope-access";
@@ -60,16 +60,13 @@ async function loadOptional<T>(label: string, loader: () => Promise<T>): Promise
 
 export default async function ConfigPage() {
   // HAI cổng song song, mỗi cổng giữ đúng luật của nó. Gộp làm một là hoặc nới
-  // quyền Health cho người không phải task-admin (`loadConfigAdmin` đòi
-  // `task.manage` VÀ vai trò admin — xem chú thích ở lib/tasks/access.ts), hoặc
+  // quyền Health cho người không có `task.manage` (`loadConfigAdmin`), hoặc
   // chặn mất hai tài khoản trên production chỉ có quyền lead.
   const [admin, session] = await Promise.all([loadConfigAdmin(), auth()]);
   const email = session?.user?.email ?? "";
   const isLeadManager = email
     ? canManageLeads(
-        buildLeadActor(session!.user.permissions, email, {
-          isAdmin: isLeadViewAdmin(session!.user),
-        })
+        buildLeadActor(session!.user.permissions, email)
       )
     : false;
 

@@ -135,7 +135,7 @@ const menuData: MenuItem[] = [
         href: "/tasks/leads",
         label: "Lead Management",
         activePath: "/tasks/leads",
-        anyPermission: [PERMISSIONS.LEAD_MANAGE, PERMISSIONS.LEAD_WORK, PERMISSIONS.TASK_MANAGE],
+        anyPermission: [PERMISSIONS.LEAD_MANAGE, PERMISSIONS.LEAD_WORK],
       },
       {
         // Provider Finder không còn mục riêng: nó đã là tab "Finder Tool" bên

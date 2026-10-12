@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/auth";
+import { auth, invalidateRbacLookups } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { can } from "@/lib/rbac/client";
 import {
@@ -8,13 +8,11 @@ import {
 } from "@/lib/rbac/permissions";
 import {
   fetchRoleById,
+  fetchRolePermissionKeys,
   fetchRolesWithPermissions,
-  replaceRolePermissions,
 } from "@/lib/rbac/role-management";
-import {
-  LEGACY_SUPER_ADMIN_ROLE_NAME,
-  SYSTEM_ROLE_NAMES,
-} from "@/lib/rbac/system-roles";
+import { isAdminRoleName } from "@/lib/rbac/admin-role";
+import { checkRolePermissionChange, rolePatchGrant } from "@/lib/rbac/delegation";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -34,15 +32,21 @@ function parsePermissionKeys(value: unknown) {
   );
 }
 
+// The Admin role is fixed and view-only: every permission, changed only by SQL
+// rollouts. See lib/rbac/admin-role.ts.
 function isProtectedRole(role: { name: string }) {
-  return (
-    role.name === SYSTEM_ROLE_NAMES.SUPER_ADMIN ||
-    role.name === LEGACY_SUPER_ADMIN_ROLE_NAME
-  );
+  return isAdminRoleName(role.name);
 }
+
+const DEFAULT_ROLE_LOCKED =
+  "This is the role new Google sign-ups get, so it cannot be disabled or deleted. Ask an administrator to change the default role in the database.";
 
 export async function PATCH(req: Request, context: RouteContext) {
   const session = await auth();
+
+  if (!can(session?.user?.permissions, PERMISSIONS.ROLE_MANAGER)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   try {
     const { id } = await context.params;
@@ -52,15 +56,9 @@ export async function PATCH(req: Request, context: RouteContext) {
       name?: string;
       description?: string | null;
       is_active?: boolean;
-      updated_at: string;
-    } = {
-      updated_at: new Date().toISOString(),
-    };
+    } = {};
 
     if (payload.name !== undefined) {
-      if (!can(session?.user?.permissions, PERMISSIONS.ROLE_MANAGER)) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
       const nextName = typeof payload.name === "string" ? payload.name.trim() : "";
       if (!nextName) {
         return NextResponse.json(
@@ -72,9 +70,6 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     if (payload.description !== undefined) {
-      if (!can(session?.user?.permissions, PERMISSIONS.ROLE_MANAGER)) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
       updates.description =
         typeof payload.description === "string" && payload.description.trim()
           ? payload.description.trim()
@@ -82,9 +77,6 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     if (payload.is_active !== undefined) {
-      if (!can(session?.user?.permissions, PERMISSIONS.ROLE_MANAGER)) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
       if (typeof payload.is_active !== "boolean") {
         return NextResponse.json(
           { error: "Invalid role status." },
@@ -94,33 +86,63 @@ export async function PATCH(req: Request, context: RouteContext) {
       updates.is_active = payload.is_active;
     }
 
-    if (
-      permissionKeys &&
-      !can(session?.user?.permissions, PERMISSIONS.ROLE_MANAGER)
-    ) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (Object.keys(updates).length === 0 && permissionKeys === null) {
+      return NextResponse.json({ error: "No role changes provided." }, { status: 400 });
     }
 
     const role = await fetchRoleById(id);
-    if (isProtectedRole(role) && (Object.keys(updates).length > 1 || permissionKeys !== null)) {
+    if (isProtectedRole(role)) {
       return NextResponse.json(
         { error: "Admin cannot be edited." },
         { status: 400 }
       );
     }
 
-    if (Object.keys(updates).length > 1) {
-      const supabase = getSupabaseAdmin();
-      const { error } = await supabase.from("roles").update(updates).eq("id", id);
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+    if (updates.name !== undefined && isAdminRoleName(updates.name)) {
+      return NextResponse.json(
+        { error: "Admin is a reserved role name." },
+        { status: 400 }
+      );
+    }
+
+    if (updates.is_active === false && role.is_default) {
+      return NextResponse.json(
+        { error: DEFAULT_ROLE_LOCKED },
+        { status: 400 }
+      );
+    }
+
+    if (permissionKeys || (updates.is_active === true && !role.is_active)) {
+      const grant = rolePatchGrant({
+        roleIsActive: role.is_active,
+        nextIsActive: updates.is_active,
+        liveKeys: await fetchRolePermissionKeys(id),
+        permissionKeys,
+      });
+      if (!grant) throw new Error("Missing permission grant check");
+      const delegation = checkRolePermissionChange({
+        actorPermissions: session?.user?.permissions ?? [],
+        ...grant,
+      });
+      if (!delegation.ok) {
+        return NextResponse.json({ error: delegation.error }, { status: delegation.status });
       }
     }
 
-    if (permissionKeys) {
-      await replaceRolePermissions(id, permissionKeys);
+    const { error } = await getSupabaseAdmin().rpc("update_role_atomic", {
+      p_role_id: id,
+      p_patch: updates,
+      p_permission_keys: permissionKeys,
+    });
+    if (error) {
+      const duplicate = error.code === "23505";
+      return NextResponse.json(
+        { error: duplicate ? "A role with this name already exists." : error.message },
+        { status: duplicate ? 409 : 500 }
+      );
     }
 
+    invalidateRbacLookups();
     const roles = await fetchRolesWithPermissions();
     return NextResponse.json({
       role: roles.find((item) => item.id === id),
@@ -152,6 +174,13 @@ export async function DELETE(_req: Request, context: RouteContext) {
       );
     }
 
+    if (role.is_default) {
+      return NextResponse.json(
+        { error: DEFAULT_ROLE_LOCKED },
+        { status: 400 }
+      );
+    }
+
     const supabase = getSupabaseAdmin();
     const { error } = await supabase.from("roles").delete().eq("id", id);
 
@@ -159,6 +188,7 @@ export async function DELETE(_req: Request, context: RouteContext) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    invalidateRbacLookups();
     return NextResponse.json({ ok: true, roles: await fetchRolesWithPermissions() });
   } catch (err) {
     return NextResponse.json(

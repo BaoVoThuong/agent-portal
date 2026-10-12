@@ -1,5 +1,6 @@
 import { businessDateKey } from "./business-date";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { isAdminRoleName } from "@/lib/rbac/admin-role";
 import { fetchTaskAssigneeRowsForTaskIds } from "./assignees";
 import { resolveReminderSettings } from "./reminder-settings";
 import { aggregateOverview } from "./overview";
@@ -33,7 +34,7 @@ export async function fetchTaskOverview(
     await Promise.all([
       supabase
         .from("portal_account")
-        .select("id,email,name,is_active,role"),
+        .select("id,email,name,is_active"),
       supabase.from("roles").select("id,name,is_active"),
       supabase
         .from("role_permissions")
@@ -85,7 +86,6 @@ export async function fetchTaskOverview(
     email: string;
     name: string | null;
     is_active: boolean;
-    role: string;
   }>;
   const roles = (rolesResult.data ?? []) as Array<{
     id: string;
@@ -107,7 +107,9 @@ export async function fetchTaskOverview(
   const workRoleIds = new Set(
     rolePermissions
       .filter(
-        (row) => row.permission_key === "task.work" && activeRoleIds.has(row.role_id)
+        (row) =>
+          (row.permission_key === "task.work" || row.permission_key === "task.manage") &&
+          activeRoleIds.has(row.role_id)
       )
       .map((row) => row.role_id)
   );
@@ -115,7 +117,7 @@ export async function fetchTaskOverview(
     roles
       .filter(
         (role) =>
-          role.is_active && (role.name === "Admin" || role.name === "Super Admin")
+          role.is_active && isAdminRoleName(role.name)
       )
       .map((role) => role.id)
   );
@@ -174,7 +176,8 @@ export async function fetchTaskOverview(
   const normalizedAccounts: OverviewAccount[] = accounts.map((account) => {
     const email = normalizeEmail(account.email);
     const rotation = rotationByEmail.get(email);
-    const isAdmin = account.role === "admin" || adminUserIds.has(account.id);
+    // The fixed Admin role keeps its label but stays out of the CS pool.
+    const isAdmin = adminUserIds.has(account.id);
     const assistantAgents = assistantAgentsByEmail.get(email) ?? [];
     return {
       email,
@@ -186,7 +189,7 @@ export async function fetchTaskOverview(
         nameByEmail,
       }),
       isActive: account.is_active,
-      canWork: workUserIds.has(account.id),
+      canWork: workUserIds.has(account.id) && !isAdmin,
       isAdmin,
       isAssistant: assistantAgents.length > 0,
       queueDueAt: rotation?.queueDueAt ?? null,

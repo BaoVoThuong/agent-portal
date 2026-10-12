@@ -8,38 +8,36 @@ import { getSupabaseAdmin } from "@/lib/supabase";
  * permission, và một role chuyên trách (ví dụ "Time Off Admin") có thể không
  * mang nhãn admin cũ.
  *
- * `lib/tasks/membership.ts` có `fetchTaskManagerEmails()` làm đúng việc này
- * nhưng viết cứng cho `task.manage`. Đáng gộp hai thứ lại, nhưng đó là việc
- * dọn dẹp bên bảng task — không phải việc của đợt này.
  */
-export async function fetchEmailsWithPermission(
-  permissionKey: string
+export async function fetchActiveRoleIdsWithAnyPermission(
+  permissionKeys: readonly string[]
 ): Promise<string[]> {
+  if (permissionKeys.length === 0) return [];
   const supabase = getSupabaseAdmin();
-
   const { data: permissionRows, error: permissionError } = await supabase
     .from("role_permissions")
     .select("role_id")
-    .eq("permission_key", permissionKey);
+    .in("permission_key", [...permissionKeys]);
   if (permissionError) throw new Error(permissionError.message);
 
-  const roleIds = [
-    ...new Set((permissionRows ?? []).map((row) => (row as { role_id: string }).role_id)),
-  ];
+  const roleIds = [...new Set((permissionRows ?? []).map((row) => row.role_id))];
   if (roleIds.length === 0) return [];
 
-  // Role bị tắt thì quyền nó cấp cũng ngừng theo — không lọc bước này là gửi
-  // thông báo cho người đã bị thu hồi quyền duyệt.
   const { data: activeRoles, error: activeRoleError } = await supabase
     .from("roles")
     .select("id")
     .in("id", roleIds)
     .eq("is_active", true);
   if (activeRoleError) throw new Error(activeRoleError.message);
+  return [...new Set((activeRoles ?? []).map((row) => row.id))];
+}
 
-  const activeRoleIds = [
-    ...new Set((activeRoles ?? []).map((row) => (row as { id: string }).id)),
-  ];
+export async function fetchEmailsWithPermission(
+  permissionKey: string
+): Promise<string[]> {
+  const supabase = getSupabaseAdmin();
+
+  const activeRoleIds = await fetchActiveRoleIdsWithAnyPermission([permissionKey]);
   if (activeRoleIds.length === 0) return [];
 
   const { data: userRoles, error: userRoleError } = await supabase

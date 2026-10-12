@@ -1,14 +1,9 @@
-import type { UserRole } from "@/lib/domain/account.types";
-
-// Các giá trị legacy role hợp lệ (dùng khi không chọn roleIds RBAC).
-const LEGACY_ROLES: UserRole[] = ["admin", "agent"];
-
 export type CreateUserInput = {
   email: string;
   password: string;
   name: string | null;
   agentId: string | null;
-  legacyRoleFallback: UserRole;
+  /** Exactly one role id. The legacy `role` ("admin"/"agent") field is gone. */
   roleIds: string[];
 };
 
@@ -20,12 +15,14 @@ export type ParseResult<T> =
 // Tách nguyên văn các bước kiểm tra đang nằm trong route handler để handler mỏng
 // hơn và phần này test được. Các kiểm tra cần DB (trùng email/agentId, role active)
 // vẫn ở lại handler.
+//
+// Từ 2026-10-09 không còn trường `role` cũ: gửi `role: "admin"` từng tự gán role
+// Admin mà không qua kiểm tra nào. Tài khoản mới bắt buộc chọn đúng một role.
 export function parseCreateUserInput(body: unknown): ParseResult<CreateUserInput> {
   const {
     email,
     password,
     name,
-    role,
     roleIds,
     agentId,
   } = (body ?? {}) as Record<string, unknown>;
@@ -43,9 +40,6 @@ export function parseCreateUserInput(body: unknown): ParseResult<CreateUserInput
     typeof agentId === "string" && agentId.trim()
       ? agentId.trim()
       : null;
-  const legacyRoleFallback: UserRole = LEGACY_ROLES.includes(role as UserRole)
-    ? (role as UserRole)
-    : "agent";
   const selectedRoleIds = Array.isArray(roleIds)
     ? roleIds.filter((item): item is string => typeof item === "string")
     : [];
@@ -62,7 +56,7 @@ export function parseCreateUserInput(body: unknown): ParseResult<CreateUserInput
     };
   }
 
-  if (selectedRoleIds.length > 1) {
+  if (selectedRoleIds.length !== 1) {
     return {
       ok: false,
       error: "Select exactly one role for this account.",
@@ -77,7 +71,6 @@ export function parseCreateUserInput(body: unknown): ParseResult<CreateUserInput
       password,
       name: typeof name === "string" && name.trim() ? name.trim() : null,
       agentId: normalizedAgentId,
-      legacyRoleFallback,
       roleIds: selectedRoleIds,
     },
   };

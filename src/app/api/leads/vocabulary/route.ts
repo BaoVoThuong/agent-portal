@@ -1,6 +1,6 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { buildLeadActor, canManageLeads, canWorkLeads, isLeadViewAdmin } from "@/lib/leads/access";
+import { buildLeadActor, canManageLeads, canWorkLeads } from "@/lib/leads/access";
 import { broadcastLeadsChanged, readLeadMutationSourceId } from "@/lib/leads/realtime";
 import { validateStatusInput, validateTypeInput } from "@/lib/leads/vocabulary";
 import { fetchLeadVocabulary } from "@/lib/leads/queries";
@@ -25,9 +25,7 @@ export async function GET() {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
+  const actor = buildLeadActor(session.user.permissions, email);
   if (!canWorkLeads(actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   // Dùng chung fetchLeadVocabulary thay vì giữ bản sao truy vấn riêng: hai bản
@@ -44,9 +42,7 @@ export async function POST(request: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
+  const actor = buildLeadActor(session.user.permissions, email);
   if (!canManageLeads(actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
@@ -69,9 +65,7 @@ export async function PATCH(request: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const actor = buildLeadActor(session.user.permissions, email, {
-    isAdmin: isLeadViewAdmin(session.user),
-  });
+  const actor = buildLeadActor(session.user.permissions, email);
   if (!canManageLeads(actor)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
