@@ -1,5 +1,5 @@
 {
-  "regions": ["sin1"],
+  "regions": ["syd1"],
   "crons": [
     {
       "path": "/api/cron/sync-data",
