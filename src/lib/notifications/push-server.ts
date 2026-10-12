@@ -39,18 +39,22 @@ let vapidConfigured: boolean | null = null;
 /**
  * Nạp khoá VAPID một lần.
  *
- * Thiếu khoá KHÔNG phải lỗi: môi trường dev chưa cấu hình thì push im lặng bỏ
- * qua, còn chuông trong web vẫn chạy như cũ. Ném lỗi ở đây sẽ làm hỏng cả thao
- * tác bình luận chỉ vì một biến môi trường.
+ * Thiếu khoá hoặc `VAPID_SUBJECT` KHÔNG phải lỗi: môi trường dev chưa cấu hình
+ * thì push im lặng bỏ qua, còn chuông trong web vẫn chạy như cũ. Ném lỗi ở đây
+ * sẽ làm hỏng cả thao tác bình luận chỉ vì một biến môi trường. Không còn email
+ * dự phòng viết cứng — subject phải khai trong biến môi trường.
  */
 function ensureVapid(): boolean {
   if (vapidConfigured !== null) return vapidConfigured;
 
   const publicKey = process.env.VAPID_PUBLIC_KEY;
   const privateKey = process.env.VAPID_PRIVATE_KEY;
-  const subject = process.env.VAPID_SUBJECT ?? "mailto:bao.vo@excelplannings.com";
+  const subject = process.env.VAPID_SUBJECT?.trim();
 
-  if (!publicKey || !privateKey) {
+  if (!publicKey || !privateKey || !subject) {
+    if (publicKey && privateKey && !subject) {
+      console.warn("[push] VAPID_SUBJECT is not set — web push is disabled.");
+    }
     vapidConfigured = false;
     return false;
   }

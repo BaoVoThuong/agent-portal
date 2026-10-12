@@ -11,7 +11,21 @@ const { loadEnv } = require("../datasync/lib/env");
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 loadEnv(path.resolve(__dirname, "../.env.local"));
 
-const SEED_ACTOR = "bao.vo@excelplannings.local";
+// Real accounts the sample records are assigned to. Read from .env.local so no
+// person's email lives in the repository.
+function requiredEnv(name) {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    console.error(
+      `Missing ${name}. Add it to .env.local (see .env.local.example) — the email of a test account to assign sample records to.`
+    );
+    process.exit(1);
+  }
+  return value.toLowerCase();
+}
+const SEED_PRIMARY_EMAIL = requiredEnv("SEED_PRIMARY_EMAIL");
+const SEED_SECONDARY_EMAIL = requiredEnv("SEED_SECONDARY_EMAIL");
+const SEED_ACTOR = process.env.SEED_ACTOR_EMAIL?.trim() || "seed@example.local";
 const SAMPLE_PREFIX = "https://app.followupboss.com/2/people/view/sample-enrollment-";
 const MEDICARE_SAMPLE_PREFIX = "https://app.followupboss.com/2/people/view/sample-medicare-";
 const QA_SAMPLE_CLIENT_PREFIX = "[Sample QA]";
@@ -89,7 +103,7 @@ const acaRecords = [
     pcp_2025: "Unknown",
     pcp_2026: "Unknown",
     caller_email: null,
-    responsible_enroll_email: "baovocs04@gmail.com",
+    responsible_enroll_email: SEED_PRIMARY_EMAIL,
     due_date: "2026-07-19",
     created_at: "2026-07-09T13:30:00.000+07:00",
     note: "Need income document before enrollment.",
@@ -141,7 +155,7 @@ const acaRecords = [
     aca_status: "ACA account done",
     pcp_2025: "Dr. Le",
     pcp_2026: "Need update",
-    caller_email: "baovocs04@gmail.com",
+    caller_email: SEED_PRIMARY_EMAIL,
     responsible_enroll_email: "nguyen.ngan.sample@excelplannings.local",
     due_date: "2026-07-24",
     created_at: "2026-07-11T09:00:00.000+07:00",
@@ -158,7 +172,7 @@ const acaRecords = [
     aca_status: "ACA account done",
     pcp_2025: "No PCP",
     pcp_2026: "Need assign",
-    caller_email: "baovocs04@gmail.com",
+    caller_email: SEED_PRIMARY_EMAIL,
     responsible_enroll_email: "huy.sample@excelplannings.local",
     due_date: "2026-07-20",
     created_at: "2026-07-12T14:25:00.000+07:00",
@@ -195,7 +209,7 @@ const acaRecords = [
     pcp_2025: "Dr. Pham",
     pcp_2026: "Dr. Pham",
     caller_email: "bao.vo@excelplannings.local",
-    responsible_enroll_email: "cs_task@gmail.com",
+    responsible_enroll_email: SEED_SECONDARY_EMAIL,
     due_date: "2026-07-16",
     created_at: "2026-07-13T09:30:00.000+07:00",
     qc_checked_by_email: "bao.vo@excelplannings.local",
@@ -234,7 +248,7 @@ const acaRecords = [
     aca_status: "Created - Waiting for verify",
     pcp_2025: "Dr. Lee",
     pcp_2026: "Pending",
-    caller_email: "baovocs04@gmail.com",
+    caller_email: SEED_PRIMARY_EMAIL,
     responsible_enroll_email: "charlotte.sample@excelplannings.local",
     due_date: "2026-07-25",
     created_at: "2026-07-14T09:20:00.000+07:00",
@@ -304,7 +318,7 @@ const acaRecords = [
     aca_status: "Created - Need information to verify",
     pcp_2025: "Unknown",
     pcp_2026: "Unknown",
-    caller_email: "baovocs04@gmail.com",
+    caller_email: SEED_PRIMARY_EMAIL,
     responsible_enroll_email: "huong.giang.sample@excelplannings.local",
     due_date: "2026-07-20",
     created_at: "2026-07-15T10:25:00.000+07:00",
@@ -356,8 +370,8 @@ const acaRecords = [
     aca_status: "ACA account done",
     pcp_2025: "Dr. Mai",
     pcp_2026: "Dr. Mai",
-    caller_email: "baovocs04@gmail.com",
-    responsible_enroll_email: "cs_task@gmail.com",
+    caller_email: SEED_PRIMARY_EMAIL,
+    responsible_enroll_email: SEED_SECONDARY_EMAIL,
     due_date: null,
     created_at: "2026-07-17T10:00:00.000+07:00",
     closed_at: "2026-07-18T09:05:00.000+07:00",
@@ -446,7 +460,7 @@ const medicareRecords = [
     stage: "10 - DONE",
     carrier: "UHC",
     pcp_2025: "N/A - Medicare Supplement, no PCP required",
-    responsible_enroll_email: "cs_task@gmail.com",
+    responsible_enroll_email: SEED_SECONDARY_EMAIL,
     due_date: null,
     created_at: "2026-06-08T13:06:00.000+07:00",
     closed_at: "2026-07-13T23:03:00.000+07:00",

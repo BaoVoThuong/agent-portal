@@ -2,11 +2,13 @@
 // them to the bound Google Sheet (first sheet). Deploy as: Execute as Me,
 // Access Anyone.
 //
-// NOTE: SECRET_KEY is currently hardcoded and must match APPS_SCRIPT_SECRET in
-// the Next.js .env. TODO: move this into a Script Property (SHARED_SECRET).
+// Before deploying, add Script Properties (Project Settings → Script properties):
+//   ENTRIES_SHARED_SECRET           = the same value as APPS_SCRIPT_SECRET on Vercel
+//   PC_POLICY_SOURCE_SPREADSHEET_ID = the Policy Tracker spreadsheet id
+// Never put either value in this file: the repository is not private.
 
-var SECRET_KEY = "k7Hx9mQ2pR4vN8sT3wY5zL6jB1aD0fE"; // Khớp với file .env.local của bạn
-var PC_POLICY_SOURCE_SPREADSHEET_ID = "1ByO8MDhCUiBO_QVhxsDHR55ixw6AxL_gq-ghwgbgJXI";
+var ENTRIES_SECRET_PROPERTY = "ENTRIES_SHARED_SECRET";
+var PC_POLICY_SOURCE_ID_PROPERTY = "PC_POLICY_SOURCE_SPREADSHEET_ID";
 var PC_POLICY_SOURCE_SHEET = "Policy Tracker";
 var PC_POLICY_SOURCE_COLUMN_COUNT = 11;
 
@@ -20,8 +22,12 @@ function doPost(e) {
 
   var data = JSON.parse(e.postData.contents);
 
-  if (data.secret !== SECRET_KEY) {
-    return ContentService.createTextOutput(JSON.stringify({ok: false, error: "Invalid secret"})).setMimeType(ContentService.MimeType.JSON);
+  var expectedSecret = getScriptProperty_(ENTRIES_SECRET_PROPERTY);
+  if (!expectedSecret) {
+    return jsonOutput({ ok: false, error: ENTRIES_SECRET_PROPERTY + " script property is not configured" });
+  }
+  if (!data || data.secret !== expectedSecret) {
+    return jsonOutput({ ok: false, error: "unauthorized" });
   }
 
   var action = data.action;
@@ -90,8 +96,17 @@ function jsonOutput(payload) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
+function getScriptProperty_(name) {
+  var value = PropertiesService.getScriptProperties().getProperty(name);
+  return value ? String(value).trim() : "";
+}
+
 function readPcPolicyTracker() {
-  var sourceSS = SpreadsheetApp.openById(PC_POLICY_SOURCE_SPREADSHEET_ID);
+  var sourceId = getScriptProperty_(PC_POLICY_SOURCE_ID_PROPERTY);
+  if (!sourceId) {
+    throw new Error(PC_POLICY_SOURCE_ID_PROPERTY + " script property is not configured");
+  }
+  var sourceSS = SpreadsheetApp.openById(sourceId);
   var sourceSheet = sourceSS.getSheetByName(PC_POLICY_SOURCE_SHEET);
 
   if (!sourceSheet) {
