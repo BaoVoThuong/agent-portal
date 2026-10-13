@@ -7,6 +7,7 @@ import {
   fetchSelectedAgentEmails,
   invalidateSelectedAgentEmails,
 } from "./assignees";
+import { managerRecipientsForCase } from "./manager-audience";
 import type { TaskActor } from "./types";
 
 // One agent_members read per CS email, shared by fetchAgentsForCs and
@@ -202,28 +203,36 @@ export async function fetchAgentAssistantEmails(
 }
 
 /**
- * Oversight notifications (urgent backlog nobody picked up, SLA and Due Date
- * overdue, an overdue resolved with a reason) go to everyone who manages tasks
- * — the people who can act on them. Until 2026-10-09 this read the legacy
- * portal_account.role column. Never throws: callers run after the user's write
- * has committed.
+ * Oversight notifications for one task (urgent backlog nobody picked up, SLA
+ * and Due Date overdue, an overdue resolved with a reason) go to the task
+ * managers who can act on them — see fetchTaskManagerRecipients. Until
+ * 2026-10-09 this read the legacy portal_account.role column. Never throws:
+ * callers run after the user's write has committed.
  */
-export async function fetchSupervisionRecipientEmails(): Promise<string[]> {
+export async function fetchSupervisionRecipientEmails(
+  taskAgentEmail: string | null
+): Promise<string[]> {
   try {
-    return await fetchTaskManagerEmails();
+    return await fetchTaskManagerRecipients(taskAgentEmail);
   } catch {
     return [];
   }
 }
 
 /**
- * Every active account that currently holds `task.manage`, through an active
- * RBAC role. This deliberately does not rely on `portal_account.role = admin`:
- * task-management access is permission-based, and a dedicated Task Admin role
- * may not use the legacy admin label.
+ * The task managers who hear about one task: every active account holding
+ * `task.manage` through an active RBAC role, except that a manager who is also
+ * an Agent only hears about their own tasks (managerRecipientsForCase). Never
+ * decided by the legacy `portal_account.role = admin` or by role names.
  */
-export async function fetchTaskManagerEmails(): Promise<string[]> {
-  return fetchEmailsWithPermission(PERMISSIONS.TASK_MANAGE);
+export async function fetchTaskManagerRecipients(
+  taskAgentEmail: string | null
+): Promise<string[]> {
+  const [managerEmails, agentEmails] = await Promise.all([
+    fetchEmailsWithPermission(PERMISSIONS.TASK_MANAGE),
+    fetchSelectedAgentEmails(),
+  ]);
+  return managerRecipientsForCase({ managerEmails, agentEmails, caseAgentEmail: taskAgentEmail });
 }
 
 // A "see-all" task viewer: managers plus plain-CS (the company-wide queue).

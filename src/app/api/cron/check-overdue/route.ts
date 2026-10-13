@@ -283,7 +283,7 @@ async function runReminderSweep(): Promise<NextResponse> {
             ? fetchAgentAssistantEmails(task.agent_email)
             : Promise.resolve([]),
           task.priority === "urgent" || task.priority === "high"
-            ? fetchSupervisionRecipientEmails()
+            ? fetchSupervisionRecipientEmails(task.agent_email)
             : Promise.resolve([]),
         ]);
         const escalationRecipients = uniqueNotificationRecipients(
@@ -485,7 +485,7 @@ async function runReminderSweep(): Promise<NextResponse> {
       fetchTaskAssigneeEmails(task.id, supabase),
       // Hàm này đã gộp sẵn agent VÀ assistant của agent đó.
       fetchAgentOwnerAndAssistantEmails(task.agent_email),
-      fetchSupervisionRecipientEmails(),
+      fetchSupervisionRecipientEmails(task.agent_email),
     ]);
     // Người được giao chỉ nhận MỘT thông báo dù họ cũng là agent hay admin.
     const watchers = uniqueNotificationRecipients(

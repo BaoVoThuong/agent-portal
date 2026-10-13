@@ -23,7 +23,7 @@ export function buildCreateTaskNotificationRows(input: {
   actorEmail: string;
   /** Người được giao ngay lúc tạo. */
   assignees: string[];
-  /** Người có task.manage + agent của task. */
+  /** Manager của task (Agent-manager chỉ task của họ) + Assistant của Agent. */
   createdRecipients: string[];
   /** Agent + phụ tá + admin; rỗng khi task không phải Backlog Urgent/High chưa ai nhận. */
   backlogAttentionRecipients: string[];

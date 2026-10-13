@@ -27,7 +27,7 @@ import {
   fetchAgentAssistantEmails,
   fetchAgentsForCs,
   isAgentOwnerOrAssistant,
-  fetchTaskManagerEmails,
+  fetchTaskManagerRecipients,
 } from "@/lib/tasks/membership";
 import { insertNotifications } from "@/lib/tasks/notifications";
 import { buildCreateTaskNotificationRows } from "@/lib/tasks/create-notifications";
@@ -401,19 +401,22 @@ export async function POST(request: Request) {
               ? [
                   // Phụ tá, không gồm agent: agent thôi nhận thông báo tự động.
                   ...(await fetchAgentAssistantEmails(agentEmail)),
-                  ...(await fetchSupervisionRecipientEmails()),
+                  ...(await fetchSupervisionRecipientEmails(agentEmail)),
                 ]
               : [];
-            // An Agent Assistant is normally the one creating a task, so the
-            // people who can act on it are its Task Admins (they hold
-            // `task.manage` and can open it straight from the bell to assign or
-            // adjust) and the task's own agent. RBAC, not the legacy
-            // `portal_account.role`, defines the manager list. Nobody else needs
-            // this notification.
-            // Chỉ người có task.manage (đội chốt giữ nguyên nhóm này). Agent
-            // của task không còn nhận `task_created`: 83 dòng trong 14 ngày,
-            // đọc 1%.
-            const createdRecipients = await fetchTaskManagerEmails();
+            // `task_created` goes to:
+            // - the task managers (task.manage through RBAC, never the legacy
+            //   portal_account.role). A manager who is also an Agent only hears
+            //   about their own tasks (2026-10-13, managerRecipientsForCase);
+            // - the Assistants of the task's Agent (2026-10-13: wherever the
+            //   Agent hears about a task, their Assistants do too).
+            // A plain Agent (no task.manage) does not get `task_created`: 83 rows
+            // in 14 days, 1% read.
+            const [managerRecipients, assistantRecipients] = await Promise.all([
+              fetchTaskManagerRecipients(agentEmail),
+              fetchAgentAssistantEmails(agentEmail),
+            ]);
+            const createdRecipients = [...managerRecipients, ...assistantRecipients];
             // Một người chỉ nhận MỘT dòng, loại cụ thể hơn thắng: ai đã nhận
             // backlog_attention thì không nhận thêm task_created.
             const notificationRows = buildCreateTaskNotificationRows({

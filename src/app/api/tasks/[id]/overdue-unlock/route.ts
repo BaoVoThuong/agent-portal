@@ -154,7 +154,7 @@ export async function POST(req: Request, { params }: Ctx) {
     const [agentRecipients, adminRecipients] = await Promise.all([
       // Phụ tá, không gồm agent: agent thôi nhận thông báo tự động.
       fetchAgentAssistantEmails(task.agent_email),
-      fetchSupervisionRecipientEmails(),
+      fetchSupervisionRecipientEmails(task.agent_email),
     ]);
     overdueRecipients = [...new Set([...agentRecipients, ...adminRecipients])].filter(
       (recipient) => recipient !== actor.email

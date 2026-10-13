@@ -26,7 +26,7 @@ import {
   isAgentOwnerOrAssistant,
 } from "@/lib/tasks/membership";
 import {
-  fetchEnrollmentManagerEmails,
+  fetchEnrollmentManagerAudience,
 } from "@/lib/enrollment/recipients";
 import { enrollmentRecordOwnerEmails } from "@/lib/enrollment/notifications";
 import { buildCreateEnrollmentNotificationRows } from "@/lib/enrollment/create-notifications";
@@ -350,7 +350,10 @@ export async function POST(request: Request) {
 
   let taskManagerEmails: string[] = [];
   try {
-    taskManagerEmails = await fetchEnrollmentManagerEmails();
+    const managersFor = await fetchEnrollmentManagerAudience();
+    taskManagerEmails = managersFor(
+      typeof record.agent_email === "string" ? record.agent_email : null,
+    );
   } catch (error) {
     mutationWarnings.push(
       `Enrollment task.manage recipient lookup failed: ${error instanceof Error ? error.message : "unknown error"}`

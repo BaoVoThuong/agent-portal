@@ -7,7 +7,7 @@ import {
   type EnrollmentNotificationInsertInput,
 } from "@/lib/enrollment/notifications";
 import {
-  fetchEnrollmentManagerEmails,
+  fetchEnrollmentManagerAudience,
   filterEnrollmentNotificationRows,
 } from "@/lib/enrollment/recipients";
 import {
@@ -168,9 +168,10 @@ export async function GET(request: Request) {
   const settings = resolveReminderSettings(settingsRow);
   const qcCutoff = new Date(now.getTime() - settings.qcHours * 3600_000).toISOString();
 
-  let managerEmails: string[];
+  // Managers who hear about one record: an Agent-manager only for their own.
+  let managersFor: (recordAgentEmail: string | null) => string[];
   try {
-    managerEmails = await fetchEnrollmentManagerEmails();
+    managersFor = await fetchEnrollmentManagerAudience();
   } catch (error) {
     return NextResponse.json(
       { error: `Could not resolve Enrollment manager recipients: ${error instanceof Error ? error.message : "unknown error"}` },
@@ -209,7 +210,7 @@ export async function GET(request: Request) {
   );
 
   const dueCandidates = dueActions.flatMap(({ record, action }) =>
-    dueRecipients(action, record, managerEmails).map((recipient) => ({
+    dueRecipients(action, record, managersFor(record.agent_email)).map((recipient) => ({
       recipient_email: recipient,
       record_id: record.id,
       type: action,
@@ -231,7 +232,7 @@ export async function GET(request: Request) {
   const qcCandidates = qcStale.flatMap((record) =>
     uniqueEnrollmentNotificationRecipients([
       ...enrollmentRecordOwnerEmails(record),
-      ...managerEmails,
+      ...managersFor(record.agent_email),
     ]).map((recipient) => ({
       recipient_email: recipient,
       record_id: record.id,
@@ -260,7 +261,7 @@ export async function GET(request: Request) {
       sent = await notifyDueRecord(
         record,
         action,
-        managerEmails,
+        managersFor(record.agent_email),
         nowIso,
         dueRowsByKey.get(`${record.id}\0${action}`) ?? [],
       );
@@ -275,7 +276,7 @@ export async function GET(request: Request) {
   });
   await inBatches(qcStale, async (record) => {
     try {
-      if (await notifyQcStale(record, managerEmails, nowIso, qcRowsById.get(record.id) ?? [])) sentQcStale += 1;
+      if (await notifyQcStale(record, managersFor(record.agent_email), nowIso, qcRowsById.get(record.id) ?? [])) sentQcStale += 1;
     } catch (error) {
       failed += 1;
       console.error("Enrollment QC stale notification failed", { id: record.id, error });

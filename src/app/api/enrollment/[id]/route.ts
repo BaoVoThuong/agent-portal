@@ -44,7 +44,7 @@ import {
 import {
   isAgentOwnerOrAssistant,
 } from "@/lib/tasks/membership";
-import { fetchEnrollmentManagerEmails } from "@/lib/enrollment/recipients";
+import { fetchEnrollmentManagerAudience } from "@/lib/enrollment/recipients";
 import { RouteTiming } from "@/lib/server-timing";
 import {
   findMissingRequiredFieldsFromContext,
@@ -565,7 +565,8 @@ export async function PATCH(request: Request, { params }: Ctx) {
     let managerEmails: string[] = [];
     if (toStage && (toStage.triggers_qc || isKeyStage(updated.program, toStage))) {
       try {
-        managerEmails = await fetchEnrollmentManagerEmails();
+        const managersFor = await fetchEnrollmentManagerAudience();
+        managerEmails = managersFor(updated.agent_email);
       } catch (error) {
         mutationWarnings.push(
           `Enrollment stage recipient lookup failed: ${error instanceof Error ? error.message : "unknown error"}`

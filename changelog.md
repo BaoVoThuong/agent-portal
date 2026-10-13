@@ -6,6 +6,32 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-13 — Thông báo cho manager: manager là Agent chỉ nhận case của chính họ (chưa commit; không có SQL)
+
+- **Người nhận "thông báo cho manager"** (mọi người có `task.manage` qua role đang bật) nay lọc theo
+  từng case:
+  - manager **không phải Agent** → nhận mọi case, như trước;
+  - manager **cũng là Agent** (có trong `task_agents`) → chỉ nhận case có Agent là chính họ.
+
+  Trước đây, sau khi RBAC chỉ theo tick lên production, cả Khang (Admin + Agent) lẫn Linh Le (Task
+  Manager + Agent) đều nhận thông báo của mọi Agent khác.
+- **Áp cho Task:** task urgent/high nằm backlog chưa ai nhận (`backlog_attention`); quá hạn SLA
+  (`sla_escalated`); quá Due Date và nhắc lại (`due_date_overdue`); gỡ quá hạn kèm lý do
+  (`overdue_unlocked`); task mới tạo (`task_created`).
+- **Áp cho Enrollment:** record mới tạo; chuyển sang stage chính hoặc stage QC; sắp tới hạn, quá hạn,
+  nhắc quá hạn; QC để lâu.
+- **Không đổi:** Agent không có `task.manage`; người được giao; Assistant; thông báo gửi riêng cho
+  Agent của task (Due Date).
+- **"Task mới" (`task_created`) gửi thêm cho Assistant của Agent của task.** Luật user chốt: ở Task,
+  chỗ nào Agent nhận thì Assistant của Agent cũng nhận. Các loại khác đã đúng luật này từ trước.
+  Enrollment giữ nguyên, không thêm Assistant (user xác nhận).
+- Luật nằm ở một hàm thuần `managerRecipientsForCase` (`src/lib/tasks/manager-audience.ts`, có test).
+  - `fetchTaskManagerEmails()` đổi thành `fetchTaskManagerRecipients(agentEmail)`.
+  - `fetchSupervisionRecipientEmails` nhận thêm Agent của task.
+  - `fetchEnrollmentManagerEmails()` đổi thành `fetchEnrollmentManagerAudience()`, trả hàm lọc theo
+    từng record.
+- Kiểm tra: `tsc` sạch, vitest 207 file / 1.684 test pass, eslint các file đổi sạch.
+
 ## 2026-10-13 — Account/Role redo P0: xoá role phải chuyển người, bỏ đổi email, bỏ xoá account (chưa commit; không có SQL)
 
 - **Xoá role:**

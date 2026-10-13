@@ -2,6 +2,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { flattenAccess, type AccessRow, type UserAccess } from "@/lib/rbac/access";
 import { buildTaskActor } from "@/lib/tasks/access";
 import { fetchSelectedAgentEmails } from "@/lib/tasks/assignees";
+import { managerRecipientsForCase } from "@/lib/tasks/manager-audience";
 import type { EnrollmentNotificationInsertInput } from "./notifications";
 import { canAccessEnrollment, type EnrollmentActor } from "./access";
 import {
@@ -111,10 +112,21 @@ export async function loadEnrollmentRecipientScopes(
   return result;
 }
 
-/** Enrollment's single manager audience: the same audience that sees all records. */
-export async function fetchEnrollmentManagerEmails(): Promise<string[]> {
-  const accounts = await loadActiveAccounts();
-  return [
+/**
+ * Enrollment's manager audience: the people who see all records (task.manage).
+ * Returns a function giving the managers who hear about ONE record, because a
+ * manager who is also an Agent only hears about their own records
+ * (managerRecipientsForCase, user decision 2026-10-13). Load once, then call it
+ * per record — the due cron covers hundreds of records.
+ */
+export async function fetchEnrollmentManagerAudience(): Promise<
+  (recordAgentEmail: string | null) => string[]
+> {
+  const [accounts, agentEmails] = await Promise.all([
+    loadActiveAccounts(),
+    fetchSelectedAgentEmails(),
+  ]);
+  const managerEmails = [
     ...new Set(
       accounts
         .map((row) => {
@@ -125,6 +137,8 @@ export async function fetchEnrollmentManagerEmails(): Promise<string[]> {
         .filter((email): email is string => Boolean(email)),
     ),
   ];
+  return (recordAgentEmail) =>
+    managerRecipientsForCase({ managerEmails, agentEmails, caseAgentEmail: recordAgentEmail });
 }
 
 async function loadEnrollmentNotificationRecords(
