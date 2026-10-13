@@ -15,6 +15,7 @@ import type {
 } from "@/lib/rbac/role-management";
 import { isAdminRoleName } from "@/lib/rbac/admin-role";
 import { useBodyScrollLock } from "../_shared/useBodyScrollLock";
+import { ReassignRoleDialog } from "./ReassignRoleDialog";
 
 type RoleManagerClientProps = {
   initialRoles: RoleRecord[];
@@ -79,6 +80,60 @@ function isProtectedRole(role: Pick<RoleRecord, "name">) {
   return isAdminRoleName(role.name);
 }
 
+/**
+ * "N employees" plus the disabled accounts that still hold the role — they
+ * count when the role is deleted, so they must be visible here.
+ */
+function RoleHolderSummary({
+  role,
+  expanded,
+  onToggle,
+}: {
+  role: RoleRecord;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const disabledCount = role.holders.filter((holder) => !holder.is_active).length;
+  const summary = `${role.user_count} employee${role.user_count === 1 ? "" : "s"}${
+    disabledCount > 0 ? ` · +${disabledCount} disabled` : ""
+  }`;
+
+  if (role.holders.length === 0) {
+    return <p className="mt-2 text-xs font-medium text-[#667085]">{summary}</p>;
+  }
+
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={onToggle}
+        className="text-xs font-medium text-[#667085] underline-offset-2 hover:text-[#245a94] hover:underline"
+      >
+        {summary}
+      </button>
+      {expanded && (
+        <ul className="mt-2 space-y-1">
+          {role.holders.map((holder) => (
+            <li
+              key={holder.user_id}
+              className="flex items-center gap-2 text-xs text-[#344054]"
+              title={holder.email}
+            >
+              <span className="truncate">{holder.name?.trim() || holder.email}</span>
+              {!holder.is_active && (
+                <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                  Disabled
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export default function RoleManagerClient({
   initialRoles,
   permissions,
@@ -93,6 +148,8 @@ export default function RoleManagerClient({
   const [permissionSearch, setPermissionSearch] = useState("");
   const [busyRoleId, setBusyRoleId] = useState<string | null>(null);
   const [roleToDelete, setRoleToDelete] = useState<RoleRecord | null>(null);
+  const [roleToReassign, setRoleToReassign] = useState<RoleRecord | null>(null);
+  const [expandedHoldersRoleId, setExpandedHoldersRoleId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -286,10 +343,23 @@ export default function RoleManagerClient({
     }
   }
 
-  async function handleDeleteRole() {
-    if (!roleToDelete) return;
-    const role = roleToDelete;
+  // Someone may have been given this role since the page loaded. Reload the
+  // list so the next Delete click opens the move dialog with every holder.
+  async function reloadRoles() {
+    try {
+      const response = await fetch("/api/admin/roles", { cache: "no-store" });
+      const result = await response.json();
+      if (response.ok && Array.isArray(result.roles)) setRoles(result.roles);
+    } catch {
+      // The error toast already explains what to do; a stale list is harmless.
+    }
+  }
 
+  /**
+   * Deletes a role. A role that people still hold (disabled accounts included)
+   * needs moveToRoleId: the server moves every holder there first.
+   */
+  async function deleteRole(role: RoleRecord, moveToRoleId: string | null) {
     setBusyRoleId(role.id);
     setError(null);
     setMessage(null);
@@ -297,23 +367,54 @@ export default function RoleManagerClient({
     try {
       const response = await fetch(`/api/admin/roles/${role.id}`, {
         method: "DELETE",
+        ...(moveToRoleId
+          ? {
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ moveToRoleId }),
+            }
+          : {}),
       });
       const result = await response.json();
 
       if (!response.ok) {
         setError(result.error ?? "Unable to delete role.");
-        return;
+        if (response.status === 409) await reloadRoles();
+        return false;
       }
 
       setRoles(result.roles ?? roles.filter((item) => item.id !== role.id));
-      setMessage("Role deleted.");
-      setRoleToDelete(null);
+      const targetName = roles.find((item) => item.id === moveToRoleId)?.name;
+      const moved = typeof result.moved === "number" ? result.moved : 0;
+      setMessage(
+        moved > 0 && targetName
+          ? `Moved ${moved} account${moved === 1 ? "" : "s"} to ${targetName}. Role deleted.`
+          : "Role deleted."
+      );
       router.refresh();
+      return true;
     } catch {
       setError("Unable to delete role. Please try again.");
+      return false;
     } finally {
       setBusyRoleId(null);
     }
+  }
+
+  async function handleDeleteRole() {
+    if (!roleToDelete) return;
+    if (await deleteRole(roleToDelete, null)) setRoleToDelete(null);
+  }
+
+  async function handleReassignAndDelete(moveToRoleId: string) {
+    if (!roleToReassign) return;
+    if (await deleteRole(roleToReassign, moveToRoleId)) setRoleToReassign(null);
+  }
+
+  function requestDeleteRole(role: RoleRecord) {
+    setError(null);
+    setMessage(null);
+    if (role.holders.length > 0) setRoleToReassign(role);
+    else setRoleToDelete(role);
   }
 
   return (
@@ -393,10 +494,15 @@ export default function RoleManagerClient({
                   <p className="mt-1 text-sm text-[#667085]">
                     {role.description || "No description"}
                   </p>
-                  <p className="mt-2 text-xs font-medium text-[#667085]">
-                    {role.user_count} employee
-                    {role.user_count === 1 ? "" : "s"}
-                  </p>
+                  <RoleHolderSummary
+                    role={role}
+                    expanded={expandedHoldersRoleId === role.id}
+                    onToggle={() =>
+                      setExpandedHoldersRoleId((current) =>
+                        current === role.id ? null : role.id
+                      )
+                    }
+                  />
                 </div>
 
                 <div className="flex min-w-0 flex-wrap items-start gap-2">
@@ -453,8 +559,13 @@ export default function RoleManagerClient({
                   {canDelete && !protectedRole && (
                     <button
                       type="button"
-                      disabled={isBusy}
-                      onClick={() => setRoleToDelete(role)}
+                      disabled={isBusy || role.is_default}
+                      title={
+                        role.is_default
+                          ? "New Google sign-ups get this role, so it cannot be deleted."
+                          : undefined
+                      }
+                      onClick={() => requestDeleteRole(role)}
                       className="rounded-md border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-50"
                     >
                       Delete
@@ -720,6 +831,22 @@ export default function RoleManagerClient({
             </div>
           </div>
         </div>
+      )}
+
+      {roleToReassign && (
+        <ReassignRoleDialog
+          role={roleToReassign}
+          targets={roles
+            .filter((role) => role.is_active && role.id !== roleToReassign.id)
+            .map((role) => ({
+              id: role.id,
+              name: role.name,
+              grantsFullAccess: isProtectedRole(role),
+            }))}
+          busy={busyRoleId === roleToReassign.id}
+          onCancel={() => setRoleToReassign(null)}
+          onConfirm={(moveToRoleId) => void handleReassignAndDelete(moveToRoleId)}
+        />
       )}
 
       <Toast message={error} tone="error" onDismiss={() => setError(null)} />

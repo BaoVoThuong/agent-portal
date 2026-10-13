@@ -7,12 +7,15 @@ import {
   PERMISSIONS,
 } from "@/lib/rbac/permissions";
 import {
+  countUsersForRole,
+  fetchActiveRolesByIds,
   fetchRoleById,
   fetchRolePermissionKeys,
   fetchRolesWithPermissions,
 } from "@/lib/rbac/role-management";
 import { isAdminRoleName } from "@/lib/rbac/admin-role";
 import { checkRolePermissionChange, rolePatchGrant } from "@/lib/rbac/delegation";
+import { checkRoleDeletion } from "@/lib/rbac/role-deletion";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -156,7 +159,7 @@ export async function PATCH(req: Request, context: RouteContext) {
   }
 }
 
-export async function DELETE(_req: Request, context: RouteContext) {
+export async function DELETE(req: Request, context: RouteContext) {
   const session = await auth();
 
   if (!can(session?.user?.permissions, PERMISSIONS.ROLE_MANAGER)) {
@@ -181,15 +184,69 @@ export async function DELETE(_req: Request, context: RouteContext) {
       );
     }
 
+    // Optional body { moveToRoleId }: where every account holding this role
+    // goes first. A DELETE without a body is still valid for an empty role.
+    const body = (await req.json().catch(() => null)) as { moveToRoleId?: unknown } | null;
+    const requestedTarget =
+      typeof body?.moveToRoleId === "string" && body.moveToRoleId.trim()
+        ? body.moveToRoleId.trim()
+        : null;
+
+    const [holderCount, activeTargets] = await Promise.all([
+      countUsersForRole(id),
+      requestedTarget ? fetchActiveRolesByIds([requestedTarget]) : Promise.resolve([]),
+    ]);
+    const deletion = checkRoleDeletion({
+      roleId: id,
+      holderCount,
+      moveToRoleId: requestedTarget,
+      moveToRoleIsActive: activeTargets.length === 1,
+    });
+    if (!deletion.ok) {
+      return NextResponse.json(
+        { error: deletion.error, holderCount: deletion.holderCount },
+        { status: deletion.status }
+      );
+    }
+
     const supabase = getSupabaseAdmin();
+    let moved = 0;
+    if (deletion.moveToRoleId) {
+      // One UPDATE: every holder moves or none does. user_roles has one row per
+      // account (user_roles_one_role_per_user_idx), so changing role_id cannot
+      // collide. Moving people out of a non-Admin role never removes an Admin.
+      const { error: moveError, count } = await supabase
+        .from("user_roles")
+        .update(
+          { role_id: deletion.moveToRoleId, created_at: new Date().toISOString() },
+          { count: "exact" }
+        )
+        .eq("role_id", id);
+
+      if (moveError) {
+        return NextResponse.json({ error: moveError.message }, { status: 500 });
+      }
+
+      moved = count ?? 0;
+      invalidateRbacLookups();
+      console.info("[role-manager:delete] moved holders", {
+        actor: session?.user?.email ?? null,
+        roleId: id,
+        moveToRoleId: deletion.moveToRoleId,
+        moved,
+      });
+    }
+
+    // Not in the same transaction as the move. If this fails the role is left
+    // empty, and deleting it again takes the "nobody holds it" path.
     const { error } = await supabase.from("roles").delete().eq("id", id);
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: error.message, moved }, { status: 500 });
     }
 
     invalidateRbacLookups();
-    return NextResponse.json({ ok: true, roles: await fetchRolesWithPermissions() });
+    return NextResponse.json({ ok: true, moved, roles: await fetchRolesWithPermissions() });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Unable to delete role." },

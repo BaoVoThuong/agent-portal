@@ -39,8 +39,8 @@ type FormState = {
   roleIds: string[];
 };
 
+// Email is not editable: it ties tasks, leads and enrollments to the person.
 type EditAccountFormState = {
-  email: string;
   name: string;
   agentId: string;
 };
@@ -80,18 +80,14 @@ export default function AccountManagerClient({
   const [actionUserId, setActionUserId] = useState<string | null>(null);
   const [editUser, setEditUser] = useState<ManagedAccountUser | null>(null);
   const [editForm, setEditForm] = useState<EditAccountFormState>({
-    email: "",
     name: "",
     agentId: "",
   });
-  const [deleteUser, setDeleteUser] = useState<ManagedAccountUser | null>(null);
   const [roleUser, setRoleUser] = useState<ManagedAccountUser | null>(null);
   const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
   const [resetUser, setResetUser] = useState<ManagedAccountUser | null>(null);
-  // Năm modal nội tuyến trong một component: khoá nền khi BẤT KỲ cái nào mở.
-  useBodyScrollLock(
-    Boolean(showCreateForm || editUser || roleUser || resetUser || deleteUser)
-  );
+  // Bốn modal nội tuyến trong một component: khoá nền khi BẤT KỲ cái nào mở.
+  useBodyScrollLock(Boolean(showCreateForm || editUser || roleUser || resetUser));
   const [resetPassword, setResetPassword] = useState("");
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -117,7 +113,7 @@ export default function AccountManagerClient({
     ReadonlyMap<
       string,
       {
-        patch: Partial<Pick<ManagedAccountUser, "email" | "name" | "agent_id">>;
+        patch: Partial<Pick<ManagedAccountUser, "name" | "agent_id">>;
         pending: boolean;
         base: ManagedAccountUser[];
       }
@@ -276,7 +272,6 @@ export default function AccountManagerClient({
   async function updateUser(
     user: ManagedAccountUser,
     payload: Partial<Pick<AccountUser, "is_active">> & {
-      email?: string;
       name?: string | null;
       agentId?: string;
       password?: string;
@@ -323,7 +318,6 @@ export default function AccountManagerClient({
     setActionUserId(null);
     setEditUser(user);
     setEditForm({
-      email: user.email,
       name: user.name ?? "",
       agentId: user.agent_id ?? "",
     });
@@ -333,7 +327,7 @@ export default function AccountManagerClient({
     userId: string,
     value:
       | {
-          patch: Partial<Pick<ManagedAccountUser, "email" | "name" | "agent_id">>;
+          patch: Partial<Pick<ManagedAccountUser, "name" | "agent_id">>;
           pending: boolean;
         }
       | null,
@@ -354,7 +348,6 @@ export default function AccountManagerClient({
     const nextAgentId = draft.agentId.trim();
 
     const patch = {
-      email: draft.email.trim(),
       name: draft.name.trim() || null,
       agent_id: nextAgentId || null,
     };
@@ -363,9 +356,8 @@ export default function AccountManagerClient({
     // vừa nhập (updateUser đã hiện lỗi).
     setUserOverride(user.id, { patch, pending: true });
     setEditUser(null);
-    setEditForm({ email: "", name: "", agentId: "" });
+    setEditForm({ name: "", agentId: "" });
     const updated = await updateUser(user, {
-      email: patch.email,
       name: patch.name,
       agentId: nextAgentId,
     });
@@ -376,33 +368,6 @@ export default function AccountManagerClient({
       setUserOverride(user.id, null);
       setEditUser(user);
       setEditForm(draft);
-    }
-  }
-
-  async function handleDeleteAccount() {
-    if (!deleteUser) return;
-    setBusyUserId(deleteUser.id);
-    setError(null);
-    setMessage(null);
-
-    try {
-      const response = await fetch(`/api/admin/users/${deleteUser.id}`, {
-        method: "DELETE",
-      });
-      const result = await readJsonResponse(response);
-
-      if (!response.ok) {
-        setError(result.error ?? "Unable to delete account.");
-        return;
-      }
-
-      setMessage(`Deleted ${deleteUser.email}.`);
-      setDeleteUser(null);
-      router.refresh();
-    } catch {
-      setError("Unable to delete account. Please try again.");
-    } finally {
-      setBusyUserId(null);
     }
   }
 
@@ -706,16 +671,20 @@ export default function AccountManagerClient({
                           >
                             Reset password
                           </button>
+                          {/* Accounts are disabled, never deleted: their email still
+                              ties tasks, leads, enrollments and leave to them. */}
                           <button
-                            className="flex w-full items-center rounded-md px-3 py-2 text-sm font-medium text-red-700 hover:bg-[#f4f7fb] disabled:cursor-not-allowed disabled:opacity-50"
+                            className={`flex w-full items-center rounded-md px-3 py-2 text-sm font-medium hover:bg-[#f4f7fb] disabled:cursor-not-allowed disabled:opacity-50 ${
+                              user.is_active ? "text-red-700" : "text-emerald-700"
+                            }`}
                             type="button"
                             disabled={isBusy || isCurrentUser || !canEdit}
                             onClick={() => {
                               setActionUserId(null);
-                              setDeleteUser(user);
+                              void updateUser(user, { is_active: !user.is_active });
                             }}
                           >
-                            Delete account
+                            {user.is_active ? "Disable account" : "Enable account"}
                           </button>
                         </div>
                       )}
@@ -881,23 +850,19 @@ export default function AccountManagerClient({
 	              </p>
 	            </div>
 	            <div className="space-y-4">
-	              <label className="block">
+	              <div>
 	                <span className="text-sm font-medium text-[#344054]">
 	                  Email
 	                </span>
-	                <input
-	                  className="mt-1 w-full rounded-md border border-[#cfd6e3] px-3 py-2 text-sm text-[#16233a] outline-none focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15"
-	                  type="email"
-	                  value={editForm.email}
-	                  onChange={(event) =>
-	                    setEditForm((current) => ({
-	                      ...current,
-	                      email: event.target.value,
-	                    }))
-	                  }
-	                  required
-	                />
-	              </label>
+	                {/* Email is the key that ties tasks, leads and enrollments to
+	                    this person, so it never changes. */}
+	                <p className="mt-1 truncate rounded-md border border-[#e4e9f2] bg-slate-50 px-3 py-2 text-sm text-slate-600">
+	                  {editUser.email}
+	                </p>
+	                <span className="mt-1 block text-xs text-[#667085]">
+	                  Email cannot be changed. Create a new account instead.
+	                </span>
+	              </div>
 	              <label className="block">
 	                <span className="text-sm font-medium text-[#344054]">
 	                  Name
@@ -940,7 +905,7 @@ export default function AccountManagerClient({
 	                type="button"
 	                onClick={() => {
 	                  setEditUser(null);
-	                  setEditForm({ email: "", name: "", agentId: "" });
+	                  setEditForm({ name: "", agentId: "" });
 	                }}
 	              >
 	                Cancel
@@ -950,9 +915,7 @@ export default function AccountManagerClient({
 	                type="submit"
 	                disabled={
 	                  busyUserId === editUser.id ||
-	                  (editForm.email.trim().toLowerCase() ===
-	                    editUser.email.toLowerCase() &&
-	                    editForm.name.trim() === (editUser.name ?? "") &&
+	                  (editForm.name.trim() === (editUser.name ?? "") &&
 	                    editForm.agentId.trim() ===
 	                      (editUser.agent_id ?? "").trim())
 	                }
@@ -1059,42 +1022,6 @@ export default function AccountManagerClient({
         </div>
       )}
 
-      {deleteUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f2349]/35 px-4">
-          <div className="w-full max-w-[420px] rounded-lg border border-[#d8dee7] bg-white p-6 shadow-xl">
-            <div className="mb-5">
-              <h2 className="text-lg font-semibold text-[#16233a]">
-                Delete Account
-              </h2>
-              <p className="mt-1 text-sm text-[#667085]">
-                This permanently deletes{" "}
-                <span className="font-semibold text-[#16233a]">
-                  {deleteUser.email}
-                </span>
-                . This action cannot be undone.
-              </p>
-            </div>
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                className="rounded-md border border-[#cfd6e3] px-4 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f4f7fb]"
-                type="button"
-                onClick={() => setDeleteUser(null)}
-              >
-                Cancel
-              </button>
-              <button
-                className="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
-                type="button"
-                disabled={busyUserId === deleteUser.id}
-                onClick={() => void handleDeleteAccount()}
-              >
-                {busyUserId === deleteUser.id ? "Deleting..." : "Delete"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <Toast message={error} tone="error" onDismiss={() => setError(null)} />
       <Toast
         message={message}
@@ -1108,7 +1035,6 @@ export default function AccountManagerClient({
 
 function isPasswordOnlyUpdate(
   payload: Partial<Pick<AccountUser, "is_active">> & {
-    email?: string;
     name?: string | null;
     password?: string;
     roleIds?: string[];
@@ -1116,7 +1042,6 @@ function isPasswordOnlyUpdate(
 ) {
   return (
     payload.password !== undefined &&
-    payload.email === undefined &&
     payload.name === undefined &&
     payload.roleIds === undefined &&
     payload.is_active === undefined

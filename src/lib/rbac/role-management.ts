@@ -11,6 +11,13 @@ export type PermissionRecord = {
   sort_order: number;
 };
 
+export type RoleHolder = {
+  user_id: string;
+  name: string | null;
+  email: string;
+  is_active: boolean;
+};
+
 export type RoleRecord = {
   id: string;
   name: string;
@@ -21,11 +28,17 @@ export type RoleRecord = {
   is_default: boolean;
   created_at: string;
   updated_at: string;
+  /** Active accounts holding the role. */
   user_count: number;
+  /**
+   * Every account holding the role, disabled ones included. Deleting a role
+   * must move all of them to another role first (user_roles cascades).
+   */
+  holders: RoleHolder[];
   permissions: PermissionRecord[];
 };
 
-type RoleRow = Omit<RoleRecord, "user_count" | "permissions">;
+type RoleRow = Omit<RoleRecord, "user_count" | "holders" | "permissions">;
 
 type RolePermissionRow = {
   role_id: string;
@@ -36,6 +49,7 @@ type UserRoleRow = {
   user_id: string;
   role_id: string;
   created_at: string | null;
+  portal_account: { name: string | null; email: string; is_active: boolean } | null;
 };
 
 export type RoleOption = Pick<
@@ -71,8 +85,7 @@ export async function fetchRolesWithPermissions() {
       supabase.from("role_permissions").select("role_id,permission_key"),
       supabase
         .from("user_roles")
-        .select("user_id,role_id,created_at, portal_account!inner(is_active)")
-        .eq("portal_account.is_active", true),
+        .select("user_id,role_id,created_at, portal_account!inner(name,email,is_active)"),
     ]);
 
   if (rolesResponse.error) throw new Error(rolesResponse.error.message);
@@ -94,8 +107,12 @@ export async function fetchRolesWithPermissions() {
     permissionKeysByRoleId.set(row.role_id, current);
   }
 
+  const userRoleRows = (userRolesResponse.data ?? []) as unknown as UserRoleRow[];
+
+  // user_count keeps its meaning: active accounts only.
   const selectedRoleByUserId = new Map<string, UserRoleRow>();
-  for (const row of (userRolesResponse.data ?? []) as unknown as UserRoleRow[]) {
+  for (const row of userRoleRows) {
+    if (!row.portal_account?.is_active) continue;
     const current = selectedRoleByUserId.get(row.user_id);
 
     if (!current || compareUserRolePriority(row, current, roleById) < 0) {
@@ -111,10 +128,24 @@ export async function fetchRolesWithPermissions() {
     );
   }
 
+  const holdersByRoleId = new Map<string, RoleHolder[]>();
+  for (const row of userRoleRows) {
+    if (!row.portal_account) continue;
+    const current = holdersByRoleId.get(row.role_id) ?? [];
+    current.push({
+      user_id: row.user_id,
+      name: row.portal_account.name,
+      email: row.portal_account.email,
+      is_active: row.portal_account.is_active,
+    });
+    holdersByRoleId.set(row.role_id, current);
+  }
+
   return roles
     .map((role) => ({
       ...role,
       user_count: userCountByRoleId.get(role.id) ?? 0,
+      holders: sortRoleHolders(holdersByRoleId.get(role.id) ?? []),
       permissions: normalizeExclusivePermissionKeys(
         permissionKeysByRoleId.get(role.id) ?? []
       )
@@ -161,6 +192,15 @@ function compareUserRolePriority(
   return (firstRole?.name ?? "").localeCompare(secondRole?.name ?? "");
 }
 
+/** Active accounts first, then by display name (email when there is none). */
+function sortRoleHolders(holders: RoleHolder[]): RoleHolder[] {
+  return [...holders].sort(
+    (first, second) =>
+      Number(second.is_active) - Number(first.is_active) ||
+      (first.name?.trim() || first.email).localeCompare(second.name?.trim() || second.email)
+  );
+}
+
 export async function fetchRoleById(roleId: string) {
   const supabase = getSupabaseAdmin();
   const { data, error } = await supabase
@@ -173,6 +213,7 @@ export async function fetchRoleById(roleId: string) {
   return data as unknown as RoleRow;
 }
 
+/** Every account holding the role, disabled ones included. */
 export async function countUsersForRole(roleId: string) {
   const supabase = getSupabaseAdmin();
   const { count, error } = await supabase

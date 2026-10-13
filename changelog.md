@@ -6,6 +6,31 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-13 — Account/Role redo P0: xoá role phải chuyển người, bỏ đổi email, bỏ xoá account (chưa commit; không có SQL)
+
+- **Xoá role:**
+  - Role còn người giữ (kể cả account đã tắt) thì không xoá thẳng được. `DELETE /api/admin/roles/[id]`
+    trả 409, trừ khi request có `moveToRoleId` trỏ tới một role khác đang bật. Khi đó server chuyển mọi
+    người giữ sang role đó bằng một câu UPDATE, rồi mới xoá role.
+  - Trước đây xoá role kéo theo xoá `user_roles`, nên người giữ thành "không có role" mà không ai biết.
+  - Role Manager hiện số người giữ, có ghi thêm số account đã tắt và mở ra xem được danh sách.
+  - Bấm Delete khi role còn người giữ sẽ mở modal chọn role để chuyển họ sang. Nút Delete của role
+    mặc định bị tắt.
+  - Logic kiểm nằm trong `src/lib/rbac/role-deletion.ts` (có test).
+- **Email account không đổi được nữa.** Email là khoá nối của khoảng 40 bảng. Modal Edit chỉ hiện
+  email. `PATCH /api/admin/users/[id]` trả 400 nếu gửi email khác. Gửi lại đúng email cũ thì được
+  bỏ qua.
+- **Bỏ xoá account, chỉ còn Disable/Enable.**
+  - Menu dòng có lại "Disable account" / "Enable account", thay cho "Delete account".
+  - Handler `DELETE /api/admin/users/[id]` bị gỡ, nên route trả 405.
+  - Bỏ `findEmailReference`: danh sách kiểm của hàm này sót lead/enrollment/Time Off, và xoá account
+    còn xoá dây chuyền đơn nghỉ + số dư phép.
+  - RPC `delete_account_atomic` vẫn còn trong DB nhưng không ai gọi.
+- Không vá trần uỷ quyền cho Role/Account Manager: theo quyết định user, chỉ role Admin giữ hai quyền
+  này. Plan `docs/superpowers/plans/2026-10-13-account-role-redo.md` (U1–U4).
+- Kiểm tra: `tsc` sạch, vitest 206 file / 1.679 test pass, eslint các file đã đổi sạch. Chưa chạy
+  `next build`, chưa kiểm tay trên giao diện.
+
 ## 2026-10-12 — Sửa lỗi sau review DB optimize + Role Manager (SQL đã chạy; code deploy 2026-10-12)
 
 - **Nhóm CS:** role có `task.manage` vẫn tham gia Overview và được nhận task như `task.work`; role Admin cố định vẫn ở ngoài nhóm. Rollout SQL có guard và rollback đã chạy production, xác minh cả hai điều kiện; phần Overview cần deploy code.
