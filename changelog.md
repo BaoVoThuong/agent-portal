@@ -6,6 +6,33 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-16 — Task Board: phạm vi task của Agent/Assistant tính trong database (rollout SQL đã chạy production 2026-10-16)
+
+- **Lỗi:** Agent/Assistant mở `/tasks` thì sập với `TaskScopeTooLargeError` (155 id, 6.246 byte, vượt
+  trần 6.000). Code gom mọi task_id người đó từng được giao hoặc @mention, kể cả task đã xong hay
+  archive, rồi nhét vào URL. Danh sách chỉ tăng. Cùng lỗi còn làm hỏng `GET /api/tasks` (503) và
+  Export.
+- **Sửa:** hàm SQL `tasks_visible_to_worker(p_email, p_agent_emails)` (rollout
+  `2026-10-16-tasks-visible-to-worker.sql`, chỉ service role gọi được). `fetchTasksForActor` gọi hàm
+  qua RPC, vẫn lọc archived, sắp theo `id`, phân trang keyset và đếm ở trang đầu. Request chỉ mang
+  email và các Agent mà người đó làm Assistant.
+  - Điều kiện giữ y hệt cũ: `assignee_email`, `agent_email` hoặc `reporter_email` bằng email;
+    `agent_email` thuộc các Agent mình làm Assistant; có dòng `task_assignees`; có dòng
+    `task_participants`.
+  - Cờ `viewer_is_participant` chỉ tra cho các task vừa tải (`task_participants` theo email, mỗi lô
+    300 mã task, đúng cỡ lô tra người được giao đang chạy production), nên đúng cho từng dòng. Trước đây cờ
+    lấy từ danh sách toàn lịch sử, vốn bị PostgREST cắt ở 1.000 dòng, nên `canViewTask` có thể âm
+    thầm bỏ task chỉ thấy được nhờ @mention. Không embed `task_participants` lên RPC: PostgREST gắn
+    bộ lọc embed vào chính hàm ("column pgrst_call.email does not exist").
+  - Đường Task Board không còn tải toàn bộ id giao và @mention.
+  - Bỏ `TaskScopeTooLargeError`, `SCOPE_FILTER_MAX_BYTES`, `buildWorkerTaskOrs`,
+    `quotePostgrestFilterValue` và nhánh 503 `TASK_SCOPE_TOO_LARGE`.
+  - Manager và CS thường không đổi: không gọi hàm mới.
+  - Lỗi của RPC được báo ra, không bao giờ rơi về truy vấn không phạm vi.
+- **Chưa đổi:** tìm kiếm (`search.ts`) vẫn tải hai danh sách id vào Node, không qua URL (P3 trong
+  plan của Sol, chờ user chọn).
+- **Thứ tự deploy:** chạy rollout trước, rồi mới deploy code.
+
 ## 2026-10-16 — Account/Role redo P1: mỗi người một nhãn vị trí (không có SQL)
 
 - **Nhãn người ở phía Task chỉ còn MỘT, lấy cái cao nhất** (user chốt 2026-10-14):

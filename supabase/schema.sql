@@ -3100,6 +3100,42 @@ select id, assignee_email from tasks
 where assignee_email is not null
 on conflict (task_id, email) do nothing;
 
+-- Phạm vi task của một Agent/Assistant (không có task.manage), tính trong database
+-- (rollout 2026-10-16-tasks-visible-to-worker.sql). Thay cho chuỗi `.or(id.in.(...))`
+-- trong URL, vốn lớn dần theo lịch sử giao/@mention và làm Task Board sập ở ~150 id
+-- (TaskScopeTooLargeError). Điều kiện y hệt `buildWorkerTaskOrs` cũ, so khớp email
+-- chính xác. p_agent_emails: các Agent mà người này làm Assistant, do app tính
+-- (resolveTaskQueueScope). App lọc archived, sắp theo id, phân trang keyset trên kết quả.
+create or replace function public.tasks_visible_to_worker(p_email text, p_agent_emails text[])
+returns setof public.tasks
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select t.*
+  from public.tasks t
+  where nullif(btrim(p_email), '') is not null
+    and t.archived_at is null
+    and (
+      t.assignee_email = p_email
+      or t.agent_email = p_email
+      or t.reporter_email = p_email
+      or t.agent_email = any(coalesce(p_agent_emails, '{}'::text[]))
+      or exists (
+        select 1 from public.task_assignees a
+        where a.task_id = t.id and a.email = p_email
+      )
+      or exists (
+        select 1 from public.task_participants p
+        where p.task_id = t.id and p.email = p_email
+      )
+    );
+$$;
+
+revoke all on function public.tasks_visible_to_worker(text, text[]) from public, anon, authenticated;
+grant execute on function public.tasks_visible_to_worker(text, text[]) to service_role;
+
 create table if not exists task_assignment_cycles (
   id uuid primary key default gen_random_uuid(),
   task_id uuid not null references tasks(id) on delete cascade,

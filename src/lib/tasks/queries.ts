@@ -8,13 +8,10 @@ import {
   isTransientPostgrestError,
   type KeysetPage,
 } from "@/lib/pagination/keyset";
-import {
-  attachAssigneesToTasks,
-  fetchAssignedTaskIdsForEmail,
-} from "./assignees";
+import { attachAssigneesToTasks } from "./assignees";
 import { canViewTask } from "./access";
 import { resolveTaskQueueScope } from "./membership";
-import { fetchParticipantTaskIds } from "./participants";
+import { isMissingTaskParticipantsError } from "./participants";
 import type { TaskActor, TaskRow } from "./types";
 
 export const TASK_LIST_COUNT_MODE = "exact" as const;
@@ -23,12 +20,6 @@ export const TASK_COLUMNS =
   "id,display_number,title,description,fub_link,status,priority,category_id,custom_values,agent_email,assignee_email,reporter_email,todo_started_at,todo_reminded_at,in_progress_at,overdue_flagged_at,waiting_started_at,waiting_reminded_at,billing_started_at,billing_reminded_at,overdue_reminded_at,overdue_unlocked_at,due_soon_notified_at,stale_reminded_at,qc_reminded_at,last_activity_at,reopened_at,sla_minutes,overdue_count,todo_seconds,in_progress_seconds,waiting_seconds,billing_seconds,done_reviewed_by_email,done_reviewed_at,closed_at,position,created_at,updated_at,archived_at";
 const TASK_COLUMNS_LEGACY =
   "id,title,description,fub_link,status,priority,category_id,agent_email,assignee_email,reporter_email,todo_started_at,todo_reminded_at,in_progress_at,overdue_flagged_at,waiting_started_at,waiting_reminded_at,billing_started_at,billing_reminded_at,overdue_reminded_at,overdue_unlocked_at,due_soon_notified_at,stale_reminded_at,qc_reminded_at,last_activity_at,reopened_at,sla_minutes,overdue_count,todo_seconds,in_progress_seconds,waiting_seconds,billing_seconds,done_reviewed_by_email,done_reviewed_at,closed_at,position,created_at,updated_at,archived_at";
-
-// Values inside PostgREST `.or()`/`.in()` expressions are still parsed as
-// filter grammar. Quote and escape them so session/DB identities remain data.
-export function quotePostgrestFilterValue(value: string): string {
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}
 
 export const TASK_PAGE_SIZE = 1000;
 
@@ -43,42 +34,55 @@ export const TASK_PAGE_SIZE = 1000;
 export const TASK_MAX_ROWS = 5_000;
 
 /**
- * Trần độ dài chuỗi lọc phạm vi trước khi từ chối chạy.
+ * Một Agent/Assistant (không có task.manage) chỉ thấy task trong phạm vi của
+ * mình. Phạm vi tính trong database bằng `tasks_visible_to_worker` (rollout
+ * 2026-10-16-tasks-visible-to-worker.sql): request chỉ mang email và các Agent
+ * mà người đó làm Assistant.
  *
- * `assignedIds` + `participantIds` được nhét nguyên vào query string dưới dạng
- * `id.in.(...)`; mỗi UUID có dấu nháy tốn ~39 byte. Danh sách đó lớn dần theo
- * lịch sử làm việc của một người, không có trần nào. Proxy/gateway thường chặn
- * URL ở 8–16 KB, nên quá ngưỡng là request hỏng ở tầng mạng với một thông báo
- * chẳng nói lên điều gì.
- *
- * Cố ý HỎNG TO thay vì âm thầm rơi về truy vấn không phạm vi: trần
- * TASK_MAX_ROWS áp lên tập TOÀN CÔNG TY trước khi `canViewTask` chạy ở Node,
- * nên một task người này được phép xem có thể nằm ngoài 5.000 dòng đầu và
- * KHÔNG BAO GIỜ tới được lớp kiểm quyền. Đó là một bảng thiếu dòng mà không ai
- * biết là thiếu. Đưa phạm vi xuống SQL là việc của Phase B.
+ * Trước 2026-10-16, app gom MỌI task_id người đó từng được giao hoặc @mention
+ * (kể cả task đã xong hay archive) rồi nhét vào URL dưới dạng `id.in.(...)`.
+ * Danh sách chỉ tăng, nên tới khoảng 150 id thì vượt trần 6 KB và Task Board
+ * sập (`TaskScopeTooLargeError`). Hai danh sách đó còn bị PostgREST cắt ở 1.000
+ * dòng mà không báo.
  */
-const SCOPE_FILTER_MAX_BYTES = 6_000;
-
-export class TaskScopeTooLargeError extends Error {
-  readonly bytes: number;
-  readonly idCount: number;
-
-  constructor(bytes: number, idCount: number) {
-    super(
-      `Task visibility scope is too large to send as a query filter ` +
-        `(${bytes} bytes, ${idCount} ids). This needs the database-side scope.`
-    );
-    this.name = "TaskScopeTooLargeError";
-    this.bytes = bytes;
-    this.idCount = idCount;
-  }
-}
+type WorkerScope = {
+  email: string;
+  /** Agents whose tasks this worker sees as their Assistant. */
+  agentEmails: string[];
+  /** Agents this worker has agent-owner rights for (resolveTaskQueueScope). */
+  assistantAgentEmails: string[];
+};
 
 type TaskQueryShape = {
   columns: string;
   /** null = không giới hạn phạm vi (manager / plain-CS). */
-  scopedOrs: string[] | null;
+  workerScope: WorkerScope | null;
 };
+
+type CountOption = { count?: typeof TASK_LIST_COUNT_MODE };
+
+/**
+ * Task một Agent/Assistant được thấy. Lỗi của RPC (thiếu hàm, schema cache) để
+ * lộ ra cho người gọi: không bao giờ rơi về truy vấn không phạm vi.
+ *
+ * Không embed `task_participants` ở đây: PostgREST gắn bộ lọc embed của một
+ * RPC vào chính hàm ("column pgrst_call.email does not exist", 2026-10-16).
+ * Cờ participant lấy bằng fetchViewerParticipantTaskIds.
+ */
+function selectWorkerTasks(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  scope: WorkerScope,
+  columns: string,
+  countOption: CountOption,
+) {
+  return supabase
+    .rpc(
+      "tasks_visible_to_worker",
+      { p_email: scope.email, p_agent_emails: scope.agentEmails },
+      countOption,
+    )
+    .select(columns);
+}
 
 /**
  * Dựng lại MỘT trang. Phải là hàm chứ không phải một biến `query` dùng lại:
@@ -96,24 +100,23 @@ function buildTaskQuery(
   shape: TaskQueryShape,
   afterId: string | null,
 ) {
+  const countOption: CountOption =
+    afterId === null ? { count: TASK_LIST_COUNT_MODE } : {};
+  if (shape.workerScope) {
+    let scoped = selectWorkerTasks(supabase, shape.workerScope, shape.columns, countOption)
+      .is("archived_at", null)
+      .order("id", { ascending: true })
+      .limit(TASK_PAGE_SIZE);
+    if (afterId !== null) scoped = scoped.gt("id", afterId);
+    return scoped;
+  }
   let query = supabase
     .from("tasks")
-    .select(
-      shape.columns,
-      afterId === null ? { count: TASK_LIST_COUNT_MODE } : {}
-    )
+    .select(shape.columns, countOption)
     .is("archived_at", null)
     .order("id", { ascending: true })
     .limit(TASK_PAGE_SIZE);
   if (afterId !== null) query = query.gt("id", afterId);
-  if (shape.scopedOrs) {
-    query =
-      shape.scopedOrs.length > 0
-        ? query.or(shape.scopedOrs.join(","))
-        : // Không có phạm vi nào = không thấy gì. Fail-closed, giữ nguyên hành
-          // vi cũ: bỏ nhánh này là cho người không phạm vi thấy cả công ty.
-          query.eq("id", "00000000-0000-0000-0000-000000000000");
-  }
   return query;
 }
 
@@ -125,46 +128,17 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<{
 }> {
   const supabase = getSupabaseAdmin();
 
-  let workerScope:
-    | {
-      agents: string[];
-      assistantAgents: string[];
-      assignedIds: string[];
-      participantIds: string[];
-    }
-    | null = null;
   // Manager and plain-CS see the shared company queue. Agent/assistant users
-  // keep the narrower agent-scope view.
-  let seeAll = actor.isManager;
+  // keep the narrower agent-scope view, applied in the database.
+  let workerScope: WorkerScope | null = null;
   if (!actor.isManager) {
     const scope = await resolveTaskQueueScope(actor);
-    seeAll = scope.seesAllTasks;
-    if (!seeAll) {
-      const [assignedIds, participantIds] = await Promise.all([
-        fetchAssignedTaskIdsForEmail(actor.email, supabase),
-        fetchParticipantTaskIds(actor.email),
-      ]);
+    if (!scope.seesAllTasks) {
       workerScope = {
-        agents: scope.agentEmails,
-        assistantAgents: scope.assistantAgentEmails,
-        assignedIds,
-        participantIds,
+        email: actor.email,
+        agentEmails: scope.agentEmails,
+        assistantAgentEmails: scope.assistantAgentEmails,
       };
-    }
-  }
-
-  // Một chỗ dựng mệnh đề phạm vi cho cả truy vấn chính lẫn nhánh legacy. Trước
-  // đây nó được viết hai lần — inline ở đây và trong buildWorkerTaskOrs — nên
-  // hai bản có thể trôi lệch nhau mà không ai thấy.
-  const scopedOrs = seeAll ? null : buildWorkerTaskOrs(actor.email, workerScope);
-  if (scopedOrs && scopedOrs.length > 0) {
-    const bytes = Buffer.byteLength(scopedOrs.join(","), "utf8");
-    if (bytes > SCOPE_FILTER_MAX_BYTES) {
-      throw new TaskScopeTooLargeError(
-        bytes,
-        (workerScope?.assignedIds.length ?? 0) +
-          (workerScope?.participantIds.length ?? 0)
-      );
     }
   }
 
@@ -172,7 +146,7 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<{
     columns: string,
     afterId: string | null
   ): Promise<KeysetPage<{ id: string }>> => {
-    const result = await buildTaskQuery(supabase, { columns, scopedOrs }, afterId);
+    const result = await buildTaskQuery(supabase, { columns, workerScope }, afterId);
     const error = result.error as { code?: string; message?: string } | null;
     return {
       rows: result.data as unknown as { id: string }[] | null,
@@ -196,20 +170,20 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<{
     // assertTaskListComplete, không phân trang một đường không chạy.
     const maybeMissingColumn = { message: (error as Error).message };
     if (!isMissingTaskCustomValuesColumn(maybeMissingColumn)) throw error;
-    let fallback = supabase
-      .from("tasks")
-      .select(TASK_COLUMNS_LEGACY, { count: TASK_LIST_COUNT_MODE })
-      .is("archived_at", null)
-      .order("position", { ascending: true })
-      .order("created_at", { ascending: true })
-      .order("id", { ascending: true });
-    if (scopedOrs) {
-      fallback =
-        scopedOrs.length > 0
-          ? fallback.or(scopedOrs.join(","))
-          : fallback.eq("id", "00000000-0000-0000-0000-000000000000");
-    }
-    const fallbackResult = await fallback;
+    const countOption: CountOption = { count: TASK_LIST_COUNT_MODE };
+    const fallbackResult = workerScope
+      ? await selectWorkerTasks(supabase, workerScope, TASK_COLUMNS_LEGACY, countOption)
+          .is("archived_at", null)
+          .order("position", { ascending: true })
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+      : await supabase
+          .from("tasks")
+          .select(TASK_COLUMNS_LEGACY, countOption)
+          .is("archived_at", null)
+          .order("position", { ascending: true })
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true });
     if (fallbackResult.error) throw new Error(fallbackResult.error.message);
     const rows = fallbackResult.data as unknown[] | null;
     assertTaskListComplete(rows, fallbackResult.count);
@@ -220,16 +194,18 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<{
     };
   }
 
-  const tasks = await attachAssigneesToTasks(
-    (page.rows as unknown as TaskRow[]).map((task) => ({
-      ...task,
-      custom_values: task.custom_values ?? {},
-    })),
-    supabase,
-    { currentEmail: actor.email }
-  );
+  const rows = (page.rows as unknown as TaskRow[]).map((task) => ({
+    ...task,
+    custom_values: task.custom_values ?? {},
+  }));
+  const [tasks, viewerParticipantTaskIds] = await Promise.all([
+    attachAssigneesToTasks(rows, supabase, { currentEmail: actor.email }),
+    workerScope
+      ? fetchViewerParticipantTaskIds(actor.email, rows.map((task) => task.id), supabase)
+      : Promise.resolve(null),
+  ]);
 
-  if (!workerScope) {
+  if (!workerScope || !viewerParticipantTaskIds) {
     return {
       tasks: await attachTaskListMetadata(tasks, supabase),
       total: page.total,
@@ -237,11 +213,11 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<{
     };
   }
 
-  const participantIdSet = new Set(workerScope.participantIds);
+  // Defence in depth: the database already applied the scope.
   const visibleTasks = tasks
     .map((task) => ({
       ...task,
-      viewer_is_participant: participantIdSet.has(task.id),
+      viewer_is_participant: viewerParticipantTaskIds.has(task.id),
     }))
     .filter((task) => {
       const effectiveAssigneeEmail = task.assignees[0] ?? task.assignee_email;
@@ -250,12 +226,12 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<{
           task.assignees.includes(actor.email) ||
           task.assignee_email === actor.email,
         isAgentMember: Boolean(
-          task.agent_email && workerScope.agents.includes(task.agent_email)
+          task.agent_email && workerScope.agentEmails.includes(task.agent_email)
         ),
         isAgentOwner: Boolean(
           task.agent_email &&
             (task.agent_email === actor.email ||
-              workerScope.assistantAgents.includes(task.agent_email))
+              workerScope.assistantAgentEmails.includes(task.agent_email))
         ),
         isParticipant: task.viewer_is_participant,
         isReporter: task.reporter_email === actor.email,
@@ -317,6 +293,11 @@ export type TaskListMetadataRow = {
  * Ở 5.000 task: 100 lượt → 10.
  */
 const TASK_METADATA_TASK_ID_CHUNK_SIZE = 500;
+// `.in("task_id", ...)` goes in the URL. 300 quoted UUIDs (~11,7 KB) is the size
+// the assignee lookup (assignees.ts) sends on every board load in production.
+// The 500-id GET lookups in fetchTaskListMetadata's legacy fallback have never
+// run there, so they prove nothing about longer URLs.
+const TASK_PARTICIPANT_TASK_ID_CHUNK_SIZE = 300;
 
 async function attachTaskListMetadata(
   tasks: TaskRow[],
@@ -455,6 +436,40 @@ async function fetchTaskAttachmentRows(
   return rows;
 }
 
+/**
+ * Which of the loaded tasks the viewer participates in (@mention or added).
+ * Asks only about these task ids, so the flag is exact however long the
+ * viewer's history is. A single read of all their participant rows is capped
+ * at 1.000 by PostgREST, and canViewTask would then drop tasks the viewer only
+ * sees as a participant.
+ */
+async function fetchViewerParticipantTaskIds(
+  email: string,
+  taskIds: string[],
+  supabase = getSupabaseAdmin()
+): Promise<Set<string>> {
+  const chunks = chunkValues(taskIds, TASK_PARTICIPANT_TASK_ID_CHUNK_SIZE);
+  const results = await mapWithConcurrency(chunks, LIST_ENRICH_CONCURRENCY, (chunk) =>
+    supabase
+      .from("task_participants")
+      .select("task_id")
+      .eq("email", email)
+      .in("task_id", chunk)
+  );
+  const participantTaskIds = new Set<string>();
+  for (const { data, error } of results) {
+    if (error) {
+      // Same additive-rollout fallback as fetchParticipantTaskIds.
+      if (isMissingTaskParticipantsError(error)) return new Set();
+      throw new Error(error.message);
+    }
+    for (const row of (data ?? []) as Array<{ task_id: string }>) {
+      participantTaskIds.add(row.task_id);
+    }
+  }
+  return participantTaskIds;
+}
+
 function chunkValues<T>(values: T[], size: number): T[][] {
   const uniqueValues = [...new Set(values.filter(Boolean))];
   const chunks: T[][] = [];
@@ -470,42 +485,6 @@ function countRowsByTask(rows: Array<{ task_id: string }>): Map<string, number> 
     counts.set(row.task_id, (counts.get(row.task_id) ?? 0) + 1);
   }
   return counts;
-}
-
-function buildWorkerTaskOrs(
-  email: string,
-  workerScope:
-    | {
-        agents: string[];
-        assistantAgents: string[];
-        assignedIds: string[];
-        participantIds: string[];
-      }
-    | null
-): string[] {
-  const quotedEmail = quotePostgrestFilterValue(email);
-  const ors: string[] = [
-    `assignee_email.eq.${quotedEmail}`,
-    `agent_email.eq.${quotedEmail}`,
-    `reporter_email.eq.${quotedEmail}`,
-  ];
-  if (!workerScope) return ors;
-  if (workerScope.agents.length > 0) {
-    ors.push(
-      `agent_email.in.(${workerScope.agents.map(quotePostgrestFilterValue).join(",")})`
-    );
-  }
-  if (workerScope.participantIds.length > 0) {
-    ors.push(
-      `id.in.(${workerScope.participantIds.map(quotePostgrestFilterValue).join(",")})`
-    );
-  }
-  if (workerScope.assignedIds.length > 0) {
-    ors.push(
-      `id.in.(${workerScope.assignedIds.map(quotePostgrestFilterValue).join(",")})`
-    );
-  }
-  return ors;
 }
 
 function isMissingTaskCustomValuesColumn(error: { code?: string; message?: string } | null): boolean {

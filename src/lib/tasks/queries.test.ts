@@ -3,7 +3,6 @@ import {
   assertTaskListComplete,
   fetchTaskListMetadata,
   isMissingTaskListMetadataRpc,
-  quotePostgrestFilterValue,
   TaskListTruncatedError,
 } from "./queries";
 
@@ -122,14 +121,6 @@ describe("assertTaskListComplete", () => {
   });
 });
 
-describe("quotePostgrestFilterValue", () => {
-  it("escapes grammar delimiters while keeping the value quoted", () => {
-    expect(quotePostgrestFilterValue('a"x\\@b.com,role.eq.admin')).toBe(
-      '"a\\"x\\\\@b.com,role.eq.admin"'
-    );
-  });
-});
-
 const row = (id: string) => ({ id, custom_values: {}, assignees: [] });
 
 describe("fetchTasksForActor keyset paging", () => {
@@ -187,23 +178,34 @@ describe("fetchTasksForActor keyset paging", () => {
 
   // A8: phạm vi phải được áp lên MỌI trang, không chỉ trang đầu. Thiếu nó thì
   // trang hai trở đi trả về task của cả công ty cho một người bị giới hạn.
-  it("applies the same scope predicate to every page", async () => {
-    const { fetchTasksForActor, orCalls } = await loadFetchTasksForActor({
-      selectedAgentEmails: ["cs@x.com"],
-      assistantAgents: [],
-      pages: [
-        { data: [row("a")], error: null, count: 2 },
-        { data: [row("b")], error: null },
-      ],
-    });
+  it("applies the same database scope to every page", async () => {
+    const { fetchTasksForActor, orCalls, workerScopeCalls, fromCalls } =
+      await loadFetchTasksForActor({
+        selectedAgentEmails: ["cs@x.com"],
+        assistantAgents: [],
+        pages: [
+          { data: [row("a")], error: null, count: 2 },
+          { data: [row("b")], error: null },
+        ],
+      });
     await fetchTasksForActor({
       email: "cs@x.com",
       isManager: false,
       isWorker: true,
     } as never);
-    expect(orCalls.length).toBeGreaterThanOrEqual(2);
-    expect(new Set(orCalls).size).toBe(1);
-    expect(orCalls[0]).toContain("cs@x.com");
+    expect(workerScopeCalls).toHaveLength(2);
+    expect(workerScopeCalls.map(([, args]) => args)).toEqual([
+      { p_email: "cs@x.com", p_agent_emails: [] },
+      { p_email: "cs@x.com", p_agent_emails: [] },
+    ]);
+    // Đếm chính xác chỉ ở trang đầu, như nhánh không phạm vi.
+    expect(workerScopeCalls.map(([, , options]) => options)).toEqual([
+      { count: "exact" },
+      {},
+    ]);
+    expect(orCalls).toEqual([]);
+    // Only the participant lookup for the loaded rows reads a table directly.
+    expect(fromCalls).toEqual(["task_participants"]);
   });
 
   // A6: enrich metadata không được thả hết chùm cùng lúc.
@@ -227,10 +229,11 @@ describe("fetchTasksForActor keyset paging", () => {
 
 describe("fetchTasksForActor view scope", () => {
   it("does not scope plain-CS workers", async () => {
-    const { fetchTasksForActor, orCalls } = await loadFetchTasksForActor({
-      selectedAgentEmails: [],
-      assistantAgents: [],
-    });
+    const { fetchTasksForActor, orCalls, workerScopeCalls, fromCalls } =
+      await loadFetchTasksForActor({
+        selectedAgentEmails: [],
+        assistantAgents: [],
+      });
 
     await fetchTasksForActor({
       email: "cs@example.com",
@@ -238,14 +241,34 @@ describe("fetchTasksForActor view scope", () => {
       isWorker: true,
     });
 
+    expect(workerScopeCalls).toEqual([]);
+    expect(fromCalls).toEqual(["tasks"]);
     expect(orCalls).toEqual([]);
   });
 
-  it("keeps agent workers scoped", async () => {
-    const { fetchTasksForActor, orCalls } = await loadFetchTasksForActor({
-      selectedAgentEmails: ["agent@example.com"],
-      assistantAgents: [],
+  it("does not scope managers", async () => {
+    const { fetchTasksForActor, workerScopeCalls, fromCalls } =
+      await loadFetchTasksForActor({
+        selectedAgentEmails: ["mgr@example.com"],
+        assistantAgents: [],
+      });
+
+    await fetchTasksForActor({
+      email: "mgr@example.com",
+      isManager: true,
+      isWorker: true,
     });
+
+    expect(workerScopeCalls).toEqual([]);
+    expect(fromCalls).toEqual(["tasks"]);
+  });
+
+  it("keeps agent workers scoped in the database", async () => {
+    const { fetchTasksForActor, workerScopeCalls, selectCalls } =
+      await loadFetchTasksForActor({
+        selectedAgentEmails: ["agent@example.com"],
+        assistantAgents: [],
+      });
 
     await fetchTasksForActor({
       email: "agent@example.com",
@@ -253,12 +276,17 @@ describe("fetchTasksForActor view scope", () => {
       isWorker: true,
     });
 
-    expect(orCalls.length).toBeGreaterThan(0);
-    expect(orCalls[0]).toContain('reporter_email.eq."agent@example.com"');
+    expect(workerScopeCalls[0]?.[1]).toEqual({
+      p_email: "agent@example.com",
+      p_agent_emails: [],
+    });
+    // No embed on the RPC: PostgREST applied an embedded filter to the function
+    // itself ("column pgrst_call.email does not exist").
+    expect(String(selectCalls[0]?.[0])).not.toContain("task_participants");
   });
 
-  it("keeps assistant workers scoped", async () => {
-    const { fetchTasksForActor, orCalls } = await loadFetchTasksForActor({
+  it("keeps assistant workers scoped to their Agents", async () => {
+    const { fetchTasksForActor, workerScopeCalls } = await loadFetchTasksForActor({
       selectedAgentEmails: [],
       assistantAgents: ["agent@example.com"],
     });
@@ -269,7 +297,84 @@ describe("fetchTasksForActor view scope", () => {
       isWorker: true,
     });
 
-    expect(orCalls.length).toBeGreaterThan(0);
+    expect(workerScopeCalls[0]?.[1]).toEqual({
+      p_email: "assistant@example.com",
+      p_agent_emails: ["agent@example.com"],
+    });
+  });
+
+  // 2026-10-16: 155 id (6.246 byte) trong URL làm Task Board sập. Nay không id
+  // nào rời server, lịch sử dài bao nhiêu cũng vậy.
+  it("never loads or sends the assignment/participant history", async () => {
+    const { fetchTasksForActor, orCalls, assignedIdsLoader, participantIdsLoader } =
+      await loadFetchTasksForActor({
+        selectedAgentEmails: ["agent@example.com"],
+        assistantAgents: [],
+      });
+
+    await expect(
+      fetchTasksForActor({
+        email: "agent@example.com",
+        isManager: false,
+        isWorker: true,
+      })
+    ).resolves.toMatchObject({ truncated: false });
+
+    expect(orCalls).toEqual([]);
+    expect(assignedIdsLoader).not.toHaveBeenCalled();
+    expect(participantIdsLoader).not.toHaveBeenCalled();
+  });
+
+  it("keeps a task the worker only sees as a participant, and flags it", async () => {
+    const { fetchTasksForActor, participantLookups } = await loadFetchTasksForActor({
+      selectedAgentEmails: ["agent@example.com"],
+      assistantAgents: [],
+      participantTaskIds: ["mentioned"],
+      pages: [
+        {
+          data: [
+            { ...row("mentioned"), agent_email: "other-agent@example.com" },
+            { ...row("own"), agent_email: "agent@example.com" },
+          ],
+          error: null,
+          count: 2,
+        },
+      ],
+    });
+
+    const result = await fetchTasksForActor({
+      email: "agent@example.com",
+      isManager: false,
+      isWorker: true,
+    });
+
+    expect(
+      result.tasks.map((task) => [task.id, task.viewer_is_participant])
+    ).toEqual([
+      ["mentioned", true],
+      ["own", false],
+    ]);
+    // Asked only about the loaded tasks, for this viewer.
+    expect(participantLookups).toEqual([
+      { email: "agent@example.com", taskIds: ["mentioned", "own"] },
+    ]);
+  });
+
+  it("asks about participants 300 task ids at a time", async () => {
+    const ids = Array.from({ length: 650 }, (_, i) => `id-${String(i).padStart(4, "0")}`);
+    const { fetchTasksForActor, participantLookups } = await loadFetchTasksForActor({
+      selectedAgentEmails: ["agent@example.com"],
+      assistantAgents: [],
+      pages: [{ data: ids.map(row), error: null, count: 650 }],
+    });
+
+    await fetchTasksForActor({
+      email: "agent@example.com",
+      isManager: false,
+      isWorker: true,
+    });
+
+    expect(participantLookups.map((lookup) => lookup.taskIds.length)).toEqual([300, 300, 50]);
   });
 });
 
@@ -279,6 +384,8 @@ async function loadFetchTasksForActor(options: {
   selectedAgentEmails: string[];
   assistantAgents: string[];
   pages?: HarnessPage[];
+  /** task_participants rows for the viewer. */
+  participantTaskIds?: string[];
 }) {
   const { selectedAgentEmails, assistantAgents } = options;
   vi.resetModules();
@@ -317,20 +424,57 @@ async function loadFetchTasksForActor(options: {
     },
   };
   const rpcCalls: unknown[][] = [];
+  const workerScopeCalls: unknown[][] = [];
+  const fromCalls: string[] = [];
+  const participantLookups: Array<{ email: unknown; taskIds: string[] }> = [];
+  const participantsBuilder = () => {
+    const lookup = { email: undefined as unknown, taskIds: [] as string[] };
+    const query = {
+      select: vi.fn(() => query),
+      eq: vi.fn((_column: string, value: unknown) => {
+        lookup.email = value;
+        return query;
+      }),
+      in: vi.fn((_column: string, taskIds: string[]) => {
+        lookup.taskIds = taskIds;
+        return query;
+      }),
+      then: (resolve: (value: { data: unknown[]; error: null }) => void) => {
+        participantLookups.push(lookup);
+        return resolve({
+          data: lookup.taskIds
+            .filter((taskId) => (options.participantTaskIds ?? []).includes(taskId))
+            .map((task_id) => ({ task_id })),
+          error: null,
+        });
+      },
+    };
+    return query;
+  };
   const supabase = {
-    from: vi.fn(() => builder),
+    from: vi.fn((table: string) => {
+      fromCalls.push(table);
+      return table === "task_participants" ? participantsBuilder() : builder;
+    }),
     rpc: vi.fn((...args: unknown[]) => {
+      // The scope RPC returns rows like a table query, so it keeps chaining.
+      if (args[0] === "tasks_visible_to_worker") {
+        workerScopeCalls.push(args);
+        return builder;
+      }
       rpcCalls.push(args);
       return Promise.resolve({ data: [], error: null });
     }),
   };
+  const assignedIdsLoader = vi.fn(async () => []);
+  const participantIdsLoader = vi.fn(async () => []);
 
   vi.doMock("@/lib/supabase", () => ({
     getSupabaseAdmin: () => supabase,
   }));
   vi.doMock("./assignees", () => ({
     attachAssigneesToTasks: vi.fn(async (tasks: unknown[]) => tasks),
-    fetchAssignedTaskIdsForEmail: vi.fn(async () => []),
+    fetchAssignedTaskIdsForEmail: assignedIdsLoader,
     fetchSelectedAgentEmails: vi.fn(async () => new Set(selectedAgentEmails)),
   }));
   vi.doMock("./membership", () => ({
@@ -347,7 +491,8 @@ async function loadFetchTasksForActor(options: {
     })),
   }));
   vi.doMock("./participants", () => ({
-    fetchParticipantTaskIds: vi.fn(async () => []),
+    fetchParticipantTaskIds: participantIdsLoader,
+    isMissingTaskParticipantsError: () => false,
   }));
 
   const queriesModule = await import("./queries");
@@ -358,5 +503,10 @@ async function loadFetchTasksForActor(options: {
     eqCalls,
     gtCalls,
     rpcCalls,
+    workerScopeCalls,
+    fromCalls,
+    assignedIdsLoader,
+    participantIdsLoader,
+    participantLookups,
   };
 }
