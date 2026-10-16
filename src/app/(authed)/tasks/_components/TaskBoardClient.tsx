@@ -1067,6 +1067,8 @@ export function TaskBoardClient({
       byEmail.set(person.email, {
         email: person.email,
         name: person.name?.trim() || existing?.name || null,
+        // The label under the name in the @mention list (lib/tasks/positions.ts).
+        roles: person.roles ?? existing?.roles,
       });
     }
     if (!byEmail.has(currentEmail)) {

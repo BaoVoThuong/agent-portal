@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { requireAnyPermission } from "@/lib/rbac/server";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { buildTaskActor } from "@/lib/tasks/access";
+import { taskBoardTitle, taskPositionKind } from "@/lib/tasks/positions";
 import { fetchTasksForActor } from "@/lib/tasks/queries";
 import {
   fetchTaskAgentCandidates,
@@ -83,11 +84,16 @@ export default async function TasksPage() {
     ),
   ];
   const agentMembersByAgent = await fetchCsForAgents(agentEmailsForMembers);
-  const boardTitle = getTaskBoardTitle({
-    isManager: actor.isManager,
-    isTaskAgent: agents.some((agent) => agent.email === email),
-    isAssistant: myAssistantAgents.length > 0,
-  });
+  // Same rule as the label others see next to this person (positions.ts).
+  // The page requires Tasks access, so a kind always exists.
+  const boardTitle = taskBoardTitle(
+    taskPositionKind({
+      isManager: actor.isManager,
+      isWorker: actor.isWorker,
+      isAgent: agents.some((agent) => agent.email === email),
+      isAssistant: myAssistantAgents.length > 0,
+    }) ?? "cs"
+  );
   const initialNowIso = new Date().toISOString();
 
   return (
@@ -111,19 +117,4 @@ export default async function TasksPage() {
       canExport={canExport}
     />
   );
-}
-
-function getTaskBoardTitle({
-  isManager,
-  isTaskAgent,
-  isAssistant,
-}: {
-  isManager: boolean;
-  isTaskAgent: boolean;
-  isAssistant: boolean;
-}) {
-  if (isManager) return "Admin Task Board";
-  if (isTaskAgent) return "Agent Task Board";
-  if (isAssistant) return "Assistant Task Board";
-  return "Customer Service Task Board";
 }

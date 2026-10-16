@@ -6,7 +6,38 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
-## 2026-10-13 — Thông báo cho manager: manager là Agent chỉ nhận case của chính họ (chưa commit; không có SQL)
+## 2026-10-16 — Account/Role redo P1: mỗi người một nhãn vị trí (không có SQL)
+
+- **Nhãn người ở phía Task chỉ còn MỘT, lấy cái cao nhất** (user chốt 2026-10-14):
+  Admin > Agent > Assistant > Customer Service.
+  - "Admin" nghĩa là có `task.manage`, đúng như tiêu đề "Admin Task Board". Bỏ cách gán cũ: Admin
+    theo tên role, nhiều nhãn một người, và "Customer Service" cho mọi người còn lại.
+  - Không có quyền Tasks (hoặc account/role đang tắt) thì không có nhãn. Ô @mention hiện "Team member".
+  - Ô @mention của Task Board trước nay **không hề** hiện nhãn: `TaskBoardClient` dựng danh sách chỉ
+    với email + tên, bỏ mất `roles`, nên ai cũng là "Team member". Nay giữ `roles` lại.
+  - Một hàm thuần `src/lib/tasks/positions.ts` dùng chung cho 4 chỗ: tiêu đề Task Board của chính
+    mình, ô @mention trong comment, CS Overview, và Account Manager. Nhãn người khác thấy luôn khớp
+    tiêu đề người đó thấy.
+  - Thay đổi người dùng thấy:
+    - ô @mention ở Task Board: trước ai cũng "Team member", nay hiện nhãn (ví dụ Linh Le và Kay hiện
+      "Admin");
+    - CS Overview: người Admin Health Task hiện "Admin" (trước là "Customer Service").
+- **Account Manager, tab Accounts thêm cột "Position" (chỉ để xem):**
+  - Hiện nhãn ở trên. Có ⚠ khi người đó là Assistant của một email không còn trong danh sách Agent
+    (link vẫn giữ họ ngoài pool CS).
+  - Bộ lọc theo Position, và ô tìm kiếm tìm cả nhãn.
+  - Nếu tải roster/link lỗi thì chỉ cột này hiện "—", trang vẫn mở.
+- **Đã bỏ khỏi plan:**
+  - Cảnh báo "Agent không có Leads". Code cố ý cho Agent không cần quyền Lead (Assistant của họ xử
+    lý lead, xem `fetchLeadMemberEmails`), nên cảnh báo sẽ báo sai hàng loạt.
+  - Role Manager chọn 1 trong 3 (No access / Work / Manage) và mô tả thay mã quyền. User muốn giữ 2 ô
+    tick Manage + Work như cũ; Role Manager không đổi gì.
+  - Cột "Assignment queue" ở Account Manager. Ai được tự động giao task CS đã xem ở CS Overview →
+    Assignment queue.
+- `lib/tasks/assignees.ts` không còn dùng tên role Admin; bỏ khỏi allow-list của
+  `no-role-name-authz.test.ts`.
+
+## 2026-10-13 — Thông báo cho manager: manager là Agent chỉ nhận case của chính họ (commit 0f5e0bc, đã deploy; không có SQL)
 
 - **Người nhận "thông báo cho manager"** (mọi người có `task.manage` qua role đang bật) nay lọc theo
   từng case:
@@ -32,7 +63,7 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
     từng record.
 - Kiểm tra: `tsc` sạch, vitest 207 file / 1.684 test pass, eslint các file đổi sạch.
 
-## 2026-10-13 — Account/Role redo P0: xoá role phải chuyển người, bỏ đổi email, bỏ xoá account (chưa commit; không có SQL)
+## 2026-10-13 — Account/Role redo P0: xoá role phải chuyển người, bỏ đổi email, bỏ xoá account (commit fb8ec28, đã deploy; không có SQL)
 
 - **Xoá role:**
   - Role còn người giữ (kể cả account đã tắt) thì không xoá thẳng được. `DELETE /api/admin/roles/[id]`

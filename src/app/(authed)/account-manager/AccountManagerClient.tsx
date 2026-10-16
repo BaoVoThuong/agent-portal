@@ -1,5 +1,6 @@
 "use client";
 
+import { AlertTriangle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Toast } from "../_shared/Toast";
@@ -12,6 +13,8 @@ import { isAdminRoleName } from "@/lib/rbac/admin-role";
 import { useBodyScrollLock } from "./../_shared/useBodyScrollLock";
 import { usePendingKeys } from "@/lib/collaboration/use-pending-keys";
 import { AgentMembershipSection, type AgentMembershipData } from "./AgentMembershipSection";
+import type { AccountPosition } from "./account-position";
+import type { TaskPositionKind } from "@/lib/tasks/positions";
 
 type AccountManagerClientProps = {
   currentUserEmail: string;
@@ -29,7 +32,19 @@ type ManagedAccountUser = AccountUser & {
   alertsMuted: boolean;
   alertsUpdatedBy: string | null;
   alertsUpdatedAt: string | null;
+  position: AccountPosition | null;
 };
+
+type PositionFilter = "all" | TaskPositionKind | "none";
+
+const POSITION_FILTERS: Array<{ value: PositionFilter; label: string }> = [
+  { value: "all", label: "All positions" },
+  { value: "admin", label: "Admin" },
+  { value: "agent", label: "Agent" },
+  { value: "assistant", label: "Assistant" },
+  { value: "cs", label: "Customer Service" },
+  { value: "none", label: "No position" },
+];
 
 type FormState = {
   email: string;
@@ -92,6 +107,7 @@ export default function AccountManagerClient({
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [accountSearch, setAccountSearch] = useState("");
+  const [positionFilter, setPositionFilter] = useState<PositionFilter>("all");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [alertOverrides, setAlertOverrides] = useState<Map<string, AlertPreference>>(
@@ -168,13 +184,21 @@ export default function AccountManagerClient({
   );
   const filteredUsers = useMemo(() => {
     const query = accountSearch.trim().toLowerCase();
-    if (!query) return sortedUsers;
 
     return sortedUsers.filter((user) => {
+      if (
+        positionFilter !== "all" &&
+        (user.position?.kind ?? "none") !== positionFilter
+      ) {
+        return false;
+      }
+      if (!query) return true;
+
       const searchableValues = [
         user.name,
         user.email,
         user.agent_id,
+        user.position?.label,
         ...user.roles.map((role) => role.name),
       ];
 
@@ -182,7 +206,8 @@ export default function AccountManagerClient({
         value?.toLowerCase().includes(query)
       );
     });
-  }, [accountSearch, sortedUsers]);
+  }, [accountSearch, positionFilter, sortedUsers]);
+  const isFiltering = Boolean(accountSearch.trim()) || positionFilter !== "all";
   const activeCount = initialUsers.filter((user) => user.is_active).length;
   const alertPreferences = useMemo(() => {
     const preferences = new Map<string, AlertPreference>(
@@ -517,7 +542,7 @@ export default function AccountManagerClient({
               Accounts
             </h2>
             <p className="mt-1 text-xs text-[#667085]">
-              {accountSearch.trim()
+              {isFiltering
                 ? `${filteredUsers.length} matching account${filteredUsers.length === 1 ? "" : "s"} of ${initialUsers.length} total`
                 : `${activeCount} active user${activeCount === 1 ? "" : "s"} of ${initialUsers.length} total`}
             </p>
@@ -534,6 +559,23 @@ export default function AccountManagerClient({
                 value={accountSearch}
               />
             </label>
+            <label className="block sm:w-44">
+              <span className="sr-only">Filter by position</span>
+              <select
+                aria-label="Filter by position"
+                className="w-full rounded-md border border-[#cfd6e3] bg-white px-3 py-2 text-sm text-[#16233a] outline-none focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15"
+                onChange={(event) =>
+                  setPositionFilter(event.target.value as PositionFilter)
+                }
+                value={positionFilter}
+              >
+                {POSITION_FILTERS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             {canCreate && (
               <button
                 className="rounded-md bg-[#163f6b] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0f3155]"
@@ -549,13 +591,14 @@ export default function AccountManagerClient({
           <table className="w-full table-fixed border-collapse text-left">
             <thead className="bg-[#f8fafc] text-xs uppercase tracking-wide text-[#667085]">
               <tr>
-                <th className={`${canManageAlerts ? "w-[32%]" : "w-[38%]"} px-5 py-3 font-semibold`}>User</th>
-                <th className={`${canManageAlerts ? "w-[15%]" : "w-[16%]"} px-4 py-3 font-semibold`}>Role</th>
-                <th className={`${canManageAlerts ? "w-[12%]" : "w-[16%]"} px-4 py-3 font-semibold`}>Status</th>
+                <th className={`${canManageAlerts ? "w-[26%]" : "w-[30%]"} px-5 py-3 font-semibold`}>User</th>
+                <th className={`${canManageAlerts ? "w-[13%]" : "w-[14%]"} px-4 py-3 font-semibold`}>Role</th>
+                <th className={`${canManageAlerts ? "w-[16%]" : "w-[18%]"} px-4 py-3 font-semibold`}>Position</th>
+                <th className={`${canManageAlerts ? "w-[10%]" : "w-[12%]"} px-4 py-3 font-semibold`}>Status</th>
                 {canManageAlerts && (
-                  <th className="w-[11%] px-4 py-3 font-semibold">Alerts</th>
+                  <th className="w-[9%] px-4 py-3 font-semibold">Alerts</th>
                 )}
-                <th className={`${canManageAlerts ? "w-[18%]" : "w-[20%]"} whitespace-nowrap px-4 py-3 text-right font-semibold`}>
+                <th className={`${canManageAlerts ? "w-[14%]" : "w-[16%]"} whitespace-nowrap px-4 py-3 text-right font-semibold`}>
                   Created Date
                 </th>
                 <th className={`${canManageAlerts ? "w-[12%]" : "w-[10%]"} px-5 py-3 text-right font-semibold`}>
@@ -590,6 +633,9 @@ export default function AccountManagerClient({
                     </td>
                     <td className="px-4 py-4">
                       <RoleBadges user={user} />
+                    </td>
+                    <td className="px-4 py-4">
+                      <PositionBadge position={user.position} />
                     </td>
                     <td className="px-4 py-4">
                       <StatusBadge active={user.is_active} />
@@ -696,10 +742,10 @@ export default function AccountManagerClient({
                 <tr>
                   <td
                     className="px-5 py-12 text-center text-sm text-[#667085]"
-                    colSpan={canManageAlerts ? 6 : 5}
+                    colSpan={canManageAlerts ? 7 : 6}
                   >
-                    {accountSearch.trim()
-                      ? "No accounts match your search."
+                    {isFiltering
+                      ? "No accounts match your search or filter."
                       : "No accounts yet."}
                   </td>
                 </tr>
@@ -1087,6 +1133,41 @@ function RoleBadges({ user }: { user: ManagedAccountUser }) {
           {role.name}
         </span>
       ))}
+    </div>
+  );
+}
+
+const POSITION_BADGE_STYLES: Record<TaskPositionKind, string> = {
+  admin: "bg-[#eef4ff] text-[#1b5d9e]",
+  agent: "bg-violet-50 text-violet-700",
+  assistant: "bg-teal-50 text-teal-700",
+  cs: "bg-slate-100 text-slate-700",
+};
+
+// The one label people see next to this name on the Task Board (positions.ts).
+function PositionBadge({ position }: { position: AccountPosition | null }) {
+  if (!position?.kind || !position.label) {
+    return <span className="text-sm text-[#98a2b3]">—</span>;
+  }
+
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      <span
+        className={`min-w-0 truncate rounded-md px-2.5 py-1 text-xs font-semibold ${POSITION_BADGE_STYLES[position.kind]}`}
+        title={position.label}
+      >
+        {position.label}
+      </span>
+      {position.warnings.length > 0 && (
+        <span
+          className="shrink-0 text-amber-600"
+          title={position.warnings.join("\n")}
+          aria-label={position.warnings.join(" ")}
+          role="img"
+        >
+          <AlertTriangle className="h-4 w-4" />
+        </span>
+      )}
     </div>
   );
 }

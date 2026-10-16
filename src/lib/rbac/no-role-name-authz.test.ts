@@ -28,7 +28,6 @@ const FORBIDDEN: Array<{ pattern: RegExp; why: string }> = [
 const ADMIN_ROLE_USERS = new Set([
   "lib/rbac/admin-role.ts",
   "lib/rbac/role-management.ts",
-  "lib/tasks/assignees.ts",
   "lib/tasks/overview-data.ts",
   "app/api/admin/roles/route.ts",
   "app/api/admin/roles/[id]/route.ts",

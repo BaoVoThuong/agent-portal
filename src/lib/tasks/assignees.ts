@@ -5,10 +5,11 @@ import {
 } from "@/lib/pagination/concurrency";
 import { cache } from "react";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { isAdminRoleName } from "@/lib/rbac/admin-role";
 import { createSharedLookup } from "@/lib/shared-lookup";
 import { fetchActiveRoleIdsWithAnyPermission } from "@/lib/rbac/permission-holders";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { buildTaskActor } from "./access";
+import { taskPositionKind, taskPositionLabel } from "./positions";
 
 export type TaskPersonRole = {
   kind: "admin" | "agent" | "assistant" | "cs";
@@ -17,6 +18,7 @@ export type TaskPersonRole = {
 export type TaskAssignee = {
   email: string;
   name: string | null;
+  /** At most one: the person's highest label (positions.ts). Empty without Tasks access. */
   roles?: TaskPersonRole[];
 };
 export type TaskAgent = TaskAssignee;
@@ -33,7 +35,10 @@ type AccountRoleRow = {
   email: string;
   name: string | null;
   user_roles?: Array<{
-    roles: { name: string; is_active: boolean } | null;
+    roles: {
+      is_active: boolean;
+      role_permissions: Array<{ permission_key: string }> | null;
+    } | null;
   }> | null;
 };
 
@@ -97,7 +102,7 @@ export const fetchTaskAssignees = cache(async (): Promise<TaskAssignee[]> => {
 
   const { data: accounts, error: accErr } = await supabase
     .from("portal_account")
-    .select("id,email,name,is_active,user_roles(roles(name,is_active))")
+    .select("id,email,name,is_active,user_roles(roles(is_active,role_permissions(permission_key)))")
     .in("id", userIds)
     .eq("is_active", true);
   if (accErr) throw new Error(accErr.message);
@@ -139,7 +144,7 @@ export async function fetchTaskAgents(): Promise<TaskAgent[]> {
 
   const { data: accounts, error } = await supabase
     .from("portal_account")
-    .select("id,email,name,is_active,user_roles(roles(name,is_active))")
+    .select("id,email,name,is_active,user_roles(roles(is_active,role_permissions(permission_key)))")
     .in("email", emails)
     .eq("is_active", true);
   if (error) throw new Error(error.message);
@@ -150,7 +155,7 @@ export async function fetchTaskAgents(): Promise<TaskAgent[]> {
 export async function fetchTaskAgentCandidates(): Promise<TaskAgent[]> {
   const { data: accounts, error } = await getSupabaseAdmin()
     .from("portal_account")
-    .select("id,email,name,is_active,user_roles(roles(name,is_active))")
+    .select("id,email,name,is_active,user_roles(roles(is_active,role_permissions(permission_key)))")
     .eq("is_active", true);
   if (error) throw new Error(error.message);
 
@@ -200,30 +205,38 @@ async function enrichTaskPeopleRoles(rows: AccountRoleRow[]): Promise<TaskAssign
   return sortPeople(
     people.map((person) => {
       const account = accountByEmail.get(person.email);
-      const roles: TaskPersonRole[] = [];
-      if (account && isAdminAccount(account)) {
-        roles.push({ kind: "admin", label: "Admin" });
-      }
-      if (selectedAgentEmails.has(person.email)) {
-        roles.push({ kind: "agent", label: "Agent" });
-      }
-      for (const agentEmail of assistantAgentsByEmail.get(person.email) ?? []) {
-        const agentLabel = nameByEmail.get(agentEmail)?.trim() || agentEmail;
-        roles.push({ kind: "assistant", label: `Assistant to ${agentLabel}` });
-      }
-      if (roles.length === 0) {
-        roles.push({ kind: "cs", label: "Customer Service" });
-      }
+      const actor = buildTaskActor(account ? activeRolePermissionKeys(account) : [], person.email);
+      const assistantAgents = assistantAgentsByEmail.get(person.email) ?? [];
+      // One label, the highest: Admin > Agent > Assistant > Customer Service
+      // (positions.ts). Display only, never access.
+      const kind = taskPositionKind({
+        isManager: actor.isManager,
+        isWorker: actor.isWorker,
+        isAgent: selectedAgentEmails.has(person.email),
+        isAssistant: assistantAgents.length > 0,
+      });
+      const roles: TaskPersonRole[] = kind
+        ? [
+            {
+              kind,
+              label: taskPositionLabel(
+                kind,
+                assistantAgents.map((agentEmail) => nameByEmail.get(agentEmail)?.trim() || agentEmail)
+              ),
+            },
+          ]
+        : [];
 
       return { ...person, roles };
     })
   );
 }
 
-// "Admin" badge only — display, never access. Holds the fixed Admin role.
-function isAdminAccount(account: AccountRoleRow): boolean {
-  return (account.user_roles ?? []).some(
-    (row) => Boolean(row.roles?.is_active) && isAdminRoleName(row.roles?.name)
+function activeRolePermissionKeys(account: AccountRoleRow): string[] {
+  return (account.user_roles ?? []).flatMap((row) =>
+    row.roles?.is_active
+      ? (row.roles.role_permissions ?? []).map((permission) => permission.permission_key)
+      : []
   );
 }
 

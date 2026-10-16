@@ -4,6 +4,7 @@ import { isAdminRoleName } from "@/lib/rbac/admin-role";
 import { fetchTaskAssigneeRowsForTaskIds } from "./assignees";
 import { resolveReminderSettings } from "./reminder-settings";
 import { aggregateOverview } from "./overview";
+import { taskPositionKind, taskPositionLabel } from "./positions";
 import type {
   OverviewAccount,
   OverviewCategory,
@@ -126,6 +127,18 @@ export async function fetchTaskOverview(
       .filter((row) => workRoleIds.has(row.role_id))
       .map((row) => row.user_id)
   );
+  const manageRoleIds = new Set(
+    rolePermissions
+      .filter(
+        (row) => row.permission_key === "task.manage" && activeRoleIds.has(row.role_id)
+      )
+      .map((row) => row.role_id)
+  );
+  const manageUserIds = new Set(
+    userRoles
+      .filter((row) => manageRoleIds.has(row.role_id))
+      .map((row) => row.user_id)
+  );
   const adminUserIds = new Set(
     userRoles
       .filter((row) => activeAdminRoleIds.has(row.role_id))
@@ -183,7 +196,8 @@ export async function fetchTaskOverview(
       email,
       name: account.name,
       roleLabel: overviewRoleLabel({
-        isAdmin,
+        isManager: manageUserIds.has(account.id),
+        isWorker: workUserIds.has(account.id),
         isAgent: taskAgentSet.has(email),
         assistantAgentEmails: assistantAgents,
         nameByEmail,
@@ -276,23 +290,31 @@ function normalizeDateKey(value: string | undefined): string | null {
 
 
 
+// One label, the highest: Admin > Agent > Assistant > Customer Service
+// (positions.ts). Pool rows are never Agents or Assistants, so they read
+// "Admin" (task.manage) or "Customer Service".
 function overviewRoleLabel({
-  isAdmin,
+  isManager,
+  isWorker,
   isAgent,
   assistantAgentEmails,
   nameByEmail,
 }: {
-  isAdmin: boolean;
+  isManager: boolean;
+  isWorker: boolean;
   isAgent: boolean;
   assistantAgentEmails: string[];
   nameByEmail: Map<string, string>;
 }): string {
-  const labels: string[] = [];
-  if (isAdmin) labels.push("Admin");
-  if (isAgent) labels.push("Agent");
-  for (const agentEmail of assistantAgentEmails) {
-    const agentLabel = nameByEmail.get(agentEmail) ?? agentEmail;
-    labels.push(`Assistant to ${agentLabel}`);
-  }
-  return labels.length > 0 ? labels.join(", ") : "Customer Service";
+  const kind = taskPositionKind({
+    isManager,
+    isWorker,
+    isAgent,
+    isAssistant: assistantAgentEmails.length > 0,
+  });
+  if (!kind) return "Team member";
+  return taskPositionLabel(
+    kind,
+    assistantAgentEmails.map((agentEmail) => nameByEmail.get(agentEmail) ?? agentEmail)
+  );
 }
