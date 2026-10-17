@@ -9,7 +9,7 @@ export type SelectOption<T extends string> = { value: T; label: string; disabled
 
 /**
  * Ô chọn một giá trị có ô tìm, dùng ở các trang cấu hình (Table Configuration,
- * Account Management → Agent membership). Tách khỏi ConfigClient để trang khác
+ * Account Manager). Tách khỏi ConfigClient để trang khác
  * dùng mà không kéo cả ConfigClient vào bundle.
  */
 export function DropdownSelect<T extends string>({

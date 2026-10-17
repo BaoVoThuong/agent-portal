@@ -10,8 +10,11 @@ import {
   fetchUserPermissionKeys,
   fetchUserRoleId,
 } from "@/lib/rbac/role-management";
-import { checkAccountChange } from "@/lib/rbac/delegation";
+import { checkAccountChange, checkMembershipChange } from "@/lib/rbac/delegation";
 import { accountWriteFailure } from "@/lib/admin/account-write-errors";
+import { changesMembership, parseAccountConfigRequest } from "@/lib/admin/account-config";
+import { invalidateTaskMembershipLookups } from "@/lib/tasks/membership";
+import { broadcastTableConfigChanged } from "@/lib/table-config/realtime";
 import bcrypt from "bcryptjs";
 
 type RouteContext = {
@@ -27,8 +30,9 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     const { id } = await context.params;
-    const { email, name, role, roleIds, is_active, password, agentId } =
-      await req.json();
+    const body = await req.json();
+    const { email, name, role, roleIds, is_active, password, agentId } = body;
+    const config = parseAccountConfigRequest(body);
     const selectedRoleIds = Array.isArray(roleIds)
       ? roleIds.filter((item): item is string => typeof item === "string")
       : null;
@@ -40,10 +44,17 @@ export async function PATCH(req: Request, context: RouteContext) {
         roleIds !== undefined ||
         is_active !== undefined ||
         password !== undefined ||
-        agentId !== undefined) &&
+        agentId !== undefined ||
+        body.positionId !== undefined ||
+        body.managerId !== undefined ||
+        body.assistedAgentEmails !== undefined) &&
       !can(session.user.permissions, PERMISSIONS.ACCOUNT_MANAGER)
     ) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (!config.ok) {
+      return NextResponse.json({ error: config.error }, { status: 400 });
     }
 
     const supabase = getSupabaseAdmin();
@@ -60,6 +71,25 @@ export async function PATCH(req: Request, context: RouteContext) {
 
     const isSelf =
       targetUser.email.toLowerCase() === session.user.email.toLowerCase();
+
+    // The old "Add Agent" and "Add Assistant" only took active accounts.
+    // Leaving the Agent or Assistant lists stays open, as it was.
+    if (!targetUser.is_active && config.patch.position_id) {
+      const { data: nextPosition, error: positionError } = await supabase
+        .from("positions")
+        .select("kind")
+        .eq("id", config.patch.position_id)
+        .maybeSingle();
+      if (positionError) {
+        return NextResponse.json({ error: positionError.message }, { status: 500 });
+      }
+      if (nextPosition?.kind === "agent" || nextPosition?.kind === "assistant") {
+        return NextResponse.json(
+          { error: "Enable the account before making it an Agent or Assistant." },
+          { status: 400 }
+        );
+      }
+    }
 
     // The legacy admin/agent switch is gone: roles change through roleIds only.
     if (role !== undefined) {
@@ -87,6 +117,19 @@ export async function PATCH(req: Request, context: RouteContext) {
       fetchUserPermissionKeys(id),
       fetchUserRoleId(id),
     ]);
+
+    // Position and Assistant Agents: the old Agent membership API's rule —
+    // never your own, and only for accounts within your permissions.
+    if (changesMembership(config.patch)) {
+      const membership = checkMembershipChange({
+        actorPermissions: session.user.permissions ?? [],
+        isSelf,
+        targetPermissionKeys,
+      });
+      if (!membership.ok) {
+        return NextResponse.json({ error: membership.error }, { status: membership.status });
+      }
+    }
 
     // A role counts as changed only when it differs from the current one, so an
     // edit form that re-sends the same roleIds never trips "your own role".
@@ -203,7 +246,8 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     const hasAccountUpdates = Object.keys(updates).length > 0;
-    if (!hasAccountUpdates && roleIds === undefined) {
+    const hasConfigUpdates = Object.keys(config.patch).some((key) => key !== "expected");
+    if (!hasAccountUpdates && !hasConfigUpdates && roleIds === undefined) {
       return NextResponse.json(
         { error: "No account changes provided." },
         { status: 400 }
@@ -212,7 +256,7 @@ export async function PATCH(req: Request, context: RouteContext) {
 
     const { data, error } = await supabase.rpc("update_account_atomic", {
       p_user_id: id,
-      p_patch: updates,
+      p_patch: hasConfigUpdates ? { ...updates, ...config.patch } : updates,
       p_role_id: nextRole?.id ?? null,
     });
 
@@ -222,6 +266,11 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     invalidateRbacLookups();
+    if (changesMembership(config.patch)) {
+      // Position and Assistant Agents rewrite task_agents / agent_members.
+      invalidateTaskMembershipLookups();
+      await broadcastTableConfigChanged();
+    }
     return NextResponse.json({ user: data });
   } catch (error) {
     console.error("[account-manager:update] failed", {

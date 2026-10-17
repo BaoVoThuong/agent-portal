@@ -77,7 +77,7 @@ function rowList(rows: readonly number[]): string {
 
 function unmatchedAgentText(agent: UnmatchedImportAgent): string {
   if (agent.status === "not-agent") {
-    return `${agent.accountName ?? agent.name} has an account but is not an Agent in Account Management → Agent membership`;
+    return `${agent.accountName ?? agent.name} has an account but does not have an Agent position in Account Manager`;
   }
   if (agent.status === "ambiguous") {
     return `matches more than one account (${agent.candidates.join(", ")})`;
@@ -673,7 +673,7 @@ export function LeadImportDialog({
                       <div className="rounded border border-[#f5cd47] bg-[#fff7d6] px-3 py-2 text-[#7f5f01]">
                         <p className="font-semibold">
                           These Agent names do not match anyone in Account Management →
-                          Agent membership, so {isPersonal ? "their Personal lead rows will be skipped" : "their rows stay unassigned"}:
+                          Account Manager (no Agent position), so {isPersonal ? "their Personal lead rows will be skipped" : "their rows stay unassigned"}:
                         </p>
                         <ul className="mt-1 list-disc space-y-0.5 pl-4">
                           {shownPreview.unmatchedAgents.map((agent) => (

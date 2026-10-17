@@ -3,7 +3,7 @@ import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 
 /**
- * Gate for everything on the Account Manager page, including Agent membership
+ * Gate for everything on the Account Manager page, including Agent / Assistant
  * (task_agents / agent_members). Uses the page's own permission,
  * `management.account_manager`.
  *

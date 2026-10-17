@@ -41,11 +41,10 @@ const MODULES: Array<{ prefix: string; allowed: RegExp; module: string }> = [
   { prefix: "app/api/ai/dashboard-chat/", allowed: DASHBOARD, module: "Dashboard" },
   { prefix: "app/api/dashboard-filter-defaults/", allowed: DASHBOARD, module: "Dashboard" },
   { prefix: "app/api/admin/users/", allowed: ACCOUNT_MANAGER, module: "Account Manager" },
-  { prefix: "app/api/config/agents/", allowed: ACCOUNT_MANAGER, module: "Account Manager" },
-  { prefix: "app/api/config/assistants/", allowed: ACCOUNT_MANAGER, module: "Account Manager" },
   { prefix: "app/(authed)/account-manager/", allowed: ACCOUNT_MANAGER, module: "Account Manager" },
   { prefix: "lib/admin/", allowed: ACCOUNT_MANAGER, module: "Account Manager" },
   { prefix: "app/api/admin/roles/", allowed: ROLE_MANAGER, module: "Role Manager" },
+  { prefix: "app/api/admin/positions/", allowed: ROLE_MANAGER, module: "Role Manager" },
   { prefix: "app/(authed)/role-manager/", allowed: ROLE_MANAGER, module: "Role Manager" },
 ];
 

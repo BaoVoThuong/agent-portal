@@ -6,6 +6,120 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-17 — Sửa theo review Codex (audit parity Account/Position; code chưa deploy)
+
+- **Edit account chỉ gửi ô đã đổi** (F3): trước đó form luôn gửi lại Name và Agent ID, nên sửa
+  Manager/Position có thể ghi đè Name/Agent ID mà admin khác vừa sửa.
+- **Tạo account lỗi giữa chừng** (F4): xoá account vừa tạo và KIỂM xoá được thật
+  (`removeCreatedAccount`); xoá không được thì báo rõ account còn tồn tại và cần Disable, không báo
+  như đã hoàn tác. Áp dụng cả nhánh catch cũ.
+- **Cảnh báo đổi Position nói đủ hậu quả** (F5, `accountConfigEffects` + `access`): phạm vi task
+  (company queue / chỉ của mình / Agent được hỗ trợ / mọi task), vào/ra CS auto-assign pool (cùng điều
+  kiện `assign_unassigned_task`: không Admin, không Agent/Assistant, queue không tắt), thông báo
+  manager của người có task.manage khi vào/ra danh sách Agent. Câu mô tả đầu bảng sửa: chỉ Position
+  Agent/Assistant đổi quyền.
+- **Assistant chỉ cho người có quyền Task** (F7a): giống picker cũ (`fetchTaskAssignees`). Form khoá
+  Position nhóm Assistant khi Accessibility không có task.work/manage và chặn Save. API cũ không chặn
+  ở server nên giữ nguyên: chỉ chặn ở UI.
+- **Preview khôi phục so cả `notification_preferences`** (F1).
+- Trang Account Manager đọc quyền Task qua `buildTaskActor` (không gọi hằng quyền module khác).
+
+## 2026-10-17 — Bỏ luật CS Manager; Add account đặt luôn Position/Manager; Role hiển thị là "Accessibility" (rollout đã chạy production; code chưa deploy)
+
+- **Bỏ luật "CS Manager phải có Task Manage"** (user chốt 17/10): rollout
+  `2026-10-17-drop-cs-manager-guard.sql` gỡ 4 constraint trigger và 2 hàm kiểm, tạo lại
+  `update_account_atomic` không còn gọi luật đó (phần còn lại y như S2). Role Manager / Account
+  Manager lại bỏ tick Task Manage, tắt role, đổi role thoải mái như production trước 16/10. Position
+  CS Manager chỉ còn là nhãn công việc. Đã chạy thử trong giao dịch tự huỷ (5/5) rồi chạy thật.
+- **Add account** chọn được Position, Manager, và Agent (nếu Position Assistant). `POST
+  /api/admin/users` tạo account + role như cũ, rồi ghi phần này qua đúng `update_account_atomic`;
+  bước này bị từ chối thì xoá account vừa tạo và trả lỗi.
+- **Account Manager hiển thị "Role" là "Accessibility"** (cột, bộ lọc, hai form). Chỉ đổi chữ;
+  dữ liệu và Role Manager giữ tên Role.
+- **Lọc Status** thành nút All / Active / Inactive kèm số lượng.
+
+## 2026-10-17 — Position S3: cây quản lý, bộ lọc, xoá API Agent membership cũ (code chưa deploy)
+
+- **Account Manager → Tree:** cây ai báo cáo cho ai, chỉ để xem, không cấp quyền gì
+  (`lib/admin/org-tree.ts`). Cha của một người = các Agent họ hỗ trợ nếu là Assistant (Assistant hỗ trợ
+  nhiều Agent thì hiện dưới mỗi Agent), còn lại = Manager. Có chống vòng lặp; account đã tắt chỉ hiện
+  khi còn người dưới họ hoặc khi tick "Show disabled accounts".
+- **Bộ lọc bảng:** thêm Role, Manager ("Reports to …", cùng luật với cây) và Status; nút Clear filters.
+- **Xoá hẳn** `/api/config/agents` và `/api/config/assistants` (S2 đã cho trả 410). Chữ hướng dẫn ở
+  Lead (Distribute, Import) đổi từ "Agent membership" sang "Agent position in Account Manager".
+- `PATCH /api/admin/users/[id]` dùng lại `checkMembershipChange` (luật của API cũ: không tự đổi
+  membership của mình, không đụng account có quyền cao hơn mình) thay cho bản viết lại.
+
+## 2026-10-16 — Position S2: Edit account là nơi duy nhất đặt Role, Position, Agent/Assistant, Manager (rollout đã chạy production 2026-10-16; code chưa deploy)
+
+- **Một form, một lần lưu:** Edit account gồm Name, Agent ID, Role, Position, "Supports these Agents"
+  (chỉ khi Position nhóm Assistant, chọn NHIỀU Agent) và Manager. Bỏ modal "Change role" riêng và bỏ
+  tab "Agent membership". Ô Position ở danh sách account hiện thêm "Assists: …" / "Assistants: …".
+- **`update_account_atomic`** (rollout `2026-10-16-account-position-write.sql` + `.rollback.sql`):
+  giữ chữ ký cũ; request không gửi khoá mới thì chạy y như trước. Khoá mới trong `p_patch`:
+  `position_id`, `assisted_agent_emails`, `manager_id`, `expected`. Ghi `task_agents`/`agent_members`
+  y như API cũ:
+  - Position vào nhóm Agent = "Add Agent" cũ (thêm dòng `task_agents`).
+  - Position ra khỏi nhóm Agent = "Remove Agent" cũ (`delete_task_agent_atomic`: xoá dòng
+    `task_agents` và MỌI dòng `agent_members` trỏ tới Agent đó). User chốt 16/10 cho phép, để admin
+    vẫn gỡ được Agent như trước; form cảnh báo tên các Assistant bị ảnh hưởng.
+  - Đổi danh sách Agent của Assistant = thêm/gỡ Assistant cũ (cùng điều kiện: Agent phải trong
+    danh sách Agent và account active; dòng cũ `is_assistant=false` được nâng lên tại chỗ).
+  - Position ra khỏi nhóm Assistant thì gỡ mọi liên kết Assistant của người đó.
+  - Lưu mà không đổi Position/Agent thì không ghi hai bảng đó.
+  - `expected`: form gửi giá trị lúc mở; khác giá trị hiện tại thì báo `ACCOUNT_CONFIG_CONFLICT`,
+    không ghi đè sửa đổi của admin khác.
+  - Không ai vừa là Agent vừa là Assistant; Manager phải là account active, chống tự trỏ và vòng lặp.
+- **CS Manager cần Role có `task.manage`:** kiểm trong `update_account_atomic`, và 4 constraint
+  trigger hoãn tới commit trên `role_permissions`, `roles`, `user_roles`, `portal_account`. Nhờ vậy
+  Role Manager không bỏ tick, tắt role hay chuyển người được khi còn CS Manager dùng role đó. Hiện
+  chưa ai giữ CS Manager nên trigger không thể chặn gì trên dữ liệu hiện tại.
+- **Đóng đường ghi cũ:** `POST`/`DELETE` `/api/config/agents` và `/api/config/assistants` trả 410;
+  `GET` giữ tạm. Xoá `AgentMembershipSection.tsx` và `lib/tasks/membership-mutation.ts`.
+- **Tự sửa mình:** không đổi được Position/Agent của chính mình (như API cũ), không đổi được Role
+  của mình; Manager thì được.
+- **Account đã tắt:** không đổi được sang Position nhóm Agent hay Assistant (API cũ "Add Agent" /
+  "Add Assistant" cũng chỉ nhận account active); ra khỏi hai nhóm đó thì vẫn được.
+- **Sửa ngay trên bảng:** ô Position và ô Manager chọn trực tiếp; dòng đổi ngay khi bấm, server từ
+  chối thì trả về như cũ. Đổi Position mà đổi quyền (vào/ra danh sách Agent, gỡ Assistant) phải bấm
+  xác nhận, hộp xác nhận ghi hậu quả; chọn Position Assistant thì mở Edit account để chọn Agent.
+- **Kiểm:** 15 tình huống SQL chạy trên production trong giao dịch tự huỷ, mỗi thao tác mới cho ra
+  đúng trạng thái `task_agents`/`agent_members` như thao tác cũ tương ứng; lưu lại cả 49 account
+  với giá trị hiện có không đổi gì. Sau rollout: đầu vào 49/49 không đổi, bảng quyền thấy/làm/nhận
+  thông báo trước–sau 0 khác biệt, khớp backup `before-s2`, kiểm lệch Position (0 dòng).
+- **Backup/khôi phục:** schema `access_backup` (không lộ qua API); script
+  `2026-10-16-access-backup.sql`, `-access-restore-preview.sql`, `-access-restore.sql`; kiểm lệch
+  `2026-10-16-position-drift-check.sql`.
+
+## 2026-10-16 — Position S1: danh mục Position và cột `position_id`, không đổi quyền ai (rollout đã chạy production 2026-10-16)
+
+Plan `docs/superpowers/plans/2026-10-16-account-position-unification.md`, stage S1. Luật của đợt:
+đổi nơi cấu hình nhưng không ai đổi quyền (tab/API, task/lead thấy được, hàng chờ CS, Time Off,
+thông báo).
+
+- **Schema** (rollout `2026-10-16-positions.sql` + `.rollback.sql`):
+  - Bảng `positions` (`name` unique không phân biệt hoa thường, `kind` agent/assistant/cs/other,
+    `system_key`). Seed 4 Position hệ thống: Agent, Assistant, Customer Service, CS Manager.
+    Position hệ thống tìm theo `system_key`, không so tên. RLS bật, không có policy.
+  - `portal_account.position_id` (FK `on delete restrict`: không xoá được Position đang có người).
+  - `portal_account.manager_id` + check không tự trỏ + trigger chống vòng lặp: production ĐÃ CÓ
+    sẵn từ nhánh `org-chart` (12/09, chưa merge). Rollout chỉ ghi lại cho `schema.sql`, trên
+    production là no-op. Code main trước giờ không đọc cột này.
+  - Hàm `update_unused_position`: chỉ sửa tên/nhóm khi Position không phải hệ thống và chưa ai giữ;
+    khoá dòng `FOR UPDATE` để không lọt khi đang có người được gán cùng lúc.
+  - Backfill chỉ từ dữ liệu cũ sang cột mới: email trong `task_agents` → Position Agent; email có
+    dòng `agent_members.is_assistant` → Position Assistant. Ai vừa là Agent vừa là Assistant thì
+    rollout dừng (audit 16/10: không có ai). Người khác để trống. Không đoán CS Manager. Không ghi
+    `task_agents`, `agent_members`, `user_roles`, hàng chờ CS, Time Off.
+- **Role Manager → tab Positions** (quyền `management.role_manager`, API `/api/admin/positions`):
+  tạo Position; sửa/xoá chỉ khi chưa ai giữ (kể cả account đã tắt) và không phải Position hệ thống.
+- **Account Manager:** bỏ cột "Position" suy ra từ quyền + membership (`account-position.ts`, quyết
+  định user 16/10) và bộ lọc theo nhãn suy ra. Cột Position giờ hiện Position đã gán và manager; bộ
+  lọc theo Position đã gán. Chưa sửa được ở đây (S2).
+- **Không đổi:** mọi chỗ phân quyền vẫn đọc `user_roles`/`role_permissions` và
+  `task_agents`/`agent_members`. Nhãn phía Task (`lib/tasks/positions.ts`: Admin > Agent > Assistant
+  > Customer Service) giữ nguyên.
+
 ## 2026-10-16 — Task Board: phạm vi task của Agent/Assistant tính trong database (rollout SQL đã chạy production 2026-10-16)
 
 - **Lỗi:** Agent/Assistant mở `/tasks` thì sập với `TaskScopeTooLargeError` (155 id, 6.246 byte, vượt

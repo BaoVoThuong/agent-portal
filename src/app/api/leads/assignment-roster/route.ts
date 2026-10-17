@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
  *
  * The list is the registered agent roster — the `task_agents` table, read here
  * through `fetchTaskAgents()`, which is the exact function Account Management →
- * Agent membership → Agents renders from. One roster, two screens, no second copy.
+ * Account Manager shows as the Agent position. One roster, two screens, no second copy.
  *
  * Two tables were candidates and the wrong one was picked first: `agent_members`
  * holds agent↔assistant PAIRS, so reading its agent side only returns agents who

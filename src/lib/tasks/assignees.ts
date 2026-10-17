@@ -42,8 +42,9 @@ type AccountRoleRow = {
   }> | null;
 };
 
-// task_agents and agent_members change only through /api/config/agents and
-// /api/config/assistants, which call invalidateTaskMembershipLookups(). Other
+// task_agents and agent_members change only through Account Manager → Edit
+// account (PATCH /api/admin/users/[id], update_account_atomic), which calls
+// invalidateTaskMembershipLookups() when Position or Assistant Agents change. Other
 // server instances pick a change up within this window, so adding or removing
 // an agent or assistant can take up to a minute to change what someone sees.
 export const TASK_MEMBERSHIP_REUSE_MS = 60 * 1000;

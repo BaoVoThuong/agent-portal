@@ -53,6 +53,131 @@ end $$;
 create index if not exists portal_account_email_idx on portal_account (email);
 create index if not exists portal_account_active_idx on portal_account (is_active);
 
+-- Position catalog (rollout 2026-10-16-positions.sql). `kind` says which
+-- Agent/Assistant facts a Position stands for; it never grants or removes a
+-- permission. System rows are found by system_key, never by name, and cannot
+-- be edited or deleted.
+create table if not exists positions (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  kind text not null check (kind in ('agent', 'assistant', 'cs', 'other')),
+  system_key text unique,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists positions_name_key on positions (lower(btrim(name)));
+
+insert into positions (name, kind, system_key) values
+  ('Agent', 'agent', 'agent'),
+  ('Assistant', 'assistant', 'assistant'),
+  ('Customer Service', 'cs', 'cs'),
+  ('CS Manager', 'cs', 'cs_manager')
+on conflict (system_key) do nothing;
+
+-- Rename / re-kind a Position only while nobody holds it. FOR UPDATE on the
+-- row blocks the FOR KEY SHARE lock that assigning it to an account takes, so
+-- an assignment either commits first (and is seen below) or waits.
+create or replace function public.update_unused_position(
+  p_id uuid,
+  p_name text,
+  p_kind text
+)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  current_system_key text;
+begin
+  select system_key into current_system_key
+  from public.positions
+  where id = p_id
+  for update;
+  if not found then
+    raise exception 'POSITION_NOT_FOUND';
+  end if;
+  if current_system_key is not null then
+    raise exception 'POSITION_SYSTEM';
+  end if;
+  if exists (select 1 from public.portal_account where position_id = p_id) then
+    raise exception 'POSITION_IN_USE';
+  end if;
+
+  update public.positions
+  set name = btrim(p_name), kind = p_kind, updated_at = now()
+  where id = p_id;
+end;
+$$;
+
+revoke all on function public.update_unused_position(uuid, text, text) from public, anon, authenticated;
+grant execute on function public.update_unused_position(uuid, text, text) to service_role;
+
+-- One primary Position per account. A Position in use cannot be deleted.
+alter table portal_account
+add column if not exists position_id uuid references positions(id) on delete restrict;
+create index if not exists portal_account_position_idx on portal_account (position_id);
+
+-- Direct manager: the management tree only. Grants nothing.
+alter table portal_account
+add column if not exists manager_id uuid references portal_account(id) on delete set null;
+create index if not exists portal_account_manager_idx on portal_account (manager_id);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'portal_account_manager_not_self'
+      and conrelid = 'public.portal_account'::regclass
+  ) then
+    alter table portal_account
+      add constraint portal_account_manager_not_self
+      check (manager_id is null or manager_id <> id);
+  end if;
+end $$;
+
+create or replace function public.portal_account_manager_no_cycle()
+returns trigger
+language plpgsql
+as $$
+declare
+  walker uuid;
+  hops integer := 0;
+begin
+  if new.manager_id is null then return new; end if;
+
+  -- Đi ngược lên từ manager mới. Nếu gặp lại chính mình thì phép gán này đóng
+  -- một vòng.
+  walker := new.manager_id;
+  while walker is not null loop
+    if walker = new.id then
+      raise exception 'PORTAL_ACCOUNT_MANAGER_CYCLE'
+        using hint = 'Không thể đặt người này làm manager: sẽ tạo thành vòng lặp trong sơ đồ tổ chức.';
+    end if;
+
+    -- Chốt chặn cuối: nếu dữ liệu ĐANG có sẵn một vòng từ trước (do lỗi nào đó
+    -- lọt qua), vòng while này sẽ không bao giờ dừng. 100 cấp là quá thừa cho
+    -- một tổ chức vài chục người, nên chạm tới ngưỡng nghĩa là dữ liệu đã hỏng.
+    hops := hops + 1;
+    if hops > 100 then
+      raise exception 'PORTAL_ACCOUNT_MANAGER_CHAIN_TOO_DEEP'
+        using hint = 'Chuỗi manager quá sâu hoặc đã có vòng lặp sẵn trong dữ liệu.';
+    end if;
+
+    select manager_id into walker from portal_account where id = walker;
+  end loop;
+
+  return new;
+end $$;
+
+drop trigger if exists portal_account_manager_no_cycle on portal_account;
+create trigger portal_account_manager_no_cycle
+  before insert or update of manager_id on portal_account
+  for each row
+  when (new.manager_id is not null)
+  execute function public.portal_account_manager_no_cycle();
+
 create table if not exists login_attempts (
   id uuid primary key default gen_random_uuid(),
   email text not null,
@@ -197,6 +322,10 @@ begin
 end;
 $$;
 
+-- Position S2 (rollout 2026-10-16-account-position-write.sql): update_account_atomic
+-- also writes Position, the Agents an Assistant supports and the manager, and
+-- projects them onto task_agents / agent_members exactly as the old Agent
+-- membership API did. (The CS Manager guard was dropped 2026-10-17.)
 create or replace function public.update_account_atomic(
   p_user_id uuid,
   p_patch jsonb,
@@ -209,32 +338,190 @@ set search_path = public, pg_temp
 as $$
 declare
   result jsonb;
+  v_email text;
+  v_old_position uuid;
+  v_old_manager uuid;
+  v_old_kind text;
+  v_new_position uuid;
+  v_new_kind text;
+  v_final_kind text;
+  v_old_assists text[];
+  v_desired text[];
+  v_expected jsonb;
+  v_manager uuid;
+  v_membership_change boolean;
 begin
   -- Every write that can remove an Admin takes this lock, so two concurrent
   -- demotions cannot both see "another Admin remains".
   perform pg_advisory_xact_lock(hashtextextended('portal_account:admin_invariant', 0));
 
   p_patch := coalesce(p_patch, '{}'::jsonb);
+  v_membership_change := p_patch ?| array['position_id', 'assisted_agent_emails'];
+  if v_membership_change then
+    -- Same lock as create_agent_membership_atomic.
+    perform pg_advisory_xact_lock(hashtextextended('assistant-memberships', 0));
+  end if;
+
+  select lower(btrim(a.email)), a.position_id, a.manager_id
+    into v_email, v_old_position, v_old_manager
+  from public.portal_account a
+  where a.id = p_user_id
+  for update;
+  if not found then
+    raise exception 'USER_NOT_FOUND';
+  end if;
+
+  select kind into v_old_kind from public.positions where id = v_old_position;
+  v_old_assists := array(
+    select distinct lower(btrim(m.agent_email))
+    from public.agent_members m
+    where lower(btrim(m.cs_email)) = v_email and m.is_assistant
+    order by 1
+  );
+
+  if p_patch ? 'expected' then
+    v_expected := p_patch->'expected';
+    if nullif(v_expected->>'position_id', '')::uuid is distinct from v_old_position
+      or nullif(v_expected->>'manager_id', '')::uuid is distinct from v_old_manager
+      or array(
+           select distinct lower(btrim(x))
+           from jsonb_array_elements_text(coalesce(v_expected->'assisted_agent_emails', '[]'::jsonb)) x
+           order by 1
+         ) is distinct from v_old_assists
+    then
+      raise exception 'ACCOUNT_CONFIG_CONFLICT';
+    end if;
+  end if;
+
+  if p_patch ? 'manager_id' then
+    v_manager := nullif(p_patch->>'manager_id', '')::uuid;
+    if v_manager is distinct from v_old_manager and v_manager is not null
+      and not exists (select 1 from public.portal_account where id = v_manager and is_active)
+    then
+      raise exception 'MANAGER_INVALID';
+    end if;
+  end if;
+
   update public.portal_account set
     email = case when p_patch ? 'email' then p_patch->>'email' else email end,
     name = case when p_patch ? 'name' then p_patch->>'name' else name end,
     agent_id = case when p_patch ? 'agent_id' then p_patch->>'agent_id' else agent_id end,
     is_active = case when p_patch ? 'is_active' then (p_patch->>'is_active')::boolean else is_active end,
-    password_hash = case when p_patch ? 'password_hash' then p_patch->>'password_hash' else password_hash end
+    password_hash = case when p_patch ? 'password_hash' then p_patch->>'password_hash' else password_hash end,
+    manager_id = case when p_patch ? 'manager_id' then nullif(p_patch->>'manager_id', '')::uuid else manager_id end
   where id = p_user_id;
-  if not found then
-    raise exception 'USER_NOT_FOUND';
-  end if;
 
   if p_role_id is not null then
     perform public.replace_user_roles(p_user_id, array[p_role_id]);
+  end if;
+
+  v_final_kind := v_old_kind;
+  if p_patch ? 'position_id' then
+    v_new_position := nullif(p_patch->>'position_id', '')::uuid;
+    if v_new_position is not null then
+      select kind into v_new_kind from public.positions where id = v_new_position;
+      if not found then
+        raise exception 'POSITION_NOT_FOUND';
+      end if;
+    end if;
+
+    if v_new_position is distinct from v_old_position then
+      -- Leaving the Agent group: exactly delete_task_agent_atomic.
+      if v_old_kind = 'agent' and v_new_kind is distinct from 'agent' then
+        delete from public.agent_members where lower(btrim(agent_email)) = v_email;
+        delete from public.task_agents where lower(btrim(email)) = v_email;
+      end if;
+      -- Leaving the Assistant group: drop this person's Assistant links.
+      if v_old_kind = 'assistant' and v_new_kind is distinct from 'assistant' then
+        delete from public.agent_members
+        where lower(btrim(cs_email)) = v_email and is_assistant;
+      end if;
+      -- Joining the Agent group: the old "Add Agent".
+      if v_new_kind = 'agent' and v_old_kind is distinct from 'agent' then
+        if exists (
+          select 1 from public.agent_members
+          where lower(btrim(cs_email)) = v_email and is_assistant
+        ) then
+          raise exception 'AGENT_ASSISTANT_CONFLICT';
+        end if;
+        insert into public.task_agents (email) values (v_email)
+        on conflict (email) do nothing;
+      end if;
+
+      update public.portal_account set position_id = v_new_position where id = p_user_id;
+    end if;
+    v_final_kind := v_new_kind;
+  end if;
+
+  if p_patch ? 'assisted_agent_emails' then
+    v_desired := array(
+      select distinct lower(btrim(x))
+      from jsonb_array_elements_text(p_patch->'assisted_agent_emails') x
+      where btrim(x) <> ''
+      order by 1
+    );
+    if v_final_kind is distinct from 'assistant' then
+      if cardinality(v_desired) > 0 then
+        raise exception 'ASSISTANT_AGENTS_NEED_ASSISTANT_POSITION';
+      end if;
+    else
+      if cardinality(v_desired) = 0 then
+        raise exception 'ASSISTANT_NEEDS_AGENT';
+      end if;
+      if v_email = any(v_desired) then
+        raise exception 'ASSISTANT_SELF_MEMBERSHIP';
+      end if;
+      if exists (select 1 from public.task_agents where lower(btrim(email)) = v_email) then
+        raise exception 'AGENT_ASSISTANT_CONFLICT';
+      end if;
+      -- Same eligibility create_agent_membership_atomic checked: an Agent on
+      -- the roster with an active account, and an active Assistant account.
+      if exists (
+        select 1 from unnest(v_desired) d
+        where d <> all(v_old_assists)
+          and not exists (
+            select 1
+            from public.task_agents t
+            join public.portal_account acc on lower(btrim(acc.email)) = d and acc.is_active
+            where lower(btrim(t.email)) = d
+          )
+      ) then
+        raise exception 'ASSISTANT_AGENT_INELIGIBLE';
+      end if;
+      if v_desired is distinct from v_old_assists and not exists (
+        select 1 from public.portal_account where id = p_user_id and is_active
+      ) then
+        raise exception 'ASSISTANT_ACCOUNT_INELIGIBLE';
+      end if;
+
+      delete from public.agent_members
+      where lower(btrim(cs_email)) = v_email and is_assistant
+        and lower(btrim(agent_email)) <> all(v_desired);
+
+      -- A legacy non-Assistant row for the same pair is promoted in place,
+      -- as create_agent_membership_atomic did.
+      update public.agent_members set is_assistant = true
+      where lower(btrim(cs_email)) = v_email and not is_assistant
+        and lower(btrim(agent_email)) = any(v_desired);
+
+      insert into public.agent_members (agent_email, cs_email, is_assistant)
+      select d, v_email, true
+      from unnest(v_desired) d
+      where not exists (
+        select 1 from public.agent_members m
+        where lower(btrim(m.agent_email)) = d and lower(btrim(m.cs_email)) = v_email
+      );
+    end if;
+  elsif v_final_kind = 'assistant' and v_old_kind is distinct from 'assistant' then
+    raise exception 'ASSISTANT_NEEDS_AGENT';
   end if;
 
   perform public.assert_active_admin_remains();
 
   select jsonb_build_object(
            'id', a.id, 'email', a.email, 'name', a.name, 'agent_id', a.agent_id,
-           'is_active', a.is_active, 'created_at', a.created_at)
+           'is_active', a.is_active, 'created_at', a.created_at,
+           'position_id', a.position_id, 'manager_id', a.manager_id)
     into result
   from public.portal_account a
   where a.id = p_user_id;
@@ -6589,6 +6876,7 @@ declare
   table_name text;
   protected_tables text[] := array[
     'portal_account',
+    'positions',
     'login_attempts',
     'roles',
     'permissions',

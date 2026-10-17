@@ -16,11 +16,14 @@ import type {
 import { isAdminRoleName } from "@/lib/rbac/admin-role";
 import { useBodyScrollLock } from "../_shared/useBodyScrollLock";
 import { ReassignRoleDialog } from "./ReassignRoleDialog";
+import { PositionsSection } from "./PositionsSection";
+import type { PositionRecord } from "@/lib/admin/positions";
 
 type RoleManagerClientProps = {
   initialRoles: RoleRecord[];
   permissions: PermissionRecord[];
   currentUserPermissions: string[];
+  initialPositions: PositionRecord[];
 };
 
 type RoleFormState = {
@@ -138,8 +141,10 @@ export default function RoleManagerClient({
   initialRoles,
   permissions,
   currentUserPermissions,
+  initialPositions,
 }: RoleManagerClientProps) {
   const router = useRouter();
+  const [pageTab, setPageTab] = useState<"roles" | "positions">("roles");
   const [roles, setRoles] = useState(initialRoles);
   const [form, setForm] = useState<RoleFormState | null>(null);
 
@@ -428,7 +433,7 @@ export default function RoleManagerClient({
             Create roles and decide which portal areas each role can access.
           </p>
         </div>
-        {canCreate && (
+        {canCreate && pageTab === "roles" && (
           <button
             type="button"
             onClick={openCreateRole}
@@ -439,7 +444,34 @@ export default function RoleManagerClient({
         )}
       </header>
 
-      <section className="overflow-hidden rounded-lg border border-[#d8dee7] bg-white">
+      <div className="mb-4 flex w-fit rounded border border-[#dfe3ea] bg-[#f4f5f7] p-0.5 shadow-sm">
+        {(
+          [
+            ["roles", "Roles"],
+            ["positions", "Positions"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setPageTab(value)}
+            className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
+              pageTab === value
+                ? "bg-white text-[#0c66e4] shadow-sm ring-1 ring-[#d8dee7]"
+                : "text-[#44546f] hover:bg-white/70 hover:text-[#172b4d]"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {pageTab === "positions" ? <PositionsSection initialPositions={initialPositions} /> : null}
+
+      <section
+        hidden={pageTab !== "roles"}
+        className="overflow-hidden rounded-lg border border-[#d8dee7] bg-white"
+      >
         <div className="flex flex-col gap-4 border-b border-[#e4e9f2] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-base font-semibold text-[#16233a]">Roles</h2>

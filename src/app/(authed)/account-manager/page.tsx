@@ -11,18 +11,10 @@ import {
 import { requirePermission } from "@/lib/rbac/server";
 import { isAdminRoleName } from "@/lib/rbac/admin-role";
 import AccountManagerClient from "./AccountManagerClient";
-import type { AgentMembershipData, AssistantMember } from "./AgentMembershipSection";
-import {
-  fetchSelectedAgentEmails,
-  fetchTaskAgentCandidates,
-  fetchTaskAgents,
-  fetchTaskAssignees,
-} from "@/lib/tasks/assignees";
-import {
-  resolveAccountPosition,
-  type AccountPosition,
-  type AccountPositionFacts,
-} from "./account-position";
+import { fetchSelectedAgentEmails } from "@/lib/tasks/assignees";
+import { buildTaskActor } from "@/lib/tasks/access";
+import { fetchPositionOptions, type PositionOption } from "@/lib/admin/positions";
+import type { AccountConfig, TaskAccess } from "@/lib/admin/account-config";
 
 export const dynamic = "force-dynamic";
 
@@ -49,8 +41,34 @@ export type ManagedAccountUser = AccountUser & {
   alertsMuted: boolean;
   alertsUpdatedBy: string | null;
   alertsUpdatedAt: string | null;
-  /** Position column; null when its sources failed to load. */
-  position: AccountPosition | null;
+  /** Position assigned in Account Manager; describes the job, grants nothing. */
+  position: PositionOption | null;
+  managerName: string | null;
+  managerEmail: string | null;
+  config: AccountConfig;
+  assistantEmails: string[];
+  /** From the account's role; display only (Edit account warnings). */
+  taskAccess: TaskAccess;
+  /**
+   * Would be in the CS auto-assign pool if not an Agent or Assistant: same
+   * test as assign_unassigned_task (active, Task role other than Admin, queue
+   * switch not off). Display only.
+   */
+  csPoolBase: boolean;
+};
+
+// Task's own reading of the keys (task.manage includes task.work), so this
+// page never names another module's permissions. Display only.
+function taskAccessOf(permissionKeys: readonly string[]): TaskAccess {
+  const actor = buildTaskActor(permissionKeys, "");
+  if (actor.isManager) return "manage";
+  if (actor.isWorker) return "work";
+  return "none";
+}
+
+type AccountRow = AccountUser & {
+  position_id: string | null;
+  manager_id: string | null;
 };
 
 function normalizeEmail(email: string): string {
@@ -58,80 +76,28 @@ function normalizeEmail(email: string): string {
 }
 
 /**
- * Roster and Assistant links behind the Position column. Like
- * loadAgentMembership, a failure only blanks that column, not the page.
+ * The Agent list and Assistant links behind Edit account. They still decide
+ * access; Edit account writes them through update_account_atomic.
  */
-async function loadPositionSources(
-  supabase: ReturnType<typeof getSupabaseAdmin>,
-): Promise<Omit<AccountPositionFacts, "nameByEmail"> | null> {
-  try {
-    const [roster, membersResult] = await Promise.all([
-      fetchSelectedAgentEmails(),
-      supabase
-        .from("agent_members")
-        .select("agent_email,cs_email")
-        .eq("is_assistant", true),
-    ]);
-    if (membersResult.error) throw new Error(membersResult.error.message);
-
-    const assistantAgentsByEmail = new Map<string, string[]>();
-    for (const row of (membersResult.data ?? []) as Array<{
-      agent_email: string;
-      cs_email: string;
-    }>) {
-      const csEmail = normalizeEmail(row.cs_email);
-      assistantAgentsByEmail.set(csEmail, [
-        ...(assistantAgentsByEmail.get(csEmail) ?? []),
-        normalizeEmail(row.agent_email),
-      ]);
-    }
-    return {
-      rosterEmails: new Set([...roster].map(normalizeEmail)),
-      assistantAgentsByEmail,
-    };
-  } catch {
-    return null;
+async function loadMembership(supabase: ReturnType<typeof getSupabaseAdmin>) {
+  const [roster, links] = await Promise.all([
+    fetchSelectedAgentEmails(),
+    supabase.from("agent_members").select("agent_email,cs_email").eq("is_assistant", true),
+  ]);
+  if (links.error) throw new Error(links.error.message);
+  const agentsByAssistant = new Map<string, string[]>();
+  const assistantsByAgent = new Map<string, string[]>();
+  for (const row of (links.data ?? []) as Array<{ agent_email: string; cs_email: string }>) {
+    const agent = normalizeEmail(row.agent_email);
+    const assistant = normalizeEmail(row.cs_email);
+    agentsByAssistant.set(assistant, [...(agentsByAssistant.get(assistant) ?? []), agent]);
+    assistantsByAgent.set(agent, [...(assistantsByAgent.get(agent) ?? []), assistant]);
   }
-}
-
-/**
- * Agents + Assistant membership (chuyển từ Table Configuration 2026-10-03).
- * Thuộc trang Account Manager nên dùng ĐÚNG quyền của trang này
- * (`management.account_manager`) — cùng cổng với `/api/config/agents|assistants`.
- * Trước 2026-10-09 phần này gác bằng quyền Task (task manager): một quyền chéo
- * cho phép người không vào được trang vẫn gọi thẳng API để sửa Agent/Assistant.
- */
-async function loadAgentMembership(
-  supabase: ReturnType<typeof getSupabaseAdmin>,
-): Promise<AgentMembershipData> {
-  try {
-    const [agents, candidates, assignees, membersResult] = await Promise.all([
-      fetchTaskAgents(),
-      fetchTaskAgentCandidates(),
-      fetchTaskAssignees(),
-      supabase
-        .from("agent_members")
-        .select("agent_email,cs_email,is_assistant")
-        .eq("is_assistant", true),
-    ]);
-    if (membersResult.error) throw new Error(membersResult.error.message);
-    return {
-      agents,
-      candidates,
-      assignees,
-      members: (membersResult.data ?? []) as AssistantMember[],
-      available: true,
-    };
-  } catch {
-    return {
-      agents: [],
-      candidates: [],
-      assignees: [],
-      members: [],
-      available: false,
-      error: "Could not load agents. Retry after checking the connection or permissions.",
-    };
-  }
+  return {
+    roster: new Set([...roster].map(normalizeEmail)),
+    agentsByAssistant,
+    assistantsByAgent,
+  };
 }
 
 export default async function AccountManagerPage() {
@@ -151,12 +117,13 @@ export default async function AccountManagerPage() {
     roles,
     userRolesResponse,
     notificationPreferencesResponse,
-    agentMembership,
-    positionSources,
+    membership,
+    positions,
+    queueResponse,
   ] = await Promise.all([
     supabase
       .from(PORTAL_ACCOUNT_TABLE)
-      .select("id,email,name,agent_id,is_active,created_at")
+      .select("id,email,name,agent_id,is_active,created_at,position_id,manager_id")
       .order("created_at", { ascending: false }),
     fetchRolesWithPermissions(),
     supabase.from("user_roles").select("user_id,role_id"),
@@ -165,9 +132,19 @@ export default async function AccountManagerPage() {
           .from("notification_preferences")
           .select("email,sound_enabled,updated_by_email,updated_at")
       : Promise.resolve({ data: [], error: null }),
-    loadAgentMembership(supabase),
-    loadPositionSources(supabase),
+    loadMembership(supabase),
+    fetchPositionOptions(),
+    supabase.from("task_assignment_queue_members").select("email,is_enabled"),
   ]);
+  if (queueResponse.error) throw new Error(queueResponse.error.message);
+  const queueOffEmails = new Set(
+    ((queueResponse.data ?? []) as Array<{ email: string; is_enabled: boolean }>)
+      .filter((row) => !row.is_enabled)
+      .map((row) => normalizeEmail(row.email)),
+  );
+  const taskAccessByRoleId = new Map(
+    roles.map((role) => [role.id, role.is_active ? taskAccessOf(role.permissions.map((p) => p.key)) : ("none" as TaskAccess)]),
+  );
 
   if (error) {
     throw new Error(error.message);
@@ -203,19 +180,12 @@ export default async function AccountManagerPage() {
     is_default: role.is_default,
   }));
   const rolesById = new Map(availableRoles.map((role) => [role.id, role]));
-  const roleRecordsById = new Map(roles.map((role) => [role.id, role]));
-  const accounts = (data ?? []) as AccountUser[];
-  const positionFacts: AccountPositionFacts | null = positionSources
-    ? {
-        ...positionSources,
-        nameByEmail: new Map(
-          accounts.map((account) => [
-            normalizeEmail(account.email),
-            account.name?.trim() || account.email,
-          ]),
-        ),
-      }
-    : null;
+  const accounts = (data ?? []) as AccountRow[];
+  const positionsById = new Map(positions.map((position) => [position.id, position]));
+  const accountNameById = new Map(
+    accounts.map((account) => [account.id, account.name?.trim() || account.email]),
+  );
+  const accountEmailById = new Map(accounts.map((account) => [account.id, account.email]));
   const roleIdsByUserId = new Map<string, string[]>();
   for (const row of (userRolesResponse.data ?? []) as unknown as UserRoleRow[]) {
     roleIdsByUserId.set(row.user_id, [
@@ -225,7 +195,7 @@ export default async function AccountManagerPage() {
   }
 
   const users = accounts.map<ManagedAccountUser>(
-    (user) => {
+    ({ position_id, manager_id, ...user }) => {
       const directRoleIds = [...(roleIdsByUserId.get(user.id) ?? [])]
         .sort((firstRoleId, secondRoleId) => {
           const firstRole = rolesById.get(firstRoleId);
@@ -240,7 +210,9 @@ export default async function AccountManagerPage() {
       // No fallback to the legacy portal_account.role column any more: an
       // account without a role shows "No role" instead of a guessed one.
       const roleIds = directRoleIds;
-      const role = roleIds[0] ? roleRecordsById.get(roleIds[0]) : undefined;
+      const roleId = roleIds[0];
+      const taskAccess: TaskAccess =
+        user.is_active && roleId ? taskAccessByRoleId.get(roleId) ?? "none" : "none";
 
       return {
         ...user,
@@ -257,18 +229,24 @@ export default async function AccountManagerPage() {
         alertsUpdatedAt:
           notificationPreferencesByEmail.get(user.email.toLowerCase())
             ?.updated_at ?? null,
-        position: positionFacts
-          ? resolveAccountPosition(
-              {
-                email: user.email,
-                isActive: user.is_active,
-                rolePermissionKeys: role?.is_active
-                  ? role.permissions.map((permission) => permission.key)
-                  : [],
-              },
-              positionFacts,
-            )
-          : null,
+        position: position_id ? positionsById.get(position_id) ?? null : null,
+        managerName: manager_id ? accountNameById.get(manager_id) ?? null : null,
+        managerEmail: manager_id ? accountEmailById.get(manager_id) ?? null : null,
+        config: {
+          positionId: position_id,
+          managerId: manager_id,
+          assistedAgentEmails: [
+            ...new Set(membership.agentsByAssistant.get(normalizeEmail(user.email)) ?? []),
+          ].sort(),
+        },
+        assistantEmails: [
+          ...new Set(membership.assistantsByAgent.get(normalizeEmail(user.email)) ?? []),
+        ].sort(),
+        taskAccess,
+        csPoolBase:
+          taskAccess !== "none" &&
+          !isAdminRoleName(roleId ? rolesById.get(roleId)?.name : null) &&
+          !queueOffEmails.has(normalizeEmail(user.email)),
       };
     }
   );
@@ -280,7 +258,15 @@ export default async function AccountManagerPage() {
       canManageAlerts={canManageAlerts}
       initialUsers={users}
       availableRoles={availableRoles}
-      agentMembership={agentMembership}
+      positions={positions}
+      taskAccessByRoleId={Object.fromEntries(taskAccessByRoleId)}
+      agentOptions={accounts
+        .filter((account) => account.is_active && membership.roster.has(normalizeEmail(account.email)))
+        .map((account) => ({
+          email: normalizeEmail(account.email),
+          name: account.name?.trim() || account.email,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name))}
     />
   );
 }

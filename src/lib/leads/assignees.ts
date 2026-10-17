@@ -55,7 +55,7 @@ export const fetchLeadAssignees = cache(async (): Promise<LeadAssignee[]> => {
 
 /**
  * Ai được làm Agent hoặc Collaborator của một lead (2026-10-03): các Agent ở
- * Account Management → Agent membership (`task_agents`) — Agent không cần tự có
+ * Account Manager → Position Agent (`task_agents`) — Agent không cần tự có
  * quyền Lead, các Assistant của họ xem và xử lý lead (lib/leads/membership.ts)
  * — cộng người có quyền Lead như trước.
  */

@@ -233,7 +233,7 @@ export async function POST(request: Request) {
       loadContext(),
       fetchImportCandidates(supabase),
       fetchActiveAccounts(supabase),
-      // Danh sách Agent ở Account Management → Agent membership — cùng nguồn Task CS.
+      // Danh sách Agent (task_agents, đặt qua Position Agent ở Account Manager) — cùng nguồn Task CS.
       fetchTaskAgents(),
     ]);
   } catch (error) {

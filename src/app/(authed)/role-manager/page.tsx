@@ -4,15 +4,17 @@ import {
   fetchPermissions,
   fetchRolesWithPermissions,
 } from "@/lib/rbac/role-management";
+import { fetchPositionsWithHolders } from "@/lib/admin/positions";
 import RoleManagerClient from "./RoleManagerClient";
 
 export const dynamic = "force-dynamic";
 
 export default async function RoleManagerPage() {
   const session = await requirePermission(PERMISSIONS.ROLE_MANAGER);
-  const [roles, permissions] = await Promise.all([
+  const [roles, permissions, positions] = await Promise.all([
     fetchRolesWithPermissions(),
     fetchPermissions(),
+    fetchPositionsWithHolders(),
   ]);
 
   return (
@@ -20,6 +22,7 @@ export default async function RoleManagerPage() {
       initialRoles={roles}
       permissions={permissions}
       currentUserPermissions={session.user.permissions ?? []}
+      initialPositions={positions}
     />
   );
 }

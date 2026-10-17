@@ -1,8 +1,8 @@
 "use client";
 
-import { AlertTriangle } from "lucide-react";
+import { Search } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Toast } from "../_shared/Toast";
 import type { AccountUser } from "@/lib/domain/account.types";
 import { can } from "@/lib/rbac/client";
@@ -12,9 +12,16 @@ import type { RoleOption } from "@/lib/rbac/role-management";
 import { isAdminRoleName } from "@/lib/rbac/admin-role";
 import { useBodyScrollLock } from "./../_shared/useBodyScrollLock";
 import { usePendingKeys } from "@/lib/collaboration/use-pending-keys";
-import { AgentMembershipSection, type AgentMembershipData } from "./AgentMembershipSection";
-import type { AccountPosition } from "./account-position";
-import type { TaskPositionKind } from "@/lib/tasks/positions";
+import type { PositionOption } from "@/lib/admin/positions";
+import type { AccountConfig, TaskAccess } from "@/lib/admin/account-config";
+import { EditAccountDialog, type EditAccountPayload } from "./EditAccountDialog";
+import { CreateAccountDialog } from "./CreateAccountDialog";
+import { ManagerMenu } from "./ManagerMenu";
+import { PositionMenu } from "./PositionMenu";
+import { OrgTree } from "./OrgTree";
+import { TaskSelect } from "../tasks/_components/TaskSelect";
+import { accountConfigEffects } from "@/lib/admin/account-config";
+import { AvatarStack, Initials } from "../tasks/_components/board-ui";
 
 type AccountManagerClientProps = {
   currentUserEmail: string;
@@ -22,8 +29,12 @@ type AccountManagerClientProps = {
   canManageAlerts: boolean;
   initialUsers: ManagedAccountUser[];
   availableRoles: RoleOption[];
-  /** Agent membership thuộc trang này: ai vào được Account Manager là thấy. */
-  agentMembership: AgentMembershipData | null;
+  /** Role Manager → Positions, in display order. */
+  positions: PositionOption[];
+  /** Active accounts on the Agent list (task_agents), for Assistants to support. */
+  agentOptions: Array<{ email: string; name: string }>;
+  /** Task access each role gives; display only (warnings, Assistant choice). */
+  taskAccessByRoleId: Record<string, TaskAccess>;
 };
 
 type ManagedAccountUser = AccountUser & {
@@ -32,19 +43,38 @@ type ManagedAccountUser = AccountUser & {
   alertsMuted: boolean;
   alertsUpdatedBy: string | null;
   alertsUpdatedAt: string | null;
-  position: AccountPosition | null;
+  /** Position assigned in Account Manager; describes the job, grants nothing. */
+  position: PositionOption | null;
+  managerName: string | null;
+  managerEmail: string | null;
+  /** Position, manager and supported Agents as Edit account loads them. */
+  config: AccountConfig;
+  /** Lower-cased emails of the Assistants who support this person. */
+  assistantEmails: string[];
+  taskAccess: TaskAccess;
+  /** In the CS auto-assign pool unless an Agent or Assistant. */
+  csPoolBase: boolean;
 };
 
-type PositionFilter = "all" | TaskPositionKind | "none";
+/** Filter values: [] means everyone; "none" stands for "no role / position / manager". */
+const NONE = "none";
+const ALL = "__all__";
 
-const POSITION_FILTERS: Array<{ value: PositionFilter; label: string }> = [
-  { value: "all", label: "All positions" },
-  { value: "admin", label: "Admin" },
-  { value: "agent", label: "Agent" },
-  { value: "assistant", label: "Assistant" },
-  { value: "cs", label: "Customer Service" },
-  { value: "none", label: "No position" },
-];
+/** What a save shows on its row before the server answers. */
+type RowPatch = Partial<
+  Pick<
+    ManagedAccountUser,
+    | "name"
+    | "agent_id"
+    | "roles"
+    | "role_ids"
+    | "position"
+    | "config"
+    | "managerName"
+    | "managerEmail"
+    | "assistantEmails"
+  >
+>;
 
 type FormState = {
   email: string;
@@ -52,12 +82,7 @@ type FormState = {
   agentId: string;
   password: string;
   roleIds: string[];
-};
-
-// Email is not editable: it ties tasks, leads and enrollments to the person.
-type EditAccountFormState = {
-  name: string;
-  agentId: string;
+  config: AccountConfig;
 };
 
 type AlertPreference = {
@@ -72,6 +97,7 @@ const emptyForm: FormState = {
   agentId: "",
   password: "",
   roleIds: [],
+  config: { positionId: null, managerId: null, assistedAgentEmails: [] },
 };
 
 // Display only (sort order, badge colour). Never decides what anyone may do.
@@ -85,29 +111,37 @@ export default function AccountManagerClient({
   canManageAlerts,
   initialUsers,
   availableRoles,
-  agentMembership,
+  positions,
+  agentOptions,
+  taskAccessByRoleId,
 }: AccountManagerClientProps) {
   const router = useRouter();
-  const [pageTab, setPageTab] = useState<"accounts" | "agents">("accounts");
   const actionMenuRef = useRef<HTMLTableCellElement | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [actionUserId, setActionUserId] = useState<string | null>(null);
   const [editUser, setEditUser] = useState<ManagedAccountUser | null>(null);
-  const [editForm, setEditForm] = useState<EditAccountFormState>({
-    name: "",
-    agentId: "",
-  });
-  const [roleUser, setRoleUser] = useState<ManagedAccountUser | null>(null);
-  const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
+  /** Edit account opened from the Position cell with an Assistant position picked. */
+  const [editInitialConfig, setEditInitialConfig] = useState<AccountConfig | null>(null);
   const [resetUser, setResetUser] = useState<ManagedAccountUser | null>(null);
+  /** A Position change that changes who sees what, waiting for Confirm. */
+  const [positionConfirm, setPositionConfirm] = useState<{
+    user: ManagedAccountUser;
+    positionId: string | null;
+    effects: string[];
+  } | null>(null);
   // Bốn modal nội tuyến trong một component: khoá nền khi BẤT KỲ cái nào mở.
-  useBodyScrollLock(Boolean(showCreateForm || editUser || roleUser || resetUser));
+  useBodyScrollLock(Boolean(showCreateForm || editUser || resetUser || positionConfirm));
   const [resetPassword, setResetPassword] = useState("");
   const [busyUserId, setBusyUserId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [accountSearch, setAccountSearch] = useState("");
-  const [positionFilter, setPositionFilter] = useState<PositionFilter>("all");
+  const [positionFilter, setPositionFilter] = useState<string[]>([]);
+  const [roleFilter, setRoleFilter] = useState<string[]>([]);
+  /** Ids of the people they report to, or NONE. */
+  const [managerFilter, setManagerFilter] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState<"" | "active" | "disabled">("");
+  const [view, setView] = useState<"table" | "tree">("table");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [alertOverrides, setAlertOverrides] = useState<Map<string, AlertPreference>>(
@@ -121,15 +155,17 @@ export default function AccountManagerClient({
     finish: finishAlertToggle,
   } = usePendingKeys();
   /**
-   * Sửa tên/email/agent ID hiện ngay trên bảng. `base` là danh sách server lúc
+   * Mọi thay đổi trên một dòng (tên, Agent ID, Role, Position, Agent của
+   * Assistant, Manager) hiện ngay trên bảng. `base` là danh sách server lúc
    * ghi: lượt đã xác nhận chỉ còn tác dụng tới khi `router.refresh()` mang về
-   * danh sách mới (đã có thay đổi đó). Lượt đang chờ thì luôn áp.
+   * danh sách mới (đã có thay đổi đó). Lượt đang chờ thì luôn áp. Server từ
+   * chối thì bỏ lượt đó, dòng trở về giá trị đang lưu.
    */
   const [userOverrides, setUserOverrides] = useState<
     ReadonlyMap<
       string,
       {
-        patch: Partial<Pick<ManagedAccountUser, "name" | "agent_id">>;
+        patch: RowPatch;
         pending: boolean;
         base: ManagedAccountUser[];
       }
@@ -161,6 +197,26 @@ export default function AccountManagerClient({
     return defaultRole ? [defaultRole.id] : [];
   }, [availableRoles]);
 
+  const nameByEmail = useMemo(
+    () =>
+      new Map(
+        initialUsers.map((user) => [user.email.trim().toLowerCase(), user.name?.trim() || user.email]),
+      ),
+    [initialUsers],
+  );
+  const nameOfEmail = useMemo(
+    () => (email: string) => nameByEmail.get(email.trim().toLowerCase()) ?? email,
+    [nameByEmail],
+  );
+  const managerOptions = useMemo(
+    () =>
+      initialUsers
+        .filter((user) => user.is_active)
+        .map((user) => ({ id: user.id, email: user.email, name: user.name?.trim() || user.email }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [initialUsers],
+  );
+
   const sortedUsers = useMemo(
     () =>
       [...users].sort((firstUser, secondUser) => {
@@ -182,23 +238,54 @@ export default function AccountManagerClient({
       }),
     [users]
   );
+  // Who a person reports to: the Agents they assist (an Assistant), else
+  // their manager. Same rule as the Manager column and the tree.
+  const reportsToIds = useMemo(() => {
+    const idByEmail = new Map(users.map((user) => [user.email.trim().toLowerCase(), user.id]));
+    return new Map(
+      users.map((user) => [
+        user.id,
+        user.config.assistedAgentEmails.length > 0
+          ? user.config.assistedAgentEmails
+              .map((email) => idByEmail.get(email))
+              .filter((id): id is string => Boolean(id))
+          : user.config.managerId
+            ? [user.config.managerId]
+            : [],
+      ]),
+    );
+  }, [users]);
+  const managerChoices = useMemo(() => {
+    const ids = new Set([...reportsToIds.values()].flat());
+    return users
+      .filter((user) => ids.has(user.id))
+      .map((user) => ({ id: user.id, email: user.email, name: user.name?.trim() || user.email }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [reportsToIds, users]);
+
   const filteredUsers = useMemo(() => {
     const query = accountSearch.trim().toLowerCase();
 
     return sortedUsers.filter((user) => {
-      if (
-        positionFilter !== "all" &&
-        (user.position?.kind ?? "none") !== positionFilter
-      ) {
-        return false;
+      if (positionFilter.length > 0 && !positionFilter.includes(user.position?.id ?? NONE)) return false;
+      if (roleFilter.length > 0 && !roleFilter.includes(user.role_ids[0] ?? NONE)) return false;
+      if (managerFilter.length > 0) {
+        const reportsTo = reportsToIds.get(user.id) ?? [];
+        const matches =
+          (managerFilter.includes(NONE) && reportsTo.length === 0) ||
+          reportsTo.some((id) => managerFilter.includes(id));
+        if (!matches) return false;
       }
+      if (statusFilter && user.is_active !== (statusFilter === "active")) return false;
       if (!query) return true;
 
       const searchableValues = [
         user.name,
         user.email,
         user.agent_id,
-        user.position?.label,
+        user.position?.name,
+        user.managerName,
+        ...user.config.assistedAgentEmails.map(nameOfEmail),
         ...user.roles.map((role) => role.name),
       ];
 
@@ -206,8 +293,22 @@ export default function AccountManagerClient({
         value?.toLowerCase().includes(query)
       );
     });
-  }, [accountSearch, positionFilter, sortedUsers]);
-  const isFiltering = Boolean(accountSearch.trim()) || positionFilter !== "all";
+  }, [
+    accountSearch,
+    managerFilter,
+    nameOfEmail,
+    positionFilter,
+    reportsToIds,
+    roleFilter,
+    sortedUsers,
+    statusFilter,
+  ]);
+  const isFiltering =
+    Boolean(accountSearch.trim()) ||
+    positionFilter.length > 0 ||
+    roleFilter.length > 0 ||
+    managerFilter.length > 0 ||
+    Boolean(statusFilter);
   const activeCount = initialUsers.filter((user) => user.is_active).length;
   const alertPreferences = useMemo(() => {
     const preferences = new Map<string, AlertPreference>(
@@ -274,6 +375,11 @@ export default function AccountManagerClient({
           agentId: form.agentId.trim(),
           password: form.password,
           roleIds: form.roleIds,
+          ...(form.config.positionId ? { positionId: form.config.positionId } : {}),
+          ...(form.config.managerId ? { managerId: form.config.managerId } : {}),
+          ...(positions.find((position) => position.id === form.config.positionId)?.kind === "assistant"
+            ? { assistedAgentEmails: form.config.assistedAgentEmails }
+            : {}),
         }),
       });
       const payload = await response.json();
@@ -296,12 +402,10 @@ export default function AccountManagerClient({
 
   async function updateUser(
     user: ManagedAccountUser,
-    payload: Partial<Pick<AccountUser, "is_active">> & {
-      name?: string | null;
-      agentId?: string;
-      password?: string;
-      roleIds?: string[];
-    }
+    payload: Partial<Pick<AccountUser, "is_active">> &
+      Partial<EditAccountPayload> & {
+        password?: string;
+      }
   ) {
     setBusyUserId(user.id);
     setError(null);
@@ -333,77 +437,139 @@ export default function AccountManagerClient({
     }
   }
 
-  function openRoleModal(user: ManagedAccountUser) {
-    setActionUserId(null);
-    setRoleUser(user);
-    setSelectedRoleIds(user.role_ids);
-  }
-
   function openEditAccountModal(user: ManagedAccountUser) {
     setActionUserId(null);
     setEditUser(user);
-    setEditForm({
-      name: user.name ?? "",
-      agentId: user.agent_id ?? "",
-    });
   }
 
   function setUserOverride(
     userId: string,
-    value:
-      | {
-          patch: Partial<Pick<ManagedAccountUser, "name" | "agent_id">>;
-          pending: boolean;
-        }
-      | null,
+    value: { patch: RowPatch; pending: boolean } | null,
   ) {
     setUserOverrides((current) => {
       const next = new Map(current);
-      if (value === null) next.delete(userId);
-      else next.set(userId, { ...value, base: initialUsersRef.current });
+      if (value === null) {
+        next.delete(userId);
+        return next;
+      }
+      // Keep an earlier save that is still showing (its refresh has not
+      // arrived yet), so a second edit does not flash the first one back.
+      const earlier = current.get(userId);
+      const keep =
+        earlier && (earlier.pending || earlier.base === initialUsersRef.current) ? earlier.patch : {};
+      next.set(userId, {
+        patch: { ...keep, ...value.patch },
+        pending: value.pending,
+        base: initialUsersRef.current,
+      });
       return next;
     });
   }
 
-  async function handleEditAccount(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!editUser) return;
-    const user = editUser;
-    const draft = { ...editForm };
-    const nextAgentId = draft.agentId.trim();
-
-    const patch = {
-      name: draft.name.trim() || null,
-      agent_id: nextAgentId || null,
-    };
-
-    // Đóng hộp và đổi dòng ngay; server từ chối thì mở lại hộp với dữ liệu
-    // vừa nhập (updateUser đã hiện lỗi).
-    setUserOverride(user.id, { patch, pending: true });
-    setEditUser(null);
-    setEditForm({ name: "", agentId: "" });
-    const updated = await updateUser(user, {
-      name: patch.name,
-      agentId: nextAgentId,
-    });
-
-    if (updated) {
-      setUserOverride(user.id, { patch, pending: false });
-    } else {
-      setUserOverride(user.id, null);
-      setEditUser(user);
-      setEditForm(draft);
+  /** The row as it will look once this save lands. */
+  function rowPatchFor(user: ManagedAccountUser, payload: Partial<EditAccountPayload>): RowPatch {
+    const patch: RowPatch = {};
+    if (payload.name !== undefined) patch.name = payload.name;
+    if (payload.agentId !== undefined) patch.agent_id = payload.agentId || null;
+    if (payload.roleIds) {
+      patch.role_ids = payload.roleIds;
+      patch.roles = availableRoles.filter((role) => payload.roleIds?.includes(role.id));
     }
+    const config: AccountConfig = { ...user.config };
+    if (payload.positionId !== undefined) {
+      const nextPosition = positions.find((position) => position.id === payload.positionId) ?? null;
+      patch.position = nextPosition;
+      config.positionId = payload.positionId;
+      if (nextPosition?.kind !== "assistant") config.assistedAgentEmails = [];
+      if (user.position?.kind === "agent" && nextPosition?.kind !== "agent") patch.assistantEmails = [];
+    }
+    if (payload.assistedAgentEmails) config.assistedAgentEmails = payload.assistedAgentEmails;
+    if (payload.managerId !== undefined) {
+      const manager = initialUsers.find((candidate) => candidate.id === payload.managerId);
+      config.managerId = payload.managerId;
+      patch.managerName = manager ? manager.name?.trim() || manager.email : null;
+      patch.managerEmail = manager?.email ?? null;
+    }
+    if (
+      payload.positionId !== undefined ||
+      payload.assistedAgentEmails !== undefined ||
+      payload.managerId !== undefined
+    ) {
+      patch.config = config;
+    }
+    return patch;
   }
 
-  async function handleRoleSave() {
-    if (!roleUser) return;
-    const updated = await updateUser(roleUser, { roleIds: selectedRoleIds });
-
+  /** Show the change on the row now, save, and undo the row if the save fails. */
+  async function saveRow(user: ManagedAccountUser, payload: Partial<EditAccountPayload>) {
+    setUserOverride(user.id, { patch: rowPatchFor(user, payload), pending: true });
+    const updated = await updateUser(user, payload);
     if (updated) {
-      setRoleUser(null);
-      setSelectedRoleIds([]);
+      setUserOverride(user.id, { patch: {}, pending: false });
+    } else {
+      setUserOverride(user.id, null);
     }
+    return updated;
+  }
+
+  function expectedFor(user: ManagedAccountUser) {
+    return {
+      position_id: user.config.positionId,
+      manager_id: user.config.managerId,
+      assisted_agent_emails: user.config.assistedAgentEmails,
+    };
+  }
+
+  async function handleEditAccount(user: ManagedAccountUser, payload: EditAccountPayload) {
+    // Đóng hộp và đổi cả dòng ngay. Server từ chối thì dòng trở lại như cũ và
+    // hộp mở lại với giá trị đang lưu (updateUser đã hiện lỗi).
+    setEditUser(null);
+    setEditInitialConfig(null);
+    if (!(await saveRow(user, payload))) setEditUser(user);
+  }
+
+  // The manager only places someone in the management tree; it grants no
+  // access. `expected` refuses the save if someone else changed this account's
+  // position, Agents or manager since the page loaded.
+  async function setManager(user: ManagedAccountUser, managerId: string | null) {
+    await saveRow(user, { managerId, expected: expectedFor(user) });
+  }
+
+  /**
+   * Position from the table. An Assistant needs its Agents, so that opens Edit
+   * account. A change that moves someone on or off the Agent list, or drops
+   * Assistant links, changes who sees what: it waits for Confirm. Anything
+   * else saves at once.
+   */
+  function setPosition(user: ManagedAccountUser, positionId: string | null) {
+    const kindOf = (id: string | null) => positions.find((position) => position.id === id)?.kind ?? null;
+    if (kindOf(positionId) === "assistant") {
+      setEditInitialConfig({ ...user.config, positionId, assistedAgentEmails: user.config.assistedAgentEmails });
+      setEditUser(user);
+      return;
+    }
+    const next: AccountConfig = { ...user.config, positionId, assistedAgentEmails: [] };
+    const effects = accountConfigEffects({
+      personName: user.name?.trim() || user.email,
+      current: user.config,
+      next,
+      kindOf,
+      assistantNames: user.assistantEmails.map(nameOfEmail),
+      nameOfEmail,
+      access: { taskAccess: user.taskAccess, csPoolBase: user.csPoolBase },
+    });
+    if (effects.length > 0) {
+      setPositionConfirm({ user, positionId, effects });
+      return;
+    }
+    void saveRow(user, { positionId, expected: expectedFor(user) });
+  }
+
+  function confirmPosition() {
+    if (!positionConfirm) return;
+    const { user, positionId } = positionConfirm;
+    setPositionConfirm(null);
+    void saveRow(user, { positionId, expected: expectedFor(user) });
   }
 
   async function handleResetPassword(event: React.FormEvent<HTMLFormElement>) {
@@ -492,121 +658,202 @@ export default function AccountManagerClient({
           Account Manager
         </h1>
         <p className="mt-1 text-sm text-[#667085]">
-          Create accounts, manage roles, control access, and reset passwords.
+          Create accounts, set their accessibility, position and manager, and reset passwords.
         </p>
       </header>
 
-      {agentMembership ? (
-        <div className="mb-4 flex w-fit rounded border border-[#dfe3ea] bg-[#f4f5f7] p-0.5 shadow-sm">
-          {(
-            [
-              ["accounts", "Accounts"],
-              ["agents", "Agent membership"],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setPageTab(value)}
-              className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
-                pageTab === value
-                  ? "bg-white text-[#0c66e4] shadow-sm ring-1 ring-[#d8dee7]"
-                  : "text-[#44546f] hover:bg-white/70 hover:text-[#172b4d]"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-
-      {agentMembership && pageTab === "agents" ? (
-        <AgentMembershipSection
-          initialAgents={agentMembership.agents}
-          candidates={agentMembership.candidates}
-          assignees={agentMembership.assignees}
-          initialMembers={agentMembership.members}
-          available={agentMembership.available}
-          availabilityError={agentMembership.error}
-        />
-      ) : null}
-
-      {/* `hidden` thay vì bỏ khỏi cây: đổi tab không làm mất ô tìm hay bảng đang mở. */}
-      <section
-        hidden={pageTab !== "accounts"}
-        className="min-w-0 overflow-visible rounded-lg border border-[#d8dee7] bg-white"
-      >
-        <div className="flex flex-col gap-4 border-b border-[#e4e9f2] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-base font-semibold text-[#16233a]">
-              Accounts
-            </h2>
-            <p className="mt-1 text-xs text-[#667085]">
-              {isFiltering
-                ? `${filteredUsers.length} matching account${filteredUsers.length === 1 ? "" : "s"} of ${initialUsers.length} total`
-                : `${activeCount} active user${activeCount === 1 ? "" : "s"} of ${initialUsers.length} total`}
-            </p>
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <label className="block sm:w-72">
-              <span className="sr-only">Search accounts</span>
-              <input
-                aria-label="Search accounts"
-                className="w-full rounded-md border border-[#cfd6e3] px-3 py-2 text-sm text-[#16233a] outline-none placeholder:text-[#98a2b3] focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15"
-                onChange={(event) => setAccountSearch(event.target.value)}
-                placeholder="Search accounts..."
-                type="search"
-                value={accountSearch}
-              />
-            </label>
-            <label className="block sm:w-44">
-              <span className="sr-only">Filter by position</span>
-              <select
-                aria-label="Filter by position"
-                className="w-full rounded-md border border-[#cfd6e3] bg-white px-3 py-2 text-sm text-[#16233a] outline-none focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15"
-                onChange={(event) =>
-                  setPositionFilter(event.target.value as PositionFilter)
-                }
-                value={positionFilter}
-              >
-                {POSITION_FILTERS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
+      <section className="min-w-0 overflow-visible rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]">
+        <div className="flex flex-col gap-3 border-b border-[#dfe1e6] px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-baseline gap-2">
+                <h2 className="text-sm font-bold text-[#172b4d]">Accounts</h2>
+                <p className="text-xs font-semibold text-[#6b778c]">
+                  {isFiltering && view === "table"
+                    ? `${filteredUsers.length} of ${initialUsers.length}`
+                    : `${activeCount} active · ${initialUsers.length} total`}
+                </p>
+              </div>
+              <p className="mt-0.5 text-xs text-[#6b778c]">
+                Accessibility decides what someone can do. Agent and Assistant positions also decide whose tasks, leads and enrollments they see; other positions and Manager change nothing.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex rounded border border-[#dfe1e6] bg-[#f4f5f7] p-0.5">
+                {(
+                  [
+                    ["table", "Table"],
+                    ["tree", "Tree"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={view === value}
+                    onClick={() => setView(value)}
+                    className={`rounded px-3 py-1 text-xs font-bold transition ${
+                      view === value
+                        ? "bg-white text-[#0c66e4] shadow-sm ring-1 ring-[#dfe1e6]"
+                        : "text-[#44546f] hover:text-[#172b4d]"
+                    }`}
+                  >
+                    {label}
+                  </button>
                 ))}
-              </select>
-            </label>
-            {canCreate && (
-              <button
-                className="rounded-md bg-[#163f6b] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0f3155]"
-                type="button"
-                onClick={openCreateForm}
-              >
-                Add Account
-              </button>
-            )}
+              </div>
+              {canCreate && (
+                <button
+                  className="h-9 rounded bg-[#0c66e4] px-3 text-sm font-bold text-white transition hover:bg-[#0055cc]"
+                  type="button"
+                  onClick={openCreateForm}
+                >
+                  Add Account
+                </button>
+              )}
+            </div>
           </div>
+          {view === "table" && (
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="relative block w-full sm:w-64">
+                <span className="sr-only">Search accounts</span>
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6b778c]" aria-hidden />
+                <input
+                  aria-label="Search accounts"
+                  className="h-9 w-full rounded-lg border border-[#dfe1e6] bg-white pl-8 pr-3 text-sm text-[#172b4d] outline-none transition placeholder:text-[#8590a2] hover:border-[#c1c7d0] focus:border-[#0c66e4] focus:ring-2 focus:ring-[#0c66e4]/20"
+                  onChange={(event) => setAccountSearch(event.target.value)}
+                  placeholder="Search name, email, ID…"
+                  type="search"
+                  value={accountSearch}
+                />
+              </label>
+              <TaskSelect
+                multi
+                searchable
+                values={roleFilter}
+                allValue={ALL}
+                options={[
+                  { value: ALL, label: "All accessibility" },
+                  ...availableRoles.map((role) => ({ value: role.id, label: role.name })),
+                  { value: NONE, label: "No accessibility" },
+                ]}
+                placeholder="Accessibility"
+                summaryLabel="selected"
+                className="w-max min-w-[8rem]"
+                buttonClassName={FILTER_BUTTON_CLASS}
+                onValuesChange={setRoleFilter}
+              />
+              <TaskSelect
+                multi
+                searchable
+                values={positionFilter}
+                allValue={ALL}
+                options={[
+                  { value: ALL, label: "All positions" },
+                  ...positions.map((position) => ({ value: position.id, label: position.name })),
+                  { value: NONE, label: "No position" },
+                ]}
+                placeholder="Position"
+                summaryLabel="positions"
+                className="w-max min-w-[8rem]"
+                buttonClassName={FILTER_BUTTON_CLASS}
+                onValuesChange={setPositionFilter}
+              />
+              <TaskSelect
+                multi
+                searchable
+                values={managerFilter}
+                allValue={ALL}
+                options={[
+                  { value: ALL, label: "All managers" },
+                  ...managerChoices.map((manager) => ({
+                    value: manager.id,
+                    label: manager.name,
+                    keywords: [manager.email],
+                  })),
+                  { value: NONE, label: "No manager" },
+                ]}
+                renderOption={(option) => {
+                  const manager = managerChoices.find((choice) => choice.id === option.value);
+                  return manager ? (
+                    <span className="inline-flex min-w-0 items-center gap-1.5">
+                      <Initials email={manager.email} label={manager.name} />
+                      <span className="truncate">{manager.name}</span>
+                    </span>
+                  ) : (
+                    option.label
+                  );
+                }}
+                placeholder="Manager"
+                summaryLabel="managers"
+                className="w-max min-w-[8rem]"
+                buttonClassName={FILTER_BUTTON_CLASS}
+                onValuesChange={setManagerFilter}
+              />
+              <div
+                role="radiogroup"
+                aria-label="Account status"
+                className="flex h-9 items-center rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] p-0.5"
+              >
+                {(
+                  [
+                    ["", "All", initialUsers.length],
+                    ["active", "Active", activeCount],
+                    ["disabled", "Inactive", initialUsers.length - activeCount],
+                  ] as const
+                ).map(([value, label, count]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    role="radio"
+                    aria-checked={statusFilter === value}
+                    onClick={() => setStatusFilter(value)}
+                    className={`flex h-full items-center gap-1.5 rounded-md px-2.5 text-sm font-semibold transition ${
+                      statusFilter === value
+                        ? "bg-white text-[#0c66e4] shadow-sm ring-1 ring-[#dfe1e6]"
+                        : "text-[#44546f] hover:text-[#172b4d]"
+                    }`}
+                  >
+                    {label}
+                    <span className="text-xs font-bold text-[#8590a2]">{count}</span>
+                  </button>
+                ))}
+              </div>
+              {isFiltering && (
+                <button
+                  type="button"
+                  className="h-9 rounded-lg px-2 text-sm font-semibold text-[#0c66e4] hover:bg-[#e9f2ff]"
+                  onClick={() => {
+                    setAccountSearch("");
+                    setRoleFilter([]);
+                    setPositionFilter([]);
+                    setManagerFilter([]);
+                    setStatusFilter("");
+                  }}
+                >
+                  Clear filters
+                </button>
+              )}
+            </div>
+          )}
         </div>
-        <div className="w-full overflow-visible">
+        {view === "tree" && <OrgTree people={users} />}
+        <div className="w-full overflow-visible" hidden={view !== "table"}>
           <table className="w-full table-fixed border-collapse text-left">
-            <thead className="bg-[#f8fafc] text-xs uppercase tracking-wide text-[#667085]">
+            <thead className="border-b border-[#dfe1e6] bg-[#fafbfc] text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
               <tr>
-                <th className={`${canManageAlerts ? "w-[26%]" : "w-[30%]"} px-5 py-3 font-semibold`}>User</th>
-                <th className={`${canManageAlerts ? "w-[13%]" : "w-[14%]"} px-4 py-3 font-semibold`}>Role</th>
-                <th className={`${canManageAlerts ? "w-[16%]" : "w-[18%]"} px-4 py-3 font-semibold`}>Position</th>
-                <th className={`${canManageAlerts ? "w-[10%]" : "w-[12%]"} px-4 py-3 font-semibold`}>Status</th>
-                {canManageAlerts && (
-                  <th className="w-[9%] px-4 py-3 font-semibold">Alerts</th>
-                )}
-                <th className={`${canManageAlerts ? "w-[14%]" : "w-[16%]"} whitespace-nowrap px-4 py-3 text-right font-semibold`}>
-                  Created Date
-                </th>
-                <th className={`${canManageAlerts ? "w-[12%]" : "w-[10%]"} px-5 py-3 text-right font-semibold`}>
-                  Actions
+                <th className="w-[25%] px-4 py-2">User</th>
+                <th className="w-[15%] px-3 py-2">Accessibility</th>
+                <th className="w-[15%] px-3 py-2">Position</th>
+                <th className="w-[15%] px-3 py-2">Manager</th>
+                <th className="w-[9%] px-3 py-2">Status</th>
+                {canManageAlerts && <th className="w-[7%] px-3 py-2">Alerts</th>}
+                <th className="w-[9%] whitespace-nowrap px-3 py-2 text-right">Created</th>
+                <th className="w-[5%] px-3 py-2">
+                  <span className="sr-only">Actions</span>
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#edf1f7] text-sm">
+            <tbody className="text-sm">
               {filteredUsers.map((user) => {
                 const isCurrentUser =
                   user.email.toLowerCase() === currentUserEmail.toLowerCase();
@@ -614,34 +861,71 @@ export default function AccountManagerClient({
                 const actionOpen = actionUserId === user.id;
 
                 return (
-                  <tr key={user.id}>
-                    <td className="px-5 py-4">
-                      <div className="truncate font-medium text-[#16233a]">
-                        {user.name || "No name"}
-                        {isCurrentUser && (
-                          <span className="ml-2 rounded bg-[#eef4ff] px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[#1b5d9e]">
-                            You
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-1 truncate text-xs text-[#667085]">
-                        {user.email}
-                      </div>
-                      <div className="mt-0.5 truncate text-xs text-[#98a2b3]">
-                        ID: {user.agent_id || "—"}
-                      </div>
+                  <tr
+                    key={user.id}
+                    className={`border-b border-[#ebecf0] transition-colors last:border-b-0 hover:bg-[#f7f8f9] ${
+                      user.is_active ? "" : "bg-[#fafbfc] text-[#6b778c]"
+                    }`}
+                  >
+                    <td className="px-4 py-2.5">
+                      <UserCell user={user} isCurrentUser={isCurrentUser} />
                     </td>
-                    <td className="px-4 py-4">
+                    <td className="px-3 py-2.5">
                       <RoleBadges user={user} />
                     </td>
-                    <td className="px-4 py-4">
-                      <PositionBadge position={user.position} />
+                    <td className="px-3 py-2.5">
+                      <PositionMenu
+                        position={user.position}
+                        positions={positions}
+                        canEdit={canEdit}
+                        lockedReason={
+                          isCurrentUser
+                            ? "You cannot change your own position."
+                            : !user.is_active
+                              ? "Enable the account before changing its position."
+                              : null
+                        }
+                        busy={isBusy}
+                        onChange={(positionId) => setPosition(user, positionId)}
+                      />
                     </td>
-                    <td className="px-4 py-4">
+                    <td className="px-3 py-2.5">
+                      {/* An Assistant's manager is the Agent(s) they support.
+                          Changing those changes access, so it goes through
+                          Edit account and its warnings. */}
+                      {user.config.assistedAgentEmails.length > 0 ? (
+                        <button
+                          type="button"
+                          disabled={isBusy || !canEdit}
+                          onClick={() => openEditAccountModal(user)}
+                          title="Change in Edit account"
+                          className="block max-w-full rounded text-left transition hover:opacity-80 disabled:cursor-default disabled:hover:opacity-100"
+                        >
+                          <PeopleCell emails={user.config.assistedAgentEmails} nameByEmail={nameByEmail} />
+                        </button>
+                      ) : (
+                        <ManagerMenu
+                          manager={
+                            user.config.managerId && user.managerEmail
+                              ? {
+                                  id: user.config.managerId,
+                                  email: user.managerEmail,
+                                  name: user.managerName ?? user.managerEmail,
+                                }
+                              : null
+                          }
+                          options={managerOptions.filter((option) => option.id !== user.id)}
+                          canEdit={canEdit}
+                          busy={isBusy}
+                          onChange={(managerId) => void setManager(user, managerId)}
+                        />
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5">
                       <StatusBadge active={user.is_active} />
                     </td>
                     {canManageAlerts && (
-                      <td className="px-4 py-4">
+                      <td className="px-3 py-2.5">
                         <AlertToggle
                           busy={isBusy || alertPendingIds.has(user.id)}
                           preference={
@@ -651,32 +935,24 @@ export default function AccountManagerClient({
                               updatedAt: user.alertsUpdatedAt,
                             }
                           }
-                          updatedByName={
-                            initialUsers.find(
-                              (candidate) =>
-                                candidate.email.toLowerCase() ===
-                                (
-                                  alertPreferences.get(user.id)?.updatedBy ??
-                                  user.alertsUpdatedBy ??
-                                  ""
-                                ).toLowerCase(),
-                            )?.name ??
+                          updatedByName={nameOfEmail(
                             alertPreferences.get(user.id)?.updatedBy ??
-                            user.alertsUpdatedBy
-                          }
+                              user.alertsUpdatedBy ??
+                              "",
+                          )}
                           onClick={() => void toggleAlerts(user)}
                         />
                       </td>
                     )}
-                    <td className="px-4 py-4 text-right text-[#667085]">
+                    <td className="whitespace-nowrap px-3 py-2.5 text-right text-xs font-semibold text-[#6b778c]">
                       {new Date(user.created_at).toLocaleDateString()}
                     </td>
                     <td
                       ref={actionOpen ? actionMenuRef : null}
-                      className="relative px-5 py-4 text-right"
+                      className="relative px-3 py-2.5 text-right"
                     >
                       <button
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#667085] transition hover:bg-[#f4f7fb] hover:text-[#16233a]"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded text-[#6b778c] transition hover:bg-[#ebecf0] hover:text-[#172b4d]"
                         type="button"
                         onClick={() =>
                           setActionUserId((current) =>
@@ -688,7 +964,7 @@ export default function AccountManagerClient({
                         <DotsIcon />
                       </button>
 	                      {actionOpen && (
-	                        <div className="absolute right-5 top-12 z-20 w-48 rounded-lg border border-[#e2e6ee] bg-white p-1.5 text-left shadow-lg">
+	                        <div className="absolute right-3 top-11 z-20 w-48 rounded-lg border border-[#e2e6ee] bg-white p-1.5 text-left shadow-lg">
 	                          <button
 	                            className="flex w-full items-center rounded-md px-3 py-2 text-sm font-medium text-[#16233a] hover:bg-[#f4f7fb] disabled:cursor-not-allowed disabled:opacity-50"
 	                            type="button"
@@ -697,14 +973,6 @@ export default function AccountManagerClient({
 	                          >
 	                            Edit account
 	                          </button>
-	                          <button
-	                            className="flex w-full items-center rounded-md px-3 py-2 text-sm font-medium text-[#16233a] hover:bg-[#f4f7fb] disabled:cursor-not-allowed disabled:opacity-50"
-	                            type="button"
-                            disabled={isBusy || isCurrentUser || !canAssignRoles}
-                            onClick={() => openRoleModal(user)}
-                          >
-                            Change role
-                          </button>
                           <button
                             className="flex w-full items-center rounded-md px-3 py-2 text-sm font-medium text-[#16233a] hover:bg-[#f4f7fb] disabled:cursor-not-allowed disabled:opacity-50"
                             type="button"
@@ -741,8 +1009,8 @@ export default function AccountManagerClient({
               {filteredUsers.length === 0 && (
                 <tr>
                   <td
-                    className="px-5 py-12 text-center text-sm text-[#667085]"
-                    colSpan={canManageAlerts ? 7 : 6}
+                    className="px-4 py-12 text-center text-sm font-semibold text-[#6b778c]"
+                    colSpan={canManageAlerts ? 8 : 7}
                   >
                     {isFiltering
                       ? "No accounts match your search or filter."
@@ -756,262 +1024,79 @@ export default function AccountManagerClient({
       </section>
 
       {showCreateForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[#0f2349]/35 px-4 py-4">
-          <form
-            className="h-[560px] max-h-[calc(100dvh-2rem)] w-full max-w-[520px] overflow-visible rounded-lg border border-[#d8dee7] bg-white p-6 shadow-xl"
-            onSubmit={handleSubmit}
-          >
-            <div className="mb-5 flex items-center justify-between gap-4">
-              <h2 className="text-lg font-semibold text-[#16233a]">
-                Add Account
-              </h2>
-              <button
-                className="rounded-md px-2 py-1 text-sm font-semibold text-[#667085] hover:bg-[#f4f7fb]"
-                type="button"
-                onClick={() => setShowCreateForm(false)}
-              >
-                Close
-              </button>
-            </div>
-            <div className="space-y-4">
-              <label className="block">
-                <span className="text-sm font-medium text-[#344054]">
-                  Email
-                </span>
-                <input
-                  className="mt-1 w-full rounded-md border border-[#cfd6e3] px-3 py-2 text-sm text-[#16233a] outline-none focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15"
-                  type="email"
-                  value={form.email}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      email: event.target.value,
-                    }))
-                  }
-                  required
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-[#344054]">
-                  Name
-                </span>
-                <input
-                  className="mt-1 w-full rounded-md border border-[#cfd6e3] px-3 py-2 text-sm text-[#16233a] outline-none focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15"
-                  type="text"
-                  value={form.name}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      name: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-[#344054]">
-                  Agent ID
-                </span>
-                <input
-                  className="mt-1 w-full rounded-md border border-[#cfd6e3] px-3 py-2 text-sm text-[#16233a] outline-none focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15"
-                  type="text"
-                  value={form.agentId}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      agentId: event.target.value,
-                    }))
-                  }
-                />
-                <span className="mt-1 block text-xs text-[#667085]">
-                  Optional
-                </span>
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-[#344054]">
-                  Temporary password
-                </span>
-                <input
-                  className="mt-1 w-full rounded-md border border-[#cfd6e3] px-3 py-2 text-sm text-[#16233a] outline-none focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15"
-                  type="password"
-                  value={form.password}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      password: event.target.value,
-                    }))
-                  }
-                  minLength={8}
-                  required
-                />
-              </label>
-              <div>
-                <span className="text-sm font-medium text-[#344054]">
-                  Role
-                </span>
-                <RoleDropdownList
-                  roles={availableRoles}
-                  value={form.roleIds}
-                  disabled={!canAssignRoles}
-                  onChange={(roleIds) =>
-                    setForm((current) => ({
-                      ...current,
-                      roleIds,
-                    }))
-                  }
-                />
-              </div>
+        <CreateAccountDialog
+          form={form}
+          roles={availableRoles}
+          positions={positions}
+          agentOptions={agentOptions}
+          managerOptions={managerOptions}
+          nameOfEmail={nameOfEmail}
+          taskAccessByRoleId={taskAccessByRoleId}
+          canAssignRoles={canAssignRoles}
+          submitting={isSubmitting}
+          onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
+          onClose={() => setShowCreateForm(false)}
+          onSubmit={handleSubmit}
+        />
+      )}
+
+      {editUser && (
+        <EditAccountDialog
+          account={{
+            id: editUser.id,
+            email: editUser.email,
+            name: editUser.name,
+            agent_id: editUser.agent_id,
+            is_active: editUser.is_active,
+            role_ids: editUser.role_ids,
+            config: editUser.config,
+            assistantEmails: editUser.assistantEmails,
+            taskAccess: editUser.taskAccess,
+            csPoolBase: editUser.csPoolBase,
+          }}
+          taskAccessByRoleId={taskAccessByRoleId}
+          isCurrentUser={editUser.email.toLowerCase() === currentUserEmail.toLowerCase()}
+          roles={availableRoles}
+          positions={positions}
+          agentOptions={agentOptions}
+          managerOptions={managerOptions}
+          nameOfEmail={nameOfEmail}
+          busy={busyUserId === editUser.id}
+          initialConfig={editInitialConfig ?? undefined}
+          onCancel={() => {
+            setEditUser(null);
+            setEditInitialConfig(null);
+          }}
+          onSave={(payload) => void handleEditAccount(editUser, payload)}
+        />
+      )}
+
+      {positionConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f2349]/35 px-4">
+          <div className="w-full max-w-[460px] rounded-lg border border-[#d8dee7] bg-white p-6 shadow-xl">
+            <h2 className="text-lg font-semibold text-[#16233a]">Change position?</h2>
+            <p className="mt-1 text-sm text-[#667085]">
+              This changes what people can see and do:
+            </p>
+            <div className="mt-3 space-y-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              {positionConfirm.effects.map((effect) => (
+                <p key={effect}>{effect}</p>
+              ))}
             </div>
             <div className="mt-6 flex justify-end gap-3">
               <button
-                className="rounded-md border border-[#cfd6e3] px-4 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f4f7fb]"
                 type="button"
-                onClick={() => setShowCreateForm(false)}
+                className="rounded-md border border-[#cfd6e3] px-4 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f4f7fb]"
+                onClick={() => setPositionConfirm(null)}
               >
                 Cancel
               </button>
               <button
-                className="rounded-md bg-[#163f6b] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0f3155] disabled:cursor-not-allowed disabled:opacity-60"
-                type="submit"
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? "Creating..." : "Create Account"}
-              </button>
-            </div>
-          </form>
-        </div>
-	      )}
-
-	      {editUser && (
-	        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0f2349]/35 px-4">
-	          <form
-	            className="w-full max-w-[460px] rounded-lg border border-[#d8dee7] bg-white p-6 shadow-xl"
-	            onSubmit={handleEditAccount}
-	          >
-	            <div className="mb-5">
-	              <h2 className="text-lg font-semibold text-[#16233a]">
-	                Edit Account
-	              </h2>
-	              <p className="mt-1 truncate text-sm text-[#667085]">
-	                {editUser.email}
-	              </p>
-	            </div>
-	            <div className="space-y-4">
-	              <div>
-	                <span className="text-sm font-medium text-[#344054]">
-	                  Email
-	                </span>
-	                {/* Email is the key that ties tasks, leads and enrollments to
-	                    this person, so it never changes. */}
-	                <p className="mt-1 truncate rounded-md border border-[#e4e9f2] bg-slate-50 px-3 py-2 text-sm text-slate-600">
-	                  {editUser.email}
-	                </p>
-	                <span className="mt-1 block text-xs text-[#667085]">
-	                  Email cannot be changed. Create a new account instead.
-	                </span>
-	              </div>
-	              <label className="block">
-	                <span className="text-sm font-medium text-[#344054]">
-	                  Name
-	                </span>
-	                <input
-	                  className="mt-1 w-full rounded-md border border-[#cfd6e3] px-3 py-2 text-sm text-[#16233a] outline-none focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15"
-	                  type="text"
-	                  value={editForm.name}
-	                  onChange={(event) =>
-	                    setEditForm((current) => ({
-	                      ...current,
-	                      name: event.target.value,
-	                    }))
-	                  }
-	                />
-	              </label>
-              <label className="block">
-                <span className="text-sm font-medium text-[#344054]">
-                  Agent ID
-                </span>
-                <input
-                  className="mt-1 w-full rounded-md border border-[#cfd6e3] px-3 py-2 text-sm text-[#16233a] outline-none focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15"
-                  type="text"
-                  value={editForm.agentId}
-                  onChange={(event) =>
-                    setEditForm((current) => ({
-                      ...current,
-                      agentId: event.target.value,
-                    }))
-                  }
-                />
-                <span className="mt-1 block text-xs text-[#667085]">
-                  Optional
-                </span>
-              </label>
-	            </div>
-	            <div className="mt-6 flex justify-end gap-3">
-	              <button
-	                className="rounded-md border border-[#cfd6e3] px-4 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f4f7fb]"
-	                type="button"
-	                onClick={() => {
-	                  setEditUser(null);
-	                  setEditForm({ name: "", agentId: "" });
-	                }}
-	              >
-	                Cancel
-	              </button>
-	              <button
-	                className="rounded-md bg-[#163f6b] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0f3155] disabled:cursor-not-allowed disabled:opacity-60"
-	                type="submit"
-	                disabled={
-	                  busyUserId === editUser.id ||
-	                  (editForm.name.trim() === (editUser.name ?? "") &&
-	                    editForm.agentId.trim() ===
-	                      (editUser.agent_id ?? "").trim())
-	                }
-	              >
-	                {busyUserId === editUser.id ? "Saving..." : "Save"}
-	              </button>
-	            </div>
-	          </form>
-	        </div>
-	      )}
-
-	      {roleUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-[#0f2349]/35 px-4 py-4">
-          <div className="h-[420px] max-h-[calc(100dvh-2rem)] w-full max-w-[460px] overflow-visible rounded-lg border border-[#d8dee7] bg-white p-6 shadow-xl">
-            <div className="mb-5">
-              <h2 className="text-lg font-semibold text-[#16233a]">
-                Change Role
-              </h2>
-              <p className="mt-1 truncate text-sm text-[#667085]">
-                {roleUser.email}
-              </p>
-            </div>
-            <RoleDropdownList
-              roles={availableRoles}
-              value={selectedRoleIds}
-              disabled={busyUserId === roleUser.id}
-              onChange={setSelectedRoleIds}
-            />
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                className="rounded-md border border-[#cfd6e3] px-4 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f4f7fb]"
                 type="button"
-                onClick={() => {
-                  setRoleUser(null);
-                  setSelectedRoleIds([]);
-                }}
+                className="rounded-md bg-[#163f6b] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0f3155]"
+                onClick={confirmPosition}
               >
-                Cancel
-              </button>
-              <button
-                className="rounded-md bg-[#163f6b] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#0f3155] disabled:cursor-not-allowed disabled:opacity-60"
-                type="button"
-                disabled={
-                  busyUserId === roleUser.id ||
-                  selectedRoleIds.length !== 1 ||
-                  selectedRoleIds[0] === roleUser.role_ids[0]
-                }
-                onClick={() => void handleRoleSave()}
-              >
-                {busyUserId === roleUser.id ? "Saving..." : "Save"}
+                Change position
               </button>
             </div>
           </div>
@@ -1110,24 +1195,51 @@ async function readJsonResponse(response: Response) {
   }
 }
 
+function UserCell({ user, isCurrentUser }: { user: ManagedAccountUser; isCurrentUser: boolean }) {
+  const name = user.name?.trim() || user.email;
+  return (
+    <div className="flex min-w-0 items-center gap-2.5">
+      <Initials email={user.email} label={name} size="md" />
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <span className={`truncate font-semibold ${user.is_active ? "text-[#172b4d]" : "text-[#6b778c]"}`}>
+            {user.name || "No name"}
+          </span>
+          {isCurrentUser && (
+            <span className="shrink-0 rounded bg-[#e9f2ff] px-1 py-px text-[10px] font-bold uppercase text-[#0c66e4]">
+              You
+            </span>
+          )}
+        </div>
+        <div className="truncate text-xs text-[#6b778c]" title={user.email}>
+          {user.email}
+          {user.agent_id ? <span className="text-[#8590a2]"> · {user.agent_id}</span> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Same filter buttons as the Task Board toolbar.
+const FILTER_BUTTON_CLASS =
+  "!h-9 !rounded-lg !border !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
+
+// Wraps instead of cutting, so a long role name stays whole.
+const LOZENGE = "inline-block max-w-full break-words rounded px-1.5 py-0.5 text-[11px] font-bold uppercase leading-4";
+
 function RoleBadges({ user }: { user: ManagedAccountUser }) {
   if (user.roles.length === 0) {
-    return (
-      <span className="inline-flex rounded-md bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
-        No role
-      </span>
-    );
+    return <span className={`${LOZENGE} bg-[#fff7d6] text-[#a54800]`}>No accessibility</span>;
   }
 
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap gap-1">
       {user.roles.map((role) => (
         <span
           key={role.id}
-          className={`inline-flex rounded-md px-2.5 py-1 text-xs font-semibold ${
-            isAdminRole(role)
-              ? "bg-[#eef4ff] text-[#1b5d9e]"
-              : "bg-slate-100 text-slate-700"
+          title={role.name}
+          className={`${LOZENGE} ${
+            isAdminRole(role) ? "bg-[#e9f2ff] text-[#0055cc]" : "bg-[#f1f2f4] text-[#44546f]"
           }`}
         >
           {role.name}
@@ -1137,51 +1249,49 @@ function RoleBadges({ user }: { user: ManagedAccountUser }) {
   );
 }
 
-const POSITION_BADGE_STYLES: Record<TaskPositionKind, string> = {
-  admin: "bg-[#eef4ff] text-[#1b5d9e]",
-  agent: "bg-violet-50 text-violet-700",
-  assistant: "bg-teal-50 text-teal-700",
-  cs: "bg-slate-100 text-slate-700",
-};
-
-// The one label people see next to this name on the Task Board (positions.ts).
-function PositionBadge({ position }: { position: AccountPosition | null }) {
-  if (!position?.kind || !position.label) {
-    return <span className="text-sm text-[#98a2b3]">—</span>;
-  }
-
+// Same look as the Agent cell on the Task Board: avatar + name.
+function PersonCell({ email, name }: { email: string | null; name: string | null }) {
+  if (!email) return <span className="text-xs text-[#8590a2]">—</span>;
+  const label = name ?? email;
   return (
-    <div className="flex min-w-0 items-center gap-1.5">
-      <span
-        className={`min-w-0 truncate rounded-md px-2.5 py-1 text-xs font-semibold ${POSITION_BADGE_STYLES[position.kind]}`}
-        title={position.label}
-      >
-        {position.label}
+    <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-[#42526e]" title={label}>
+      <Initials email={email} label={label} />
+      <span className="truncate">{label}</span>
+    </span>
+  );
+}
+
+// Several managers (an Assistant supporting several Agents): stacked avatars,
+// the first name, and how many more.
+function PeopleCell({
+  emails,
+  nameByEmail,
+}: {
+  emails: string[];
+  nameByEmail: Map<string, string>;
+}) {
+  if (emails.length === 1) return <PersonCell email={emails[0]} name={nameByEmail.get(emails[0]) ?? null} />;
+  const names = emails.map((email) => nameByEmail.get(email) ?? email);
+  return (
+    <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-[#42526e]" title={names.join(", ")}>
+      <AvatarStack emails={emails} labelByEmail={nameByEmail} />
+      <span className="truncate">
+        {names[0]} +{emails.length - 1}
       </span>
-      {position.warnings.length > 0 && (
-        <span
-          className="shrink-0 text-amber-600"
-          title={position.warnings.join("\n")}
-          aria-label={position.warnings.join(" ")}
-          role="img"
-        >
-          <AlertTriangle className="h-4 w-4" />
-        </span>
-      )}
-    </div>
+    </span>
   );
 }
 
 function StatusBadge({ active }: { active: boolean }) {
   return (
-    <span
-      className={`inline-flex rounded-md px-2.5 py-1 text-xs font-semibold ${
-        active
-          ? "bg-emerald-50 text-emerald-700"
-          : "bg-slate-100 text-slate-600"
-      }`}
-    >
-      {active ? "Active" : "Inactive"}
+    <span className="inline-flex items-center gap-1.5 text-xs font-semibold">
+      <span
+        aria-hidden
+        className={`h-2 w-2 rounded-full ${active ? "bg-[#22a06b]" : "bg-[#8590a2]"}`}
+      />
+      <span className={active ? "text-[#216e4e]" : "text-[#6b778c]"}>
+        {active ? "Active" : "Disabled"}
+      </span>
     </span>
   );
 }
@@ -1207,141 +1317,25 @@ function AlertToggle({
       : undefined;
   const enabled = !preference.alertsMuted;
   return (
-    <div className="inline-flex items-center gap-2">
-      <button
-        type="button"
-        role="switch"
-        aria-checked={enabled}
-        aria-label={preference.alertsMuted ? "Enable alerts" : "Mute alerts"}
-        title={tooltip}
-        disabled={busy}
-        onClick={onClick}
-        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c66e4] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
-          enabled
-            ? "bg-emerald-500 hover:bg-emerald-600"
-            : "bg-slate-300 hover:bg-slate-400"
-        }`}
-      >
-        <span
-          aria-hidden
-          className={`h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${
-            enabled ? "translate-x-5" : "translate-x-0"
-          }`}
-        />
-      </button>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      aria-label={preference.alertsMuted ? "Enable alerts" : "Mute alerts"}
+      title={tooltip ?? (enabled ? "Alerts on" : "Alerts off")}
+      disabled={busy}
+      onClick={onClick}
+      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c66e4] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
+        enabled ? "bg-[#22a06b] hover:bg-[#1f845a]" : "bg-[#8590a2] hover:bg-[#758195]"
+      }`}
+    >
       <span
-        className={`text-xs font-semibold ${
-          enabled ? "text-emerald-700" : "text-slate-500"
+        aria-hidden
+        className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
+          enabled ? "translate-x-4" : "translate-x-0"
         }`}
-      >
-        {enabled ? "On" : "Off"}
-      </span>
-    </div>
-  );
-}
-
-function RoleDropdownList({
-  roles,
-  value,
-  onChange,
-  disabled = false,
-}: {
-  roles: RoleOption[];
-  value: string[];
-  onChange: (roleIds: string[]) => void;
-  disabled?: boolean;
-}) {
-  const dropdownRef = useRef<HTMLDivElement | null>(null);
-  const radioGroupName = useId();
-  const [isOpen, setIsOpen] = useState(false);
-  const activeRoles = roles.filter((role) => role.is_active);
-  const selectedRole = activeRoles.find((role) => value[0] === role.id);
-  const selectedLabel =
-    selectedRole ? selectedRole.name : "Select one role";
-
-  function selectRole(roleId: string) {
-    onChange([roleId]);
-    setIsOpen(false);
-  }
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    function handleMouseDown(event: MouseEvent) {
-      if (
-        dropdownRef.current &&
-        !dropdownRef.current.contains(event.target as Node)
-      ) {
-        setIsOpen(false);
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setIsOpen(false);
-      }
-    }
-
-    document.addEventListener("mousedown", handleMouseDown);
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("mousedown", handleMouseDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isOpen]);
-
-  return (
-    <div ref={dropdownRef} className="relative mt-2">
-      <button
-        className="flex min-h-11 w-full items-center justify-between gap-3 rounded-md border border-[#cfd6e3] bg-white px-3 py-2 text-left text-sm text-[#16233a] outline-none transition hover:border-[#a9b8cf] focus:border-[#1b5d9e] focus:ring-2 focus:ring-[#1b5d9e]/15 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500"
-        type="button"
-        disabled={disabled || activeRoles.length === 0}
-        onClick={() => setIsOpen((current) => !current)}
-      >
-        <span className="min-w-0 flex-1 truncate">{selectedLabel}</span>
-        <span
-          className={`shrink-0 text-[#667085] transition ${
-            isOpen ? "rotate-180" : ""
-          }`}
-          aria-hidden
-        >
-          ▾
-        </span>
-      </button>
-
-      {isOpen && (
-        <div className="absolute left-0 right-0 top-full z-20 mt-2 max-h-[160px] overflow-y-scroll rounded-md border border-[#d8dee7] bg-white py-1 shadow-lg">
-          {activeRoles.map((role) => {
-            const selected = value[0] === role.id;
-
-            return (
-              <label
-                key={role.id}
-                className="flex cursor-pointer items-start gap-3 px-3 py-2.5 text-sm transition hover:bg-[#f4f7fb]"
-              >
-                <input
-                  className="mt-0.5 h-4 w-4 rounded border-[#b8c2d3] text-[#1b5d9e] focus:ring-[#1b5d9e]"
-                  type="radio"
-                  name={radioGroupName}
-                  checked={selected}
-                  onChange={() => selectRole(role.id)}
-                />
-                <span className="min-w-0">
-                  <span className="block font-semibold text-[#16233a]">
-                    {role.name}
-                  </span>
-                </span>
-              </label>
-            );
-          })}
-        </div>
-      )}
-
-      {activeRoles.length === 0 && (
-        <p className="mt-2 text-sm text-[#667085]">No active roles available.</p>
-      )}
-    </div>
+      />
+    </button>
   );
 }
 

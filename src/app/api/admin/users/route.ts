@@ -11,6 +11,10 @@ import {
 } from "@/lib/rbac/role-management";
 import { checkAccountChange } from "@/lib/rbac/delegation";
 import { parseCreateUserInput } from "@/lib/admin/user-input";
+import { changesMembership, parseAccountConfigRequest } from "@/lib/admin/account-config";
+import { accountWriteFailure } from "@/lib/admin/account-write-errors";
+import { invalidateTaskMembershipLookups } from "@/lib/tasks/membership";
+import { broadcastTableConfigChanged } from "@/lib/table-config/realtime";
 import bcrypt from "bcryptjs";
 
 export async function POST(req: Request) {
@@ -25,9 +29,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const parsed = parseCreateUserInput(await req.json());
+    const body = await req.json();
+    const parsed = parseCreateUserInput(body);
     if (!parsed.ok) {
       return NextResponse.json({ error: parsed.error }, { status: parsed.status });
+    }
+    // Optional Position, manager and supported Agents. A new account has no
+    // earlier values, so there is no `expected` snapshot to check.
+    const config = parseAccountConfigRequest({
+      positionId: body?.positionId,
+      managerId: body?.managerId,
+      assistedAgentEmails: body?.assistedAgentEmails,
+    });
+    if (!config.ok) {
+      return NextResponse.json({ error: config.error }, { status: 400 });
     }
 
     const {
@@ -120,6 +135,35 @@ export async function POST(req: Request) {
       await replaceUserRoles(data.id, selectedRoleIds);
     }
 
+    // Same write as Edit account (update_account_atomic), so a new Agent or
+    // Assistant lands on task_agents / agent_members exactly as an edit would.
+    // If it is refused, the account just created is removed again.
+    if (createdUserId && Object.keys(config.patch).length > 0) {
+      const { error: configError } = await supabase.rpc("update_account_atomic", {
+        p_user_id: createdUserId,
+        p_patch: config.patch,
+        p_role_id: null,
+      });
+      if (configError) {
+        const failure = accountWriteFailure(configError);
+        const undo = await removeCreatedAccount(createdUserId);
+        createdUserId = null;
+        if (!undo.ok) {
+          return NextResponse.json(
+            {
+              error: `${failure.error} The account ${normalizedEmail} was created but could not be removed again (${undo.error}). Disable it in Account Manager.`,
+            },
+            { status: 500 }
+          );
+        }
+        return NextResponse.json({ error: failure.error }, { status: failure.status });
+      }
+      if (changesMembership(config.patch)) {
+        invalidateTaskMembershipLookups();
+        await broadcastTableConfigChanged();
+      }
+    }
+
     console.info("[account-manager:create] success", {
       email: normalizedEmail,
       userId: data.id,
@@ -133,17 +177,39 @@ export async function POST(req: Request) {
       error: error instanceof Error ? error.message : String(error),
     });
 
+    const message = error instanceof Error ? error.message : "Internal Server Error";
     if (createdUserId) {
-      const supabase = getSupabaseAdmin();
-      await supabase.from(PORTAL_ACCOUNT_TABLE).delete().eq("id", createdUserId);
+      const undo = await removeCreatedAccount(createdUserId);
+      if (!undo.ok) {
+        return NextResponse.json(
+          {
+            error: `${message} The account was created but could not be removed again (${undo.error}). Disable it in Account Manager.`,
+          },
+          { status: 500 }
+        );
+      }
     }
 
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Internal Server Error",
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+/**
+ * Undo a half-finished create: remove the account (its role goes with it,
+ * user_roles cascades). The caller says so when this fails, instead of
+ * reporting the create as rolled back.
+ */
+async function removeCreatedAccount(userId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const { data, error } = await getSupabaseAdmin()
+      .from(PORTAL_ACCOUNT_TABLE)
+      .delete()
+      .eq("id", userId)
+      .select("id");
+    if (error) return { ok: false, error: error.message };
+    if (!data || data.length === 0) return { ok: false, error: "account not found" };
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
   }
 }
