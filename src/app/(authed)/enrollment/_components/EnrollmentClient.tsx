@@ -162,6 +162,10 @@ import {
   canRetryAfterConflict,
   toOptimisticEnrollmentPatch,
 } from "@/lib/enrollment/optimistic-patch";
+import {
+  MAX_CONFLICT_ATTEMPTS,
+  shouldRetryConflict,
+} from "@/lib/collaboration/conflict-retry";
 import { EnrollmentOverview } from "./EnrollmentOverview";
 import {
   PAGE_ACTIONS_CLASS,
@@ -1628,10 +1632,9 @@ export function EnrollmentClient({
     let saved = false;
     const operation = state.tail
       .then(async () => {
-        // Tối đa hai lượt: 409 mà không ai đụng tới các trường này (mốc giờ bị
-        // đẩy lên bởi upload file, reaction...) thì gửi lại MỘT lần với bản mới
-        // nhất, thay vì bỏ việc người dùng vừa làm — xem canRetryAfterConflict.
-        for (let attempt = 0; attempt < 2; attempt += 1) {
+        // Background uploads can advance updated_at several times. Retry only
+        // while the patched fields still match the latest server version.
+        for (let attempt = 0; attempt < MAX_CONFLICT_ATTEMPTS; attempt += 1) {
           const baseline = state.confirmed;
           let response: Response;
           try {
@@ -1674,7 +1677,7 @@ export function EnrollmentClient({
             return;
           }
           state.confirmed = canonical;
-          if (attempt === 0 && canRetryAfterConflict(patch, baseline, canonical)) continue;
+          if (shouldRetryConflict(attempt, canRetryAfterConflict(patch, baseline, canonical))) continue;
           // Câu cũ ("canonical data was reloaded") khiến người dùng tưởng phải
           // reload trang — reload xong thấy mất phần vừa sửa và báo "mất deal".
           // Nói thẳng: chưa lưu, dữ liệu mới nhất đã hiện, làm lại là được.

@@ -1,5 +1,6 @@
 import { NextResponse, after } from "next/server";
 import { RouteTiming } from "@/lib/server-timing";
+import { conflictLogFields } from "@/lib/collaboration/conflict-log";
 import { TASK_DUE_DATE_KEY } from "@/lib/tasks/due-date";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -241,6 +242,10 @@ export async function PATCH(req: Request, { params }: Ctx) {
     );
   }
   if (expectedUpdatedAt !== r.task.updated_at) {
+    console.warn("mutation.conflict", conflictLogFields({
+      route: "tasks.update", id, stage: "precheck",
+      expected: expectedUpdatedAt, current: r.task.updated_at,
+    }));
     return NextResponse.json(
       { error: "Task was updated by someone else. Refresh and try again." },
       { status: 409 }
@@ -606,8 +611,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
   );
   if (atomicError) {
     if (atomicError.message.includes("TASK_CONFLICT")) {
-      // Chỉ id, không nội dung: đếm số 409 trước/sau khi đổi giao diện.
-      console.warn("mutation.conflict", { route: "tasks.update", id });
+      console.warn("mutation.conflict", conflictLogFields({
+        route: "tasks.update", id, stage: "write", expected: expectedUpdatedAt,
+      }));
       return NextResponse.json(
         { error: "Task was updated by someone else. Refresh and try again." },
         { status: 409 }

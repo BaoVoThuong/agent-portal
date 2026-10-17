@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { runAfterResponse } from "@/lib/after-response";
+import { safeErrorFields } from "@/lib/server-error-log";
 import { broadcastNotif } from "./realtime";
 
 export const TASK_NOTIFICATION_TYPES = [
@@ -118,8 +119,21 @@ export async function insertNotifications(
     return true;
   }
 
-  // Realtime "ping" so recipients' open tabs toast instantly (content stays in DB).
-  const broadcast = await broadcastNotif(rows.map((r) => r.recipient_email));
+  // The rows are already saved. A failed realtime ping only delays the toast;
+  // the bell can still load the rows on its next poll.
+  const taskIds = [...new Set(rows.map((row) => row.task_id))];
+  try {
+    const delivered = await broadcastNotif(rows.map((r) => r.recipient_email));
+    if (!delivered) {
+      console.error("task.notification.delivery_failed", { taskIds, stage: "broadcast" });
+    }
+  } catch (error) {
+    console.error("task.notification.delivery_failed", {
+      taskIds,
+      stage: "broadcast",
+      error: error instanceof Error ? safeErrorFields(error).message : "unknown error",
+    });
+  }
 
   // Và đẩy ra ngoài trình duyệt cho ai không mở tab. Service worker tự bỏ qua
   // khi người nhận đang nhìn portal, nên không kêu hai lần.
@@ -128,7 +142,7 @@ export async function insertNotifications(
     await pushForTaskNotifications(rows);
   });
 
-  return broadcast;
+  return true;
 }
 
 /**
@@ -150,7 +164,7 @@ async function deliverTaskNotifications(rows: NotificationInsertInput[]): Promis
     console.error("task.notification.delivery_failed", {
       taskIds,
       stage: "broadcast",
-      error: error instanceof Error ? error.message : "unknown error",
+      error: error instanceof Error ? safeErrorFields(error).message : "unknown error",
     });
   }
   try {
@@ -160,7 +174,7 @@ async function deliverTaskNotifications(rows: NotificationInsertInput[]): Promis
     console.error("task.notification.delivery_failed", {
       taskIds,
       stage: "push",
-      error: error instanceof Error ? error.message : "unknown error",
+      error: error instanceof Error ? safeErrorFields(error).message : "unknown error",
     });
   }
 }

@@ -6,6 +6,16 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-17 — Sửa lỗi từ audit log Vercel (`2026-10-17-vercel-log-fixes.md`)
+
+- **409 gửi lại tối đa 4 lượt:** Task và Enrollment đọc bản mới nhất sau mỗi 409,
+  chỉ gửi lại khi mọi trường đang sửa vẫn chưa bị người khác đổi. Xử lý chuỗi
+  `updated_at` nhảy liên tiếp khi nhiều file được tải lên cùng lúc.
+- **File gắn comment Enrollment không chạm hồ sơ lần thứ hai:** comment đã cập nhật
+  `updated_at` và `last_activity_at`; file độc lập vẫn chạm hồ sơ như trước.
+- **Realtime Task hỏng sau khi ghi thông báo:** ghi lỗi delivery nhưng coi bản ghi
+  thông báo đã lưu là thành công, tránh warning `notification_failed` sai.
+
 ## 2026-10-17 — Sửa theo review Codex (audit parity Account/Position; code chưa deploy)
 
 - **Edit account chỉ gửi ô đã đổi** (F3): trước đó form luôn gửi lại Name và Agent ID, nên sửa

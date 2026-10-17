@@ -50,6 +50,7 @@ import {
   mapTaskCategoryMutationError,
 } from "@/lib/tasks/category-mutation";
 import { RouteTiming } from "@/lib/server-timing";
+import { safeErrorFields } from "@/lib/server-error-log";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +58,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 
 export async function GET() {
   const timing = new RouteTiming("tasks-list");
+  let stage: "auth" | "tasks" = "auth";
   const respond = (body: unknown, status = 200) => {
     const response = NextResponse.json(body, { status });
     response.headers.set("Server-Timing", timing.headerValue());
@@ -72,6 +74,7 @@ export async function GET() {
       return respond({ error: "Unauthorized" }, 401);
     }
 
+    stage = "tasks";
     const page = await timing.measure("tasks", async () =>
       fetchTasksForActor(actor),
     );
@@ -92,6 +95,7 @@ export async function GET() {
         503,
       );
     }
+    console.error("tasks.list.failed", { stage, status: 500, ...safeErrorFields(error) });
     return respond(
       { error: error instanceof Error ? error.message : "Could not load tasks." },
       500,

@@ -98,6 +98,10 @@ import {
   assigneeChangeAlreadyApplied,
   canRetryTaskPatchAfterConflict,
 } from "@/lib/tasks/conflict-retry";
+import {
+  MAX_CONFLICT_ATTEMPTS,
+  shouldRetryConflict,
+} from "@/lib/collaboration/conflict-retry";
 import type { PendingFile } from "@/lib/tasks/pending-attachments";
 import { useAnchoredMenu } from "./use-anchored-menu";
 import {
@@ -1526,10 +1530,9 @@ export function TaskBoardClient({
 
     const operation = state.tail
       .then(async () => {
-        // Tối đa hai lượt, như patchRecord của Enrollment (6da7ee0): 409 mà không
-        // ai đụng các trường của lượt này (mốc giờ bị đẩy lên vì comment, file...)
-        // thì gửi lại MỘT lần với bản mới nhất, thay vì bỏ việc người dùng vừa làm.
-        for (let attempt = 0; attempt < 2; attempt += 1) {
+        // Background uploads can advance updated_at several times. Retry only
+        // while the patched fields still match the latest server version.
+        for (let attempt = 0; attempt < MAX_CONFLICT_ATTEMPTS; attempt += 1) {
           const baseline = state.confirmed;
           let response: Response;
           try {
@@ -1559,7 +1562,10 @@ export function TaskBoardClient({
                   viewer_is_participant:
                     canonical.viewer_is_participant ?? state.confirmed.viewer_is_participant,
                 };
-                if (attempt === 0 && canRetryTaskPatchAfterConflict(patch, baseline, canonical)) {
+                if (shouldRetryConflict(
+                  attempt,
+                  canRetryTaskPatchAfterConflict(patch, baseline, canonical),
+                )) {
                   continue;
                 }
                 setError(

@@ -78,11 +78,29 @@ describe("insertNotifications delivery", () => {
     expect(mocks.broadcastNotif).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the old behaviour without the option: waits for the broadcast", async () => {
+  it("inline: failed broadcast is logged after rows were written", async () => {
     mocks.broadcastNotif.mockResolvedValue(false);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    await expect(insertNotifications([taskRow])).resolves.toBe(false);
+    await expect(insertNotifications([taskRow])).resolves.toBe(true);
     expect(mocks.broadcastNotif).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith("task.notification.delivery_failed", {
+      taskIds: ["task-1"], stage: "broadcast",
+    });
+    error.mockRestore();
+  });
+
+  it("inline: throwing broadcast still schedules browser push", async () => {
+    mocks.broadcastNotif.mockRejectedValue(new Error("missing topic secret"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await expect(insertNotifications([taskRow])).resolves.toBe(true);
+    expect(mocks.insert).toHaveBeenCalledTimes(1);
+    expect(mocks.after).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith("task.notification.delivery_failed", {
+      taskIds: ["task-1"], stage: "broadcast", error: "missing topic secret",
+    });
+    error.mockRestore();
   });
 
   it("logs a failed deferred broadcast instead of throwing", async () => {

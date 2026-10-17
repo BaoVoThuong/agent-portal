@@ -21,6 +21,7 @@ import {
   insertEnrollmentNotifications,
   uniqueEnrollmentNotificationRecipients,
 } from "@/lib/enrollment/notifications";
+import { attachmentTouchesRecord } from "@/lib/enrollment/attachment-touch";
 import {
   broadcastEnrollmentChanged,
   broadcastEnrollmentRoom,
@@ -278,12 +279,14 @@ export async function POST(request: Request, { params }: Ctx) {
   }
 
   const warnings: string[] = [];
-  const { error: touchError } = await context.supabase.rpc("enrollment_touch_activity", {
-    p_record_id: id,
-    p_actor_email: context.actor.email,
-    p_now: new Date().toISOString(),
-  });
-  if (touchError) warnings.push(`Attachment activity touch failed: ${touchError.message}`);
+  if (attachmentTouchesRecord(commentId)) {
+    const { error: touchError } = await context.supabase.rpc("enrollment_touch_activity", {
+      p_record_id: id,
+      p_actor_email: context.actor.email,
+      p_now: new Date().toISOString(),
+    });
+    if (touchError) warnings.push(`Attachment activity touch failed: ${touchError.message}`);
+  }
 
   after(async () => {
     const sideEffectWarnings = [...warnings];

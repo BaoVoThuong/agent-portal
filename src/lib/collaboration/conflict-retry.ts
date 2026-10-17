@@ -58,3 +58,11 @@ export function canRetryAfterConflict(
   }
   return true;
 }
+
+/** First send plus retries for up to three concurrent background uploads. */
+export const MAX_CONFLICT_ATTEMPTS = 4;
+
+/** Retry only while attempts remain and the fields being edited are untouched. */
+export function shouldRetryConflict(attempt: number, fieldsUntouched: boolean): boolean {
+  return fieldsUntouched && attempt + 1 < MAX_CONFLICT_ATTEMPTS;
+}

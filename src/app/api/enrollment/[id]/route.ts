@@ -1,5 +1,6 @@
 import { after, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { conflictLogFields } from "@/lib/collaboration/conflict-log";
 import {
   loadEnrollmentActor,
   normalizeEnrollmentActorEmail,
@@ -164,6 +165,10 @@ export async function PATCH(request: Request, { params }: Ctx) {
   });
 
   if (current.updated_at !== expectedUpdatedAt) {
+    console.warn("mutation.conflict", conflictLogFields({
+      route: "enrollment.update", id, stage: "precheck",
+      expected: expectedUpdatedAt, current: current.updated_at,
+    }));
     return NextResponse.json(
       { error: "Enrollment record was updated by someone else. Refresh and try again." },
       { status: 409 }
@@ -544,8 +549,9 @@ export async function PATCH(request: Request, { params }: Ctx) {
   if (schemaResponse) return schemaResponse;
   if (updateError) {
     if (updateError.message?.includes("ENROLLMENT_CONFLICT")) {
-      // Chỉ id, không nội dung: đếm số 409 trước/sau khi đổi giao diện.
-      console.warn("mutation.conflict", { route: "enrollment.update", id });
+      console.warn("mutation.conflict", conflictLogFields({
+        route: "enrollment.update", id, stage: "write", expected: expectedUpdatedAt,
+      }));
       return NextResponse.json({ error: "Enrollment record was updated by someone else. Refresh and try again." }, { status: 409 });
     }
     if (updateError.message?.includes("ENROLLMENT_NOT_FOUND")) return NextResponse.json({ error: "Not found" }, { status: 404 });
