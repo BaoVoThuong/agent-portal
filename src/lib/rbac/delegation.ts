@@ -1,4 +1,4 @@
-import { expandImpliedPermissions } from "@/lib/rbac/permissions";
+import { expandImpliedPermissions, isAssignablePermissionKey } from "@/lib/rbac/permissions";
 
 /**
  * Delegation ceiling for Role Manager and Account Manager.
@@ -20,8 +20,10 @@ export function permissionsNotHeld(
   actorPermissions: readonly string[],
   keys: readonly string[]
 ): string[] {
-  const held = new Set(expandImpliedPermissions(actorPermissions));
-  return [...new Set(expandImpliedPermissions(keys))].filter((key) => !held.has(key));
+  const held = new Set(expandImpliedPermissions(actorPermissions).filter(isAssignablePermissionKey));
+  return [...new Set(expandImpliedPermissions(keys))].filter(
+    (key) => isAssignablePermissionKey(key) && !held.has(key)
+  );
 }
 
 /** Role Manager: you can only ADD permissions you hold. Removing is always allowed. */

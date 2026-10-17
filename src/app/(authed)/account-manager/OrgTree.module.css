@@ -1,0 +1,75 @@
+.chart {
+  display: flex;
+  justify-content: center;
+  min-width: 100%;
+  width: max-content;
+  padding: 24px 20px 28px;
+}
+
+.root,
+.children {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  width: max-content;
+  list-style: none;
+  margin: 0;
+  padding-left: 0;
+}
+
+.node {
+  position: relative;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+}
+
+.children {
+  position: relative;
+  padding-top: 28px;
+}
+
+.children::before {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  height: 28px;
+  border-left: 1px solid #aab8cf;
+  content: "";
+}
+
+.children > .node {
+  padding: 24px 12px 0;
+}
+
+.children > .node::before,
+.children > .node::after {
+  position: absolute;
+  top: 0;
+  width: 50%;
+  border-top: 1px solid #aab8cf;
+  content: "";
+}
+
+.children > .node::before {
+  right: 0;
+}
+
+.children > .node::after {
+  left: 0;
+}
+
+.children > .node:first-child::after,
+.children > .node:last-child::before {
+  display: none;
+}
+
+.children > .node > article::before {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  height: 24px;
+  border-left: 1px solid #aab8cf;
+  content: "";
+}

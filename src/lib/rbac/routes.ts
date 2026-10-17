@@ -82,10 +82,6 @@ const ACCESSIBLE_ROUTES: PermissionRoute[] = [
     href: "/role-manager",
     permission: PERMISSIONS.ROLE_MANAGER,
   },
-  {
-    href: "/settings",
-    permission: PERMISSIONS.SETTINGS,
-  },
 ];
 
 export function getFirstAccessiblePath(permissions: readonly string[]) {

@@ -177,7 +177,6 @@ export default async function AccountManagerPage() {
     description: role.description,
     is_system: role.is_system,
     is_active: role.is_active,
-    is_default: role.is_default,
   }));
   const rolesById = new Map(availableRoles.map((role) => [role.id, role]));
   const accounts = (data ?? []) as AccountRow[];

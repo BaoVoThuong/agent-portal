@@ -3,6 +3,7 @@ import { auth, invalidateRbacLookups } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { can } from "@/lib/rbac/client";
 import {
+  isAssignablePermissionKey,
   normalizeExclusivePermissionKeys,
   PERMISSIONS,
 } from "@/lib/rbac/permissions";
@@ -32,7 +33,7 @@ function parsePermissionKeys(value: unknown) {
   if (!Array.isArray(value)) return null;
   return normalizeExclusivePermissionKeys(
     value.filter((item): item is string => typeof item === "string")
-  );
+  ).filter(isAssignablePermissionKey);
 }
 
 // The Admin role is fixed and view-only: every permission, changed only by SQL
@@ -40,9 +41,6 @@ function parsePermissionKeys(value: unknown) {
 function isProtectedRole(role: { name: string }) {
   return isAdminRoleName(role.name);
 }
-
-const DEFAULT_ROLE_LOCKED =
-  "This is the role new Google sign-ups get, so it cannot be disabled or deleted. Ask an administrator to change the default role in the database.";
 
 export async function PATCH(req: Request, context: RouteContext) {
   const session = await auth();
@@ -108,13 +106,6 @@ export async function PATCH(req: Request, context: RouteContext) {
       );
     }
 
-    if (updates.is_active === false && role.is_default) {
-      return NextResponse.json(
-        { error: DEFAULT_ROLE_LOCKED },
-        { status: 400 }
-      );
-    }
-
     if (permissionKeys || (updates.is_active === true && !role.is_active)) {
       const grant = rolePatchGrant({
         roleIsActive: role.is_active,
@@ -173,13 +164,6 @@ export async function DELETE(req: Request, context: RouteContext) {
     if (isProtectedRole(role)) {
       return NextResponse.json(
         { error: "Admin cannot be deleted." },
-        { status: 400 }
-      );
-    }
-
-    if (role.is_default) {
-      return NextResponse.json(
-        { error: DEFAULT_ROLE_LOCKED },
         { status: 400 }
       );
     }

@@ -1,11 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
   expandImpliedPermissions,
+  isAssignablePermissionKey,
   normalizeExclusivePermissionKeys,
   permissionImpliedBy,
   PERMISSIONS,
   PERMISSION_DEFINITIONS,
 } from "@/lib/rbac/permissions";
+
+describe("personal Settings", () => {
+  it("does not offer the retired Settings permission for role assignment", () => {
+    expect(Object.values(PERMISSIONS)).not.toContain("settings.access");
+    expect(PERMISSION_DEFINITIONS.map((permission) => permission.key)).not.toContain("settings.access");
+    expect(isAssignablePermissionKey("settings.access")).toBe(false);
+    expect(isAssignablePermissionKey("task.work")).toBe(true);
+  });
+});
 
 describe("task permissions", () => {
   it("declares the two task permission keys", () => {

@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
 import bcrypt from "bcryptjs";
 
 function isLocalPasswordHash(value: string | null | undefined): value is string {
@@ -15,7 +13,9 @@ export async function PATCH(req: Request) {
     const session = await auth();
     const email = session?.user?.email;
 
-    if (!email || !can(session?.user?.permissions, PERMISSIONS.SETTINGS)) {
+    // Every signed-in account may change its own password (2026-10-17);
+    // disabled accounts are refused below.
+    if (!email) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -34,7 +34,7 @@ export async function PATCH(req: Request) {
     const supabase = getSupabaseAdmin();
     const { data: account, error: accountError } = await supabase
       .from(PORTAL_ACCOUNT_TABLE)
-      .select("password_hash")
+      .select("password_hash,is_active")
       .eq("email", email)
       .maybeSingle();
 
@@ -43,6 +43,9 @@ export async function PATCH(req: Request) {
     }
     if (!account) {
       return NextResponse.json({ error: "Account not found." }, { status: 404 });
+    }
+    if ((account as { is_active: boolean | null }).is_active === false) {
+      return NextResponse.json({ error: "This account is disabled." }, { status: 403 });
     }
 
     const currentHash = (account as { password_hash: string | null }).password_hash;
@@ -70,13 +73,19 @@ export async function PATCH(req: Request) {
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
-    const { error } = await supabase
+    const { data: updatedAccount, error } = await supabase
       .from(PORTAL_ACCOUNT_TABLE)
       .update({ password_hash: hashedPassword })
-      .eq("email", email);
+      .eq("email", email)
+      .eq("is_active", true)
+      .select("id")
+      .maybeSingle();
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    if (!updatedAccount) {
+      return NextResponse.json({ error: "This account is disabled." }, { status: 403 });
     }
 
     return NextResponse.json({ message: "Password updated." });

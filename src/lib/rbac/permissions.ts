@@ -16,7 +16,6 @@ export const PERMISSIONS = {
   ROLE_MANAGER: "management.role_manager",
   TIME_OFF_USER: "timeoff.user",
   TIME_OFF_ADMIN: "timeoff.admin",
-  SETTINGS: "settings.access",
   TASK_MANAGE: "task.manage",
   TASK_WORK: "task.work",
   TASK_EXPORT: "task.export",
@@ -26,6 +25,11 @@ export const PERMISSIONS = {
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
+
+// Keep legacy DB/JWT rows readable while Settings becomes universal to signed-in accounts.
+export function isAssignablePermissionKey(key: string): boolean {
+  return key !== "settings.access";
+}
 
 export type PermissionDefinition = {
   key: PermissionKey;
@@ -211,14 +215,6 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     groupLabel: "Time Off",
     description: "Review team leave, manage balances, view leave history, and manage company days off.",
     sortOrder: 200,
-  },
-  {
-    key: PERMISSIONS.SETTINGS,
-    label: "Settings",
-    groupKey: "settings",
-    groupLabel: "Settings",
-    description: "Access account settings and change own password.",
-    sortOrder: 100,
   },
   {
     key: PERMISSIONS.TASK_MANAGE,

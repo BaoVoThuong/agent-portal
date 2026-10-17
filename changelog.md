@@ -6,6 +6,41 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-17 — Settings là trang cá nhân của mọi account đăng nhập
+
+- Bỏ `settings.access` khỏi danh sách quyền gán trong Role Manager và API quyền. Dòng quyền cũ
+  vẫn nằm trong DB/JWT để tương thích; nó không còn là điều kiện vào Settings hoặc trần uỷ quyền
+  khi quản lý account/role. API tạo/sửa role không nhận lại tick Settings cũ.
+- Account active không có role vẫn đổi được mật khẩu; account bị tắt bị chặn cả khi phiên cũ còn
+  hiệu lực. Lượt ghi mật khẩu kiểm lại `is_active` để tránh account bị tắt giữa lúc đọc và ghi.
+- Trang Settings yêu cầu account còn tồn tại và đang active, kể cả khi session cũ vẫn còn hiệu lực.
+
+## 2026-10-17 — Đăng nhập Google lần đầu không còn được gán role (rollout đã chạy production)
+
+- **Account Google mới không có role** (user chốt 17/10): rollout `2026-10-17-signup-without-role.sql`
+  thay thân hàm `create_account_with_default_role` (giữ tên để code đang chạy không phải đổi) — chỉ
+  tạo account, không chèn `user_roles`. Account đó 0 quyền → trang "No Access" cho tới khi admin đặt
+  Accessibility (Account Manager đã hiện nhãn "No accessibility"). Trước: nhận role mặc định Agent (7
+  quyền). Đã kiểm sau khi chạy: 0 role `is_default`, hàm không còn đụng `user_roles`, quyền gọi hàm
+  giữ nguyên (chỉ service_role). Rollback: `2026-10-17-signup-without-role.rollback.sql`.
+- **Bỏ khái niệm role mặc định**: `roles.is_default` về false hết (cột + index vẫn còn). Code không
+  đọc cột nữa: bỏ chặn tắt/xoá role mặc định trong `PATCH`/`DELETE /api/admin/roles/[id]`, bỏ nhãn
+  Default + khoá Delete ở Role Manager, form Add account không chọn sẵn role nào. Agent giờ xoá được
+  như mọi role.
+- `schema.sql`: hàm mới; backfill `user_roles` chỉ còn gán Admin cho account `role = 'admin'` cũ — trước
+  đó gán Agent cho mọi account chưa có role, chạy lại schema sẽ cấp quyền cho account cố ý không role.
+
+## 2026-10-17 — Role Manager dạng master-detail
+
+- **Người giữ role trả thêm `agent_id`, `position_id`, `manager_id`** (`fetchRolesWithPermissions`,
+  cũng là dữ liệu của `GET /api/admin/roles`): tab Members hiện Position, Manager, Agent ID. Chỉ đọc
+  thêm cột, không đổi quyền hay cách đếm `user_count`.
+- **Tắt/bật role giờ đi qua ô Active + Save** cùng lúc với tên và quyền (`PATCH` như cũ); menu ⋯ bỏ
+  Disable/Enable. Rời role đang sửa dở thì hỏi trước khi bỏ thay đổi.
+- Ô mô tả role bỏ khỏi giao diện; Save vẫn gửi lại mô tả đang lưu nên không mất.
+- Tab Members tra manager từ toàn bộ account, kể cả account Google mới chưa có role.
+- Account Manager mặc định hiển thị cả active và inactive như trước.
+
 ## 2026-10-17 — Sửa lỗi từ audit log Vercel (`2026-10-17-vercel-log-fixes.md`)
 
 - **409 gửi lại tối đa 4 lượt:** Task và Enrollment đọc bản mới nhất sau mỗi 409,

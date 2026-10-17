@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { normalizeExclusivePermissionKeys } from "@/lib/rbac/permissions";
+import { isAssignablePermissionKey, normalizeExclusivePermissionKeys } from "@/lib/rbac/permissions";
 import { isAdminRoleName } from "@/lib/rbac/admin-role";
 
 export type PermissionRecord = {
@@ -16,7 +16,15 @@ export type RoleHolder = {
   name: string | null;
   email: string;
   is_active: boolean;
+  agent_id: string | null;
+  position_id: string | null;
+  manager_id: string | null;
 };
+
+type HolderAccount = Pick<
+  RoleHolder,
+  "name" | "email" | "is_active" | "agent_id" | "position_id" | "manager_id"
+>;
 
 export type RoleRecord = {
   id: string;
@@ -24,8 +32,6 @@ export type RoleRecord = {
   description: string | null;
   is_system: boolean;
   is_active: boolean;
-  /** The role new Google sign-ups receive (roles.is_default, at most one). */
-  is_default: boolean;
   created_at: string;
   updated_at: string;
   /** Active accounts holding the role. */
@@ -49,15 +55,15 @@ type UserRoleRow = {
   user_id: string;
   role_id: string;
   created_at: string | null;
-  portal_account: { name: string | null; email: string; is_active: boolean } | null;
+  portal_account: HolderAccount | null;
 };
 
 export type RoleOption = Pick<
   RoleRecord,
-  "id" | "name" | "description" | "is_system" | "is_active" | "is_default"
+  "id" | "name" | "description" | "is_system" | "is_active"
 >;
 
-const ROLE_COLUMNS = "id,name,description,is_system,is_active,is_default,created_at,updated_at";
+const ROLE_COLUMNS = "id,name,description,is_system,is_active,created_at,updated_at";
 
 export async function fetchPermissions() {
   const supabase = getSupabaseAdmin();
@@ -69,7 +75,9 @@ export async function fetchPermissions() {
     .order("label", { ascending: true });
 
   if (error) throw new Error(error.message);
-  return (data ?? []) as unknown as PermissionRecord[];
+  return ((data ?? []) as unknown as PermissionRecord[]).filter((permission) =>
+    isAssignablePermissionKey(permission.key)
+  );
 }
 
 export async function fetchRolesWithPermissions() {
@@ -85,7 +93,9 @@ export async function fetchRolesWithPermissions() {
       supabase.from("role_permissions").select("role_id,permission_key"),
       supabase
         .from("user_roles")
-        .select("user_id,role_id,created_at, portal_account!inner(name,email,is_active)"),
+        .select(
+          "user_id,role_id,created_at, portal_account!inner(name,email,is_active,agent_id,position_id,manager_id)"
+        ),
     ]);
 
   if (rolesResponse.error) throw new Error(rolesResponse.error.message);
@@ -132,12 +142,7 @@ export async function fetchRolesWithPermissions() {
   for (const row of userRoleRows) {
     if (!row.portal_account) continue;
     const current = holdersByRoleId.get(row.role_id) ?? [];
-    current.push({
-      user_id: row.user_id,
-      name: row.portal_account.name,
-      email: row.portal_account.email,
-      is_active: row.portal_account.is_active,
-    });
+    current.push({ user_id: row.user_id, ...row.portal_account });
     holdersByRoleId.set(row.role_id, current);
   }
 

@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { can } from "@/lib/rbac/client";
 import {
+  isAssignablePermissionKey,
   normalizeExclusivePermissionKeys,
   PERMISSIONS,
 } from "@/lib/rbac/permissions";
@@ -33,7 +34,7 @@ function normalizePayload(payload: RolePayload) {
           (permission): permission is string => typeof permission === "string"
         )
       : []
-  );
+  ).filter(isAssignablePermissionKey);
 
   return { name, description, isActive, permissionKeys };
 }

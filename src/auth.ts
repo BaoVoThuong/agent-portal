@@ -115,6 +115,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
         const allowedDomain = process.env.AUTH_GOOGLE_ALLOWED_DOMAIN?.trim();
         if (allowedDomain && user.email.endsWith(`@${allowedDomain}`)) {
+          // Creates the account with NO role (2026-10-17): it sees "No Access"
+          // until an admin sets its Accessibility. The RPC keeps its old name.
           const { error: createError } = await supabase.rpc("create_account_with_default_role", {
             p_email: user.email,
             p_name: user.name ?? null,

@@ -1,9 +1,15 @@
 "use client";
 
-import { Search } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Toast } from "../_shared/Toast";
+import {
+  PAGE_ACTIONS_CLASS,
+  PAGE_HEADER_CLASS,
+  PAGE_PRIMARY_BUTTON_CLASS,
+  PAGE_TITLE_CLASS,
+} from "../_shared/page-header-styles";
 import type { AccountUser } from "@/lib/domain/account.types";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
@@ -19,6 +25,7 @@ import { CreateAccountDialog } from "./CreateAccountDialog";
 import { ManagerMenu } from "./ManagerMenu";
 import { PositionMenu } from "./PositionMenu";
 import { OrgTree } from "./OrgTree";
+import { AccountRowActions } from "./AccountRowActions";
 import { TaskSelect } from "../tasks/_components/TaskSelect";
 import { accountConfigEffects } from "@/lib/admin/account-config";
 import { AvatarStack, Initials } from "../tasks/_components/board-ui";
@@ -116,10 +123,8 @@ export default function AccountManagerClient({
   taskAccessByRoleId,
 }: AccountManagerClientProps) {
   const router = useRouter();
-  const actionMenuRef = useRef<HTMLTableCellElement | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [actionUserId, setActionUserId] = useState<string | null>(null);
   const [editUser, setEditUser] = useState<ManagedAccountUser | null>(null);
   /** Edit account opened from the Position cell with an Assistant position picked. */
   const [editInitialConfig, setEditInitialConfig] = useState<AccountConfig | null>(null);
@@ -140,7 +145,8 @@ export default function AccountManagerClient({
   const [roleFilter, setRoleFilter] = useState<string[]>([]);
   /** Ids of the people they report to, or NONE. */
   const [managerFilter, setManagerFilter] = useState<string[]>([]);
-  const [statusFilter, setStatusFilter] = useState<"" | "active" | "disabled">("");
+  // Keep the production default: show active and inactive accounts.
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(DEFAULT_STATUS_FILTER);
   const [view, setView] = useState<"table" | "tree">("table");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -192,11 +198,6 @@ export default function AccountManagerClient({
   const canEdit = canManageAccounts;
   const canResetPassword = canManageAccounts;
   const canAssignRoles = canManageAccounts;
-  const defaultRoleIds = useMemo(() => {
-    const defaultRole = availableRoles.find((role) => role.is_default);
-    return defaultRole ? [defaultRole.id] : [];
-  }, [availableRoles]);
-
   const nameByEmail = useMemo(
     () =>
       new Map(
@@ -308,8 +309,7 @@ export default function AccountManagerClient({
     positionFilter.length > 0 ||
     roleFilter.length > 0 ||
     managerFilter.length > 0 ||
-    Boolean(statusFilter);
-  const activeCount = initialUsers.filter((user) => user.is_active).length;
+    statusFilter !== DEFAULT_STATUS_FILTER;
   const alertPreferences = useMemo(() => {
     const preferences = new Map<string, AlertPreference>(
       initialUsers.map((user) => [
@@ -328,36 +328,9 @@ export default function AccountManagerClient({
   }, [alertOverrides, initialUsers]);
 
   function openCreateForm() {
-    setForm({ ...emptyForm, roleIds: defaultRoleIds });
+    setForm(emptyForm);
     setShowCreateForm(true);
   }
-
-  useEffect(() => {
-    if (!actionUserId) return;
-
-    function handleMouseDown(event: MouseEvent) {
-      if (
-        actionMenuRef.current &&
-        !actionMenuRef.current.contains(event.target as Node)
-      ) {
-        setActionUserId(null);
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setActionUserId(null);
-      }
-    }
-
-    document.addEventListener("mousedown", handleMouseDown);
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("mousedown", handleMouseDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [actionUserId]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -390,7 +363,7 @@ export default function AccountManagerClient({
       }
 
       setMessage(`Created ${payload.user.email}.`);
-      setForm({ ...emptyForm, roleIds: defaultRoleIds });
+      setForm(emptyForm);
       setShowCreateForm(false);
       router.refresh();
     } catch {
@@ -438,7 +411,6 @@ export default function AccountManagerClient({
   }
 
   function openEditAccountModal(user: ManagedAccountUser) {
-    setActionUserId(null);
     setEditUser(user);
   }
 
@@ -652,69 +624,48 @@ export default function AccountManagerClient({
   }
 
   return (
-    <div className="px-8 py-8">
-      <header className="mb-6">
-        <h1 className="text-2xl font-semibold text-[#16233a]">
-          Account Manager
-        </h1>
-        <p className="mt-1 text-sm text-[#667085]">
-          Create accounts, set their accessibility, position and manager, and reset passwords.
-        </p>
-      </header>
+    // A frame page like the Task board: title and filters stay put, the
+    // table scrolls inside its frame.
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="min-w-0 shrink-0 px-6 pb-4 pt-5">
+        <header className={PAGE_HEADER_CLASS}>
+          <h1 className={PAGE_TITLE_CLASS}>Account Manager</h1>
+          {canCreate && (
+            <div className={PAGE_ACTIONS_CLASS}>
+              <button type="button" onClick={openCreateForm} className={PAGE_PRIMARY_BUTTON_CLASS}>
+                <Plus className="h-4 w-4" />
+                New account
+              </button>
+            </div>
+          )}
+        </header>
 
-      <section className="min-w-0 overflow-visible rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]">
-        <div className="flex flex-col gap-3 border-b border-[#dfe1e6] px-4 py-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex items-baseline gap-2">
-                <h2 className="text-sm font-bold text-[#172b4d]">Accounts</h2>
-                <p className="text-xs font-semibold text-[#6b778c]">
-                  {isFiltering && view === "table"
-                    ? `${filteredUsers.length} of ${initialUsers.length}`
-                    : `${activeCount} active · ${initialUsers.length} total`}
-                </p>
-              </div>
-              <p className="mt-0.5 text-xs text-[#6b778c]">
-                Accessibility decides what someone can do. Agent and Assistant positions also decide whose tasks, leads and enrollments they see; other positions and Manager change nothing.
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="flex rounded border border-[#dfe1e6] bg-[#f4f5f7] p-0.5">
-                {(
-                  [
-                    ["table", "Table"],
-                    ["tree", "Tree"],
-                  ] as const
-                ).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    aria-pressed={view === value}
-                    onClick={() => setView(value)}
-                    className={`rounded px-3 py-1 text-xs font-bold transition ${
-                      view === value
-                        ? "bg-white text-[#0c66e4] shadow-sm ring-1 ring-[#dfe1e6]"
-                        : "text-[#44546f] hover:text-[#172b4d]"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              {canCreate && (
+        <section className="mt-2 min-w-0 space-y-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-3">
+            <div className="inline-flex shrink-0 rounded bg-[#f4f5f7] p-0.5">
+              {(
+                [
+                  ["table", "Table"],
+                  ["tree", "Tree"],
+                ] as const
+              ).map(([value, label]) => (
                 <button
-                  className="h-9 rounded bg-[#0c66e4] px-3 text-sm font-bold text-white transition hover:bg-[#0055cc]"
+                  key={value}
                   type="button"
-                  onClick={openCreateForm}
+                  aria-pressed={view === value}
+                  onClick={() => setView(value)}
+                  className={`rounded px-3 py-1.5 text-sm font-semibold transition ${
+                    view === value
+                      ? "bg-white text-[#0c66e4] shadow-sm"
+                      : "text-[#5e6c84] hover:text-[#172b4d]"
+                  }`}
                 >
-                  Add Account
+                  {label}
                 </button>
-              )}
+              ))}
             </div>
-          </div>
-          {view === "table" && (
-            <div className="flex flex-wrap items-center gap-2">
-              <label className="relative block w-full sm:w-64">
+            {view === "table" && (
+              <label className="relative block min-w-[18rem] flex-1">
                 <span className="sr-only">Search accounts</span>
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6b778c]" aria-hidden />
                 <input
@@ -726,6 +677,10 @@ export default function AccountManagerClient({
                   value={accountSearch}
                 />
               </label>
+            )}
+          </div>
+          {view === "table" && (
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               <TaskSelect
                 multi
                 searchable
@@ -789,239 +744,201 @@ export default function AccountManagerClient({
                 buttonClassName={FILTER_BUTTON_CLASS}
                 onValuesChange={setManagerFilter}
               />
-              <div
-                role="radiogroup"
-                aria-label="Account status"
-                className="flex h-9 items-center rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] p-0.5"
-              >
-                {(
-                  [
-                    ["", "All", initialUsers.length],
-                    ["active", "Active", activeCount],
-                    ["disabled", "Inactive", initialUsers.length - activeCount],
-                  ] as const
-                ).map(([value, label, count]) => (
-                  <button
-                    key={label}
-                    type="button"
-                    role="radio"
-                    aria-checked={statusFilter === value}
-                    onClick={() => setStatusFilter(value)}
-                    className={`flex h-full items-center gap-1.5 rounded-md px-2.5 text-sm font-semibold transition ${
-                      statusFilter === value
-                        ? "bg-white text-[#0c66e4] shadow-sm ring-1 ring-[#dfe1e6]"
-                        : "text-[#44546f] hover:text-[#172b4d]"
-                    }`}
-                  >
-                    {label}
-                    <span className="text-xs font-bold text-[#8590a2]">{count}</span>
-                  </button>
-                ))}
-              </div>
+              <TaskSelect
+                value={statusFilter}
+                options={[
+                  { value: "", label: "All statuses" },
+                  { value: "active", label: "Active" },
+                  { value: "disabled", label: "Inactive" },
+                ]}
+                placeholder="Status"
+                className="w-max min-w-[8rem]"
+                buttonClassName={FILTER_BUTTON_CLASS}
+                onChange={(value) => setStatusFilter(value as StatusFilter)}
+              />
               {isFiltering && (
                 <button
                   type="button"
-                  className="h-9 rounded-lg px-2 text-sm font-semibold text-[#0c66e4] hover:bg-[#e9f2ff]"
+                  className="h-9 shrink-0 px-1 text-sm font-medium text-[#0c66e4] transition hover:underline"
                   onClick={() => {
                     setAccountSearch("");
                     setRoleFilter([]);
                     setPositionFilter([]);
                     setManagerFilter([]);
-                    setStatusFilter("");
+                    setStatusFilter(DEFAULT_STATUS_FILTER);
                   }}
                 >
-                  Clear filters
+                  Clear all
                 </button>
               )}
+              <span className="ml-auto shrink-0 text-sm font-medium text-[#626f86]">
+                {filteredUsers.length} of {initialUsers.length} accounts
+              </span>
             </div>
           )}
-        </div>
-        {view === "tree" && <OrgTree people={users} />}
-        <div className="w-full overflow-visible" hidden={view !== "table"}>
-          <table className="w-full table-fixed border-collapse text-left">
-            <thead className="border-b border-[#dfe1e6] bg-[#fafbfc] text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
-              <tr>
-                <th className="w-[25%] px-4 py-2">User</th>
-                <th className="w-[15%] px-3 py-2">Accessibility</th>
-                <th className="w-[15%] px-3 py-2">Position</th>
-                <th className="w-[15%] px-3 py-2">Manager</th>
-                <th className="w-[9%] px-3 py-2">Status</th>
-                {canManageAlerts && <th className="w-[7%] px-3 py-2">Alerts</th>}
-                <th className="w-[9%] whitespace-nowrap px-3 py-2 text-right">Created</th>
-                <th className="w-[5%] px-3 py-2">
-                  <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody className="text-sm">
-              {filteredUsers.map((user) => {
-                const isCurrentUser =
-                  user.email.toLowerCase() === currentUserEmail.toLowerCase();
-                const isBusy = busyUserId === user.id;
-                const actionOpen = actionUserId === user.id;
+        </section>
+      </div>
 
-                return (
-                  <tr
-                    key={user.id}
-                    className={`border-b border-[#ebecf0] transition-colors last:border-b-0 hover:bg-[#f7f8f9] ${
-                      user.is_active ? "" : "bg-[#fafbfc] text-[#6b778c]"
-                    }`}
-                  >
-                    <td className="px-4 py-2.5">
-                      <UserCell user={user} isCurrentUser={isCurrentUser} />
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <RoleBadges user={user} />
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <PositionMenu
-                        position={user.position}
-                        positions={positions}
-                        canEdit={canEdit}
-                        lockedReason={
-                          isCurrentUser
-                            ? "You cannot change your own position."
-                            : !user.is_active
-                              ? "Enable the account before changing its position."
-                              : null
-                        }
-                        busy={isBusy}
-                        onChange={(positionId) => setPosition(user, positionId)}
-                      />
-                    </td>
-                    <td className="px-3 py-2.5">
-                      {/* An Assistant's manager is the Agent(s) they support.
-                          Changing those changes access, so it goes through
-                          Edit account and its warnings. */}
-                      {user.config.assistedAgentEmails.length > 0 ? (
-                        <button
-                          type="button"
-                          disabled={isBusy || !canEdit}
-                          onClick={() => openEditAccountModal(user)}
-                          title="Change in Edit account"
-                          className="block max-w-full rounded text-left transition hover:opacity-80 disabled:cursor-default disabled:hover:opacity-100"
-                        >
-                          <PeopleCell emails={user.config.assistedAgentEmails} nameByEmail={nameByEmail} />
-                        </button>
-                      ) : (
-                        <ManagerMenu
-                          manager={
-                            user.config.managerId && user.managerEmail
-                              ? {
-                                  id: user.config.managerId,
-                                  email: user.managerEmail,
-                                  name: user.managerName ?? user.managerEmail,
-                                }
-                              : null
-                          }
-                          options={managerOptions.filter((option) => option.id !== user.id)}
-                          canEdit={canEdit}
-                          busy={isBusy}
-                          onChange={(managerId) => void setManager(user, managerId)}
-                        />
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      <StatusBadge active={user.is_active} />
-                    </td>
-                    {canManageAlerts && (
+      <div className="flex min-h-0 flex-1 flex-col px-6 pb-6">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]">
+          <div className="min-h-0 flex-1 overflow-auto">
+            {view === "tree" && <OrgTree people={users} />}
+            <table hidden={view !== "table"} className="w-full table-fixed border-collapse text-left">
+              <thead className="sticky top-0 z-10 bg-[#fafbfc] text-[11px] font-bold uppercase tracking-wide text-[#6b778c] shadow-[0_1px_0_#dfe1e6]">
+                <tr>
+                  <th className="w-[25%] px-4 py-2">User</th>
+                  <th className="w-[15%] px-3 py-2">Accessibility</th>
+                  <th className="w-[15%] px-3 py-2">Position</th>
+                  <th className="w-[15%] px-3 py-2">Manager</th>
+                  <th className="w-[9%] px-3 py-2">Status</th>
+                  {canManageAlerts && <th className="w-[7%] px-3 py-2">Alerts</th>}
+                  <th className="w-[9%] whitespace-nowrap px-3 py-2 text-right">Created</th>
+                  <th className="w-[5%] px-3 py-2">
+                    <span className="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="text-sm">
+                {filteredUsers.map((user) => {
+                  const isCurrentUser =
+                    user.email.toLowerCase() === currentUserEmail.toLowerCase();
+                  const isBusy = busyUserId === user.id;
+
+                  return (
+                    <tr
+                      key={user.id}
+                      className={`border-b border-[#ebecf0] transition-colors last:border-b-0 hover:bg-[#f7f8f9] ${
+                        user.is_active ? "" : "bg-[#fafbfc] text-[#6b778c]"
+                      }`}
+                    >
+                      <td className="px-4 py-2.5">
+                        <UserCell user={user} isCurrentUser={isCurrentUser} />
+                      </td>
                       <td className="px-3 py-2.5">
-                        <AlertToggle
-                          busy={isBusy || alertPendingIds.has(user.id)}
-                          preference={
-                            alertPreferences.get(user.id) ?? {
-                              alertsMuted: user.alertsMuted,
-                              updatedBy: user.alertsUpdatedBy,
-                              updatedAt: user.alertsUpdatedAt,
-                            }
+                        <RoleBadges user={user} />
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <PositionMenu
+                          position={user.position}
+                          positions={positions}
+                          canEdit={canEdit}
+                          lockedReason={
+                            isCurrentUser
+                              ? "You cannot change your own position."
+                              : !user.is_active
+                                ? "Enable the account before changing its position."
+                                : null
                           }
-                          updatedByName={nameOfEmail(
-                            alertPreferences.get(user.id)?.updatedBy ??
-                              user.alertsUpdatedBy ??
-                              "",
-                          )}
-                          onClick={() => void toggleAlerts(user)}
+                          busy={isBusy}
+                          onChange={(positionId) => setPosition(user, positionId)}
                         />
                       </td>
-                    )}
-                    <td className="whitespace-nowrap px-3 py-2.5 text-right text-xs font-semibold text-[#6b778c]">
-                      {new Date(user.created_at).toLocaleDateString()}
-                    </td>
-                    <td
-                      ref={actionOpen ? actionMenuRef : null}
-                      className="relative px-3 py-2.5 text-right"
-                    >
-                      <button
-                        className="inline-flex h-8 w-8 items-center justify-center rounded text-[#6b778c] transition hover:bg-[#ebecf0] hover:text-[#172b4d]"
-                        type="button"
-                        onClick={() =>
-                          setActionUserId((current) =>
-                            current === user.id ? null : user.id
-                          )
-                        }
-                        aria-label={`Actions for ${user.email}`}
-                      >
-                        <DotsIcon />
-                      </button>
-	                      {actionOpen && (
-	                        <div className="absolute right-3 top-11 z-20 w-48 rounded-lg border border-[#e2e6ee] bg-white p-1.5 text-left shadow-lg">
-	                          <button
-	                            className="flex w-full items-center rounded-md px-3 py-2 text-sm font-medium text-[#16233a] hover:bg-[#f4f7fb] disabled:cursor-not-allowed disabled:opacity-50"
-	                            type="button"
-	                            disabled={isBusy || !canEdit}
-	                            onClick={() => openEditAccountModal(user)}
-	                          >
-	                            Edit account
-	                          </button>
+                      <td className="px-3 py-2.5">
+                        {/* An Assistant's manager is the Agent(s) they support.
+                            Changing those changes access, so it goes through
+                            Edit account and its warnings. */}
+                        {user.config.assistedAgentEmails.length > 0 ? (
                           <button
-                            className="flex w-full items-center rounded-md px-3 py-2 text-sm font-medium text-[#16233a] hover:bg-[#f4f7fb] disabled:cursor-not-allowed disabled:opacity-50"
                             type="button"
-                            disabled={isBusy || !canResetPassword}
-                            onClick={() => {
-                              setActionUserId(null);
-                              setResetUser(user);
-                              setResetPassword("");
-                            }}
+                            disabled={isBusy || !canEdit}
+                            onClick={() => openEditAccountModal(user)}
+                            title="Change in Edit account"
+                            className="block max-w-full rounded text-left transition hover:opacity-80 disabled:cursor-default disabled:hover:opacity-100"
                           >
-                            Reset password
+                            <PeopleCell emails={user.config.assistedAgentEmails} nameByEmail={nameByEmail} />
                           </button>
-                          {/* Accounts are disabled, never deleted: their email still
-                              ties tasks, leads, enrollments and leave to them. */}
-                          <button
-                            className={`flex w-full items-center rounded-md px-3 py-2 text-sm font-medium hover:bg-[#f4f7fb] disabled:cursor-not-allowed disabled:opacity-50 ${
-                              user.is_active ? "text-red-700" : "text-emerald-700"
-                            }`}
-                            type="button"
-                            disabled={isBusy || isCurrentUser || !canEdit}
-                            onClick={() => {
-                              setActionUserId(null);
-                              void updateUser(user, { is_active: !user.is_active });
-                            }}
-                          >
-                            {user.is_active ? "Disable account" : "Enable account"}
-                          </button>
-                        </div>
+                        ) : (
+                          <ManagerMenu
+                            manager={
+                              user.config.managerId && user.managerEmail
+                                ? {
+                                    id: user.config.managerId,
+                                    email: user.managerEmail,
+                                    name: user.managerName ?? user.managerEmail,
+                                  }
+                                : null
+                            }
+                            options={managerOptions.filter((option) => option.id !== user.id)}
+                            canEdit={canEdit}
+                            busy={isBusy}
+                            onChange={(managerId) => void setManager(user, managerId)}
+                          />
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <StatusBadge active={user.is_active} />
+                      </td>
+                      {canManageAlerts && (
+                        <td className="px-3 py-2.5">
+                          <AlertCheckbox
+                            busy={isBusy || alertPendingIds.has(user.id)}
+                            preference={
+                              alertPreferences.get(user.id) ?? {
+                                alertsMuted: user.alertsMuted,
+                                updatedBy: user.alertsUpdatedBy,
+                                updatedAt: user.alertsUpdatedAt,
+                              }
+                            }
+                            updatedByName={nameOfEmail(
+                              alertPreferences.get(user.id)?.updatedBy ??
+                                user.alertsUpdatedBy ??
+                                "",
+                            )}
+                            onClick={() => void toggleAlerts(user)}
+                          />
+                        </td>
                       )}
+                      <td className="whitespace-nowrap px-3 py-2.5 text-right text-xs font-semibold text-[#6b778c]">
+                        {new Date(user.created_at).toLocaleDateString()}
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        <AccountRowActions
+                          label={`Actions for ${user.email}`}
+                          actions={[
+                            {
+                              label: "Edit account",
+                              disabled: isBusy || !canEdit,
+                              onSelect: () => openEditAccountModal(user),
+                            },
+                            {
+                              label: "Reset password",
+                              disabled: isBusy || !canResetPassword,
+                              onSelect: () => {
+                                setResetUser(user);
+                                setResetPassword("");
+                              },
+                            },
+                            // Accounts are disabled, never deleted: their email still
+                            // ties tasks, leads, enrollments and leave to them.
+                            {
+                              label: user.is_active ? "Disable account" : "Enable account",
+                              tone: user.is_active ? "danger" : "success",
+                              disabled: isBusy || isCurrentUser || !canEdit,
+                              onSelect: () => void updateUser(user, { is_active: !user.is_active }),
+                            },
+                          ]}
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+                {filteredUsers.length === 0 && (
+                  <tr>
+                    <td
+                      className="px-4 py-12 text-center text-sm font-semibold text-[#6b778c]"
+                      colSpan={canManageAlerts ? 8 : 7}
+                    >
+                      {isFiltering
+                        ? "No accounts match your search or filter."
+                        : "No accounts yet."}
                     </td>
                   </tr>
-                );
-              })}
-              {filteredUsers.length === 0 && (
-                <tr>
-                  <td
-                    className="px-4 py-12 text-center text-sm font-semibold text-[#6b778c]"
-                    colSpan={canManageAlerts ? 8 : 7}
-                  >
-                    {isFiltering
-                      ? "No accounts match your search or filter."
-                      : "No accounts yet."}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </section>
+      </div>
 
       {showCreateForm && (
         <CreateAccountDialog
@@ -1163,7 +1080,6 @@ export default function AccountManagerClient({
     </div>
   );
 }
-
 function isPasswordOnlyUpdate(
   payload: Partial<Pick<AccountUser, "is_active">> & {
     name?: string | null;
@@ -1221,6 +1137,9 @@ function UserCell({ user, isCurrentUser }: { user: ManagedAccountUser; isCurrent
 }
 
 // Same filter buttons as the Task Board toolbar.
+type StatusFilter = "" | "active" | "disabled";
+const DEFAULT_STATUS_FILTER: StatusFilter = "";
+
 const FILTER_BUTTON_CLASS =
   "!h-9 !rounded-lg !border !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
 
@@ -1296,7 +1215,7 @@ function StatusBadge({ active }: { active: boolean }) {
   );
 }
 
-function AlertToggle({
+function AlertCheckbox({
   busy,
   preference,
   updatedByName,
@@ -1317,40 +1236,14 @@ function AlertToggle({
       : undefined;
   const enabled = !preference.alertsMuted;
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={enabled}
+    <input
+      type="checkbox"
+      checked={enabled}
       aria-label={preference.alertsMuted ? "Enable alerts" : "Mute alerts"}
       title={tooltip ?? (enabled ? "Alerts on" : "Alerts off")}
       disabled={busy}
-      onClick={onClick}
-      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full p-0.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0c66e4] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${
-        enabled ? "bg-[#22a06b] hover:bg-[#1f845a]" : "bg-[#8590a2] hover:bg-[#758195]"
-      }`}
-    >
-      <span
-        aria-hidden
-        className={`h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${
-          enabled ? "translate-x-4" : "translate-x-0"
-        }`}
-      />
-    </button>
-  );
-}
-
-function DotsIcon() {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="currentColor"
-      aria-hidden
-    >
-      <circle cx="5" cy="12" r="2" />
-      <circle cx="12" cy="12" r="2" />
-      <circle cx="19" cy="12" r="2" />
-    </svg>
+      onChange={onClick}
+      className="h-4 w-4 cursor-pointer accent-[#0c66e4] disabled:cursor-not-allowed disabled:opacity-50"
+    />
   );
 }

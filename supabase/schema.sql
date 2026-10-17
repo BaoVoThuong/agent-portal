@@ -615,12 +615,10 @@ grant execute on function public.create_role_atomic(text, text, boolean, text[])
 revoke all on function public.update_role_atomic(uuid, jsonb, text[]) from public, anon, authenticated;
 grant execute on function public.update_role_atomic(uuid, jsonb, text[]) to service_role;
 
--- First Google sign-in creates the account and gives it the default role in
--- one transaction (review 2026-10-12, Codex 4). Before: an insert error was
--- ignored and the sign-in still succeeded; a failed role assignment left an
--- account with no role that was never retried. Email is stored exactly as
--- Google sends it, as before — the RBAC lookup matches it verbatim.
--- Only adds a function. Run BEFORE deploying the code that calls it.
+-- First Google sign-in creates the account WITHOUT a role (2026-10-17): it has
+-- no permissions and sees "No Access" until an admin sets its Accessibility.
+-- Email is stored exactly as Google sends it — the RBAC lookup matches it
+-- verbatim. The name still says "default role" so deployed code keeps working.
 
 create or replace function public.create_account_with_default_role(
   p_email text,
@@ -632,20 +630,12 @@ security definer
 set search_path = public, pg_temp
 as $$
 declare
-  default_role_id uuid;
   new_user_id uuid;
 begin
-  -- At most one default role (roles_single_default_idx).
-  select id into default_role_id from public.roles where is_default and is_active;
-  if default_role_id is null then
-    raise exception 'NO_DEFAULT_ROLE';
-  end if;
-
   insert into public.portal_account (email, name, password_hash, is_active)
   values (p_email, p_name, 'google-auth', true)
   returning id into new_user_id;
 
-  insert into public.user_roles (user_id, role_id) values (new_user_id, default_role_id);
   return new_user_id;
 end;
 $$;
@@ -821,14 +811,16 @@ join permissions p on p.key in (
 where r.name = 'Agent'
 on conflict (role_id, permission_key) do nothing;
 
-update roles set is_default = true
-where name = 'Agent' and not exists (select 1 from roles where is_default);
+-- No role is the default (2026-10-17): accounts without a role stay without
+-- one. Only legacy admins are backfilled, so a fresh database has an Admin.
+update roles set is_default = false where is_default;
 
 insert into user_roles (user_id, role_id)
 select a.id, r.id
 from portal_account a
-join roles r on r.name = case when a.role = 'admin' then 'Admin' else 'Agent' end
-where not exists (
+join roles r on r.name = 'Admin'
+where a.role = 'admin'
+and not exists (
   select 1
   from user_roles ur
   where ur.user_id = a.id

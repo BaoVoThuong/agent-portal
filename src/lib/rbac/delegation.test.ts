@@ -22,6 +22,15 @@ describe("permissionsNotHeld", () => {
     expect(permissionsNotHeld(["task.manage"], ["task.work"])).toEqual([]);
     expect(permissionsNotHeld(["task.work"], ["task.manage"])).toEqual(["task.manage"]);
   });
+
+  it("does not treat legacy Settings as a delegation ceiling", () => {
+    expect(permissionsNotHeld(["management.account_manager"], ["settings.access"])).toEqual([]);
+    expect(checkAccountChange({
+      actorPermissions: ["management.account_manager"],
+      isSelf: false,
+      targetPermissionKeys: ["settings.access"],
+    })).toEqual({ ok: true });
+  });
 });
 
 describe("role reactivation", () => {

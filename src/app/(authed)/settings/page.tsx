@@ -1,5 +1,5 @@
-import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { requirePermission } from "@/lib/rbac/server";
+import { redirect } from "next/navigation";
+import { getSession } from "@/lib/auth/session";
 import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import SettingsClient from "./SettingsClient";
@@ -11,24 +11,22 @@ function isLocalPasswordHash(value: string | null | undefined): boolean {
 }
 
 export default async function SettingsPage() {
-  const session = await requirePermission(PERMISSIONS.SETTINGS);
-  const email = session?.user?.email ?? "";
+  // Every signed-in account has Settings; no permission gates it (2026-10-17).
+  const session = await getSession();
+  if (!session?.user?.email) redirect("/signin");
+  const email = session.user.email;
   const supabase = getSupabaseAdmin();
-  const [{ data }, { data: notificationPreference }] = await Promise.all([
-    email
-      ? supabase
-          .from(PORTAL_ACCOUNT_TABLE)
-          .select("email,name,agent_id,password_hash,avatar_url")
-          .eq("email", email)
-          .maybeSingle()
-      : Promise.resolve({ data: null }),
-    email
-      ? supabase
-          .from("notification_preferences")
-          .select("sound_enabled")
-          .eq("email", email.trim().toLowerCase())
-          .maybeSingle()
-      : Promise.resolve({ data: null }),
+  const [{ data, error }, { data: notificationPreference }] = await Promise.all([
+    supabase
+      .from(PORTAL_ACCOUNT_TABLE)
+      .select("email,name,agent_id,password_hash,avatar_url,is_active")
+      .eq("email", email)
+      .maybeSingle(),
+    supabase
+      .from("notification_preferences")
+      .select("sound_enabled")
+      .eq("email", email.trim().toLowerCase())
+      .maybeSingle(),
   ]);
 
   const profile = data as {
@@ -37,7 +35,11 @@ export default async function SettingsPage() {
     agent_id?: string | null;
     password_hash?: string | null;
     avatar_url?: string | null;
+    is_active?: boolean | null;
   } | null;
+  if (error) throw new Error(error.message);
+  // A disabled or deleted account can retain a session until it expires.
+  if (!profile || profile.is_active !== true) redirect("/unauthorized");
   return (
     <SettingsClient
       profile={{

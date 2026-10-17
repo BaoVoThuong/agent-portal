@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { getSupabaseAdmin } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +9,9 @@ export async function PATCH(req: Request) {
   const session = await auth();
   const email = session?.user?.email;
 
-  if (!email || !can(session?.user?.permissions, PERMISSIONS.SETTINGS)) {
+  // Every signed-in account may rename itself (2026-10-17); a disabled
+  // account matches no row in the update below.
+  if (!email) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -36,6 +36,7 @@ export async function PATCH(req: Request) {
     .from(PORTAL_ACCOUNT_TABLE)
     .update({ name })
     .eq("email", email)
+    .eq("is_active", true)
     .select("email,name,agent_id")
     .maybeSingle();
 
