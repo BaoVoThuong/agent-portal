@@ -40,6 +40,8 @@ type RoleManagerClientProps = {
   initialPeople: Array<{ id: string; name: string | null; email: string }>;
 };
 
+const EMPTY_PEOPLE: RoleManagerClientProps["initialPeople"] = [];
+
 const emptyRoleForm: RoleFormState = {
   id: null,
   name: "",
@@ -82,7 +84,7 @@ export default function RoleManagerClient({
   permissions,
   currentUserPermissions,
   initialPositions,
-  initialPeople,
+  initialPeople = EMPTY_PEOPLE,
 }: RoleManagerClientProps) {
   const router = useRouter();
   const [pageTab, setPageTab] = useState<"roles" | "positions">("roles");
