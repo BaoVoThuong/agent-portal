@@ -6,6 +6,12 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-18 — Account Manager: Org chart tương tác
+
+- Thay Tree bằng Org chart có tìm người, pan/zoom, thu gọn nhánh và nhóm account chưa có manager.
+- Người có quyền Account Manager có thể kéo account sang manager khác hoặc gỡ manager sau khi xác nhận; thao tác vẫn gọi API cập nhật account hiện tại với kiểm tra trạng thái cũ. Assistant tiếp tục sửa Agent hỗ trợ qua Edit account để giữ nguyên phạm vi dữ liệu.
+- Không thay đổi Role, Position, quyền hoặc dữ liệu production khi mở chart.
+
 ## 2026-10-17 — Settings là trang cá nhân của mọi account đăng nhập
 
 - Bỏ `settings.access` khỏi danh sách quyền gán trong Role Manager và API quyền. Dòng quyền cũ

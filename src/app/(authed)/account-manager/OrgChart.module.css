@@ -1,9 +1,10 @@
-.chart {
+/* Every reporting line sits side by side on one canvas. */
+.forest {
   display: flex;
-  justify-content: center;
-  min-width: 100%;
+  align-items: flex-start;
+  gap: 56px;
   width: max-content;
-  padding: 24px 20px 28px;
+  padding: 32px;
 }
 
 .root,
@@ -27,20 +28,20 @@
 
 .children {
   position: relative;
-  padding-top: 28px;
+  padding-top: 24px;
 }
 
 .children::before {
   position: absolute;
   top: 0;
   left: 50%;
-  height: 28px;
-  border-left: 1px solid #aab8cf;
+  height: 24px;
+  border-left: 1px solid #c1c7d0;
   content: "";
 }
 
 .children > .node {
-  padding: 24px 12px 0;
+  padding: 24px 10px 0;
 }
 
 .children > .node::before,
@@ -48,7 +49,7 @@
   position: absolute;
   top: 0;
   width: 50%;
-  border-top: 1px solid #aab8cf;
+  border-top: 1px solid #c1c7d0;
   content: "";
 }
 
@@ -65,11 +66,15 @@
   display: none;
 }
 
-.children > .node > article::before {
+.children > .node > .card::before {
   position: absolute;
   bottom: 100%;
   left: 50%;
   height: 24px;
-  border-left: 1px solid #aab8cf;
+  border-left: 1px solid #c1c7d0;
   content: "";
+}
+
+.card {
+  position: relative;
 }

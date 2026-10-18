@@ -24,7 +24,7 @@ import { EditAccountDialog, type EditAccountPayload } from "./EditAccountDialog"
 import { CreateAccountDialog } from "./CreateAccountDialog";
 import { ManagerMenu } from "./ManagerMenu";
 import { PositionMenu } from "./PositionMenu";
-import { OrgTree } from "./OrgTree";
+import { OrgChart } from "./OrgChart";
 import { AccountRowActions } from "./AccountRowActions";
 import { TaskSelect } from "../tasks/_components/TaskSelect";
 import { accountConfigEffects } from "@/lib/admin/account-config";
@@ -147,7 +147,7 @@ export default function AccountManagerClient({
   const [managerFilter, setManagerFilter] = useState<string[]>([]);
   // Keep the production default: show active and inactive accounts.
   const [statusFilter, setStatusFilter] = useState<StatusFilter>(DEFAULT_STATUS_FILTER);
-  const [view, setView] = useState<"table" | "tree">("table");
+  const [view, setView] = useState<"table" | "orgchart">("table");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [alertOverrides, setAlertOverrides] = useState<Map<string, AlertPreference>>(
@@ -216,6 +216,10 @@ export default function AccountManagerClient({
         .map((user) => ({ id: user.id, email: user.email, name: user.name?.trim() || user.email }))
         .sort((a, b) => a.name.localeCompare(b.name)),
     [initialUsers],
+  );
+  const managerIds = useMemo(
+    () => new Set(managerOptions.map((option) => option.id)),
+    [managerOptions],
   );
 
   const sortedUsers = useMemo(
@@ -408,6 +412,19 @@ export default function AccountManagerClient({
     } finally {
       setBusyUserId(null);
     }
+  }
+
+  /** Org chart drop or "Remove manager", after its confirmation. */
+  async function changeManagerFromChart(personId: string, managerId: string | null) {
+    const user = users.find((item) => item.id === personId);
+    if (!user) return false;
+    return saveRow(user, { managerId, expected: expectedFor(user) });
+  }
+
+  /** Org chart "Add direct report": the new account starts under this manager. */
+  function openCreateReport(managerId: string) {
+    setForm({ ...emptyForm, config: { ...emptyForm.config, managerId } });
+    setShowCreateForm(true);
   }
 
   function openEditAccountModal(user: ManagedAccountUser) {
@@ -646,7 +663,7 @@ export default function AccountManagerClient({
               {(
                 [
                   ["table", "Table"],
-                  ["tree", "Tree"],
+                  ["orgchart", "Org chart"],
                 ] as const
               ).map(([value, label]) => (
                 <button
@@ -782,7 +799,25 @@ export default function AccountManagerClient({
       <div className="flex min-h-0 flex-1 flex-col px-6 pb-6">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]">
           <div className="min-h-0 flex-1 overflow-auto">
-            {view === "tree" && <OrgTree people={users} />}
+            {view === "orgchart" && (
+              <OrgChart
+                people={users}
+                currentUserEmail={currentUserEmail}
+                editing={
+                  canEdit
+                    ? {
+                        managerIds,
+                        onChangeManager: changeManagerFromChart,
+                        onEditAccount: (personId) => {
+                          const user = users.find((item) => item.id === personId);
+                          if (user) openEditAccountModal(user);
+                        },
+                        onAddReport: openCreateReport,
+                      }
+                    : null
+                }
+              />
+            )}
             <table hidden={view !== "table"} className="w-full table-fixed border-collapse text-left">
               <thead className="sticky top-0 z-10 bg-[#fafbfc] text-[11px] font-bold uppercase tracking-wide text-[#6b778c] shadow-[0_1px_0_#dfe1e6]">
                 <tr>
