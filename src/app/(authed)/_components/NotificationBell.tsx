@@ -7,7 +7,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, X } from "lucide-react";
+import { Bell, Check, Undo2, X } from "lucide-react";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { taskDisplayKey } from "@/lib/tasks/sorting";
 import { enrollmentDisplayKey } from "@/lib/enrollment/helpers";
@@ -28,6 +28,8 @@ import {
   shouldShowNativePopup,
 } from "@/lib/notifications/alert-policy";
 import { alertableNotifications } from "@/lib/notifications/alert-preferences";
+import { mergeFirstPage, mergeNotifs, type BellList } from "@/lib/notifications/bell-list";
+import { UNREAD_SINCE } from "@/lib/notifications/unread-cutoff";
 import { isPushEnabledOnThisDevice } from "@/lib/notifications/push-client";
 import {
   isSystemNotification,
@@ -68,6 +70,8 @@ const TOAST_MS = 7000;
 // Gom lại thành một lần tải để một đợt chỉ kêu một tiếng.
 const REALTIME_PING_DEBOUNCE_MS = 1500;
 const MENTION_TOKEN = /@\[([^\]]+)\]\(([^()\s]+@[^()\s]+)\)/g;
+
+type ListTab = "all" | "unread";
 
 function timeAgo(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -207,8 +211,81 @@ async function alertFreshNotifications(
   }
 }
 
+type ListState = BellList<Notif>;
+
+const ROW_ACTION_CLASS =
+  "absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 opacity-0 shadow-sm transition hover:border-[#0c66e4] hover:text-[#0c66e4] focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100";
+
+/**
+ * Only notifications since UNREAD_SINCE can go back to unread: older ones
+ * count as read whatever their row says.
+ */
+function canMarkUnread(n: Notif) {
+  return n.entity_accessible !== false && Date.parse(n.created_at) >= Date.parse(UNREAD_SINCE);
+}
+
+const EMPTY_LIST: ListState = { items: [], hasMore: false, fetchedAt: null };
+// Opening the bell refetches a tab only when its list is older than this:
+// realtime pings and polls already keep the Unread list current.
+const LIST_STALE_MS = 60000;
+
+type NotificationPage = {
+  list: Notif[];
+  hasMore: boolean;
+  unread: number | null;
+  latestAt: string | null;
+  alertsMuted: boolean;
+  topic: string | null;
+};
+
+/**
+ * One page from the server. `after` is the list already shown: the next page
+ * starts below its last row, skipping rows shown at that same instant.
+ */
+async function requestNotificationPage(
+  filter: ListTab,
+  after: readonly Notif[] = [],
+): Promise<NotificationPage | null> {
+  const params = new URLSearchParams();
+  if (filter === "unread") params.set("filter", "unread");
+  const last = after[after.length - 1];
+  if (last) {
+    params.set("before", last.created_at);
+    params.set(
+      "skip",
+      after.filter((n) => n.created_at === last.created_at).map((n) => n.id).join(","),
+    );
+  }
+  try {
+    const res = await fetch(`/api/tasks/notifications?${params}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return {
+      list: (data.notifications as Notif[] | undefined) ?? [],
+      hasMore: data.hasMore === true,
+      unread: typeof data.unread === "number" ? data.unread : null,
+      latestAt: (data.latestAt as string | null | undefined) ?? null,
+      alertsMuted: data.alertsMuted === true,
+      topic: (data.topic as string | null | undefined) ?? null,
+    };
+  } catch {
+    // Transient network error (HMR reload, offline, navigation abort) — the
+    // next poll / realtime ping retries.
+    return null;
+  }
+}
+
 export function NotificationBell() {
-  const [items, setItems] = useState<Notif[]>([]);
+  // The Unread tab is the main feed: loaded at mount, refreshed by realtime
+  // pings and polls, and the source of toasts (a new notification is always
+  // unread). All is fetched only when its tab is opened.
+  const [unreadList, setUnreadList] = useState<ListState>(EMPTY_LIST);
+  const [allList, setAllList] = useState<ListState>(EMPTY_LIST);
+  // The bell opens on Unread (user decision 2026-10-19).
+  const [tab, setTab] = useState<ListTab>("unread");
+  const [loadingMore, setLoadingMore] = useState(false);
+  // Bumped each time every read request has reached the server.
+  const [readsSettled, setReadsSettled] = useState(0);
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
   const [toasts, setToasts] = useState<Notif[]>([]);
@@ -225,92 +302,159 @@ export function NotificationBell() {
   const alertsMutedRef = useRef(false);
   const pingTimerRef = useRef<number | null>(null);
 
-  // Mốc thời điểm của thông báo mới nhất đã được nạp đầy đủ. Dùng thời điểm
-  // chứ không dùng số chưa đọc: số đó là tổng của ba bảng và lên xuống hai
-  // chiều, nên một cái mới tới đúng lúc một cái cũ được đọc là tổng không đổi.
+  // Mốc thời điểm của thông báo mới nhất (đã đọc hay chưa) mà chuông đã nạp.
+  // Dùng thời điểm chứ không dùng số chưa đọc: số đó là tổng của ba bảng và
+  // lên xuống hai chiều, nên một cái mới tới đúng lúc một cái cũ được đọc là
+  // tổng không đổi.
   const cursorRef = useRef<string | null>(null);
   const summaryInFlightRef = useRef(false);
 
+  // Reads made in this tab. A response fetched before one of them still says
+  // "unread"; these keep it from flipping the item (and the badge) back.
+  const readIdsRef = useRef<Set<string>>(new Set());
+  /** Put back to unread here ("Mark as unread"); wins over the reads above. */
+  const unreadIdsRef = useRef<Set<string>>(new Set());
+  /** "Mark all read" covered everything created up to this instant (ms). */
+  const allReadUpToRef = useRef<number | null>(null);
+  /** Bumped by every read made here: a count fetched across one is stale. */
+  const readEpochRef = useRef(0);
+  /** Read requests still on their way to the server. */
+  const pendingReadsRef = useRef(0);
+  /** Newest first-page request per tab; an older response is dropped. */
+  const requestSeqRef = useRef<Record<ListTab, number>>({ unread: 0, all: 0 });
+  const fetchedAtRef = useRef<Record<ListTab, number | null>>({ unread: null, all: null });
+  /** Something new arrived since the All tab was fetched. */
+  const allStaleRef = useRef(true);
+
+  const applyLocalReads = useCallback(
+    (list: Notif[]) =>
+      list.map((n) => {
+        if (unreadIdsRef.current.has(n.id)) return n.is_read ? { ...n, is_read: false } : n;
+        return !n.is_read &&
+          (readIdsRef.current.has(n.id) ||
+            (allReadUpToRef.current !== null && Date.parse(n.created_at) <= allReadUpToRef.current))
+          ? { ...n, is_read: true }
+          : n;
+      }),
+    [],
+  );
+
+  /** Takes the server's unread count unless a read made here may be missing from it. */
+  const acceptCount = useCallback((count: number | null, epochAtStart: number) => {
+    if (count === null) return;
+    if (epochAtStart !== readEpochRef.current || pendingReadsRef.current > 0) return;
+    setUnread(count);
+  }, []);
+
   const load = useCallback(async (): Promise<boolean> => {
-    try {
-      const res = await fetch("/api/tasks/notifications", {
-        cache: "no-store",
-      });
-      if (!res.ok) return false;
-      const data = await res.json();
-      const list = data.notifications as Notif[];
-      alertsMutedRef.current = data.alertsMuted === true;
-      setItems(list);
-      setUnread(data.unread as number);
-      setTopic((data.topic as string | null) ?? null);
-      // Mốc chỉ tiến ở ĐÂY, tức sau khi đã thật sự cầm được danh sách. Tiến mốc
-      // trước khi nạp là nếu request hỏng, những lượt sau thấy mốc đã bằng nhau
-      // rồi thôi — thông báo bị bỏ lỡ vĩnh viễn.
-      cursorRef.current = newestNotificationAt(list) ?? cursorRef.current;
+    const seq = ++requestSeqRef.current.unread;
+    const epoch = readEpochRef.current;
+    const page = await requestNotificationPage("unread");
+    if (!page) return false;
+    if (seq !== requestSeqRef.current.unread) return true;
 
-      if (!initialized.current) {
-        // First load: remember what already exists; don't pop toasts for old items.
-        list.forEach((n) => seenIds.current.add(n.id));
-        initialized.current = true;
-        if (
-          list.some(
-            (notification) =>
-              !notification.is_read &&
-              notification.entity_accessible !== false &&
-              entityKind(notification) === "task",
-          )
-        ) {
-          publishTaskDataInvalidation();
-        }
-        return true;
-      }
+    const list = applyLocalReads(page.list);
+    alertsMutedRef.current = page.alertsMuted;
+    fetchedAtRef.current.unread = Date.now();
+    setUnreadList((current) => ({
+      ...mergeFirstPage(list, page.hasMore, current),
+      fetchedAt: Date.now(),
+    }));
+    acceptCount(page.unread, epoch);
+    setTopic(page.topic);
+    // Mốc chỉ tiến ở ĐÂY, tức sau khi đã thật sự cầm được danh sách. Tiến mốc
+    // trước khi nạp là nếu request hỏng, những lượt sau thấy mốc đã bằng nhau
+    // rồi thôi — thông báo bị bỏ lỡ vĩnh viễn.
+    const previousCursor = cursorRef.current;
+    cursorRef.current = page.latestAt ?? newestNotificationAt(list) ?? cursorRef.current;
 
-      const unseen = list.filter((n) => !seenIds.current.has(n.id));
-      const fresh = unseen.filter((n) => !n.is_read);
+    if (!initialized.current) {
+      // First load: remember what already exists; don't pop toasts for old items.
       list.forEach((n) => seenIds.current.add(n.id));
-
-      // Assignment and other task notifications are a second reliable signal
-      // that the board snapshot is stale. This repairs the list immediately
-      // even when the separate global tasks-stream ping was missed.
-      const invalidation = resolveNotificationInvalidation(
-        unseen.filter((notification) => notification.entity_accessible !== false).map((notification) => ({
-          kind: entityKind(notification),
-          id: entityId(notification),
-        })),
-      );
-      if (invalidation) publishTaskDataInvalidation(invalidation);
-
-      // Toast nằm trong trang nên tab nào cũng dựng được — người dùng chỉ thấy
-      // toast của tab đang nhìn. Tiếng chuông và popup hệ điều hành thì thoát ra
-      // ngoài tab, nên chỉ MỘT tab được phát (xem alertFreshNotifications).
-      // Oldest first so the newest toast ends up on top of the stack.
-      for (const n of [...fresh].reverse()) {
-        setToasts((cur) => [n, ...cur].slice(0, 4));
-        const id = n.id;
-        setTimeout(
-          () => setToasts((cur) => cur.filter((t) => t.id !== id)),
-          TOAST_MS
-        );
-      }
-      if (fresh.length > 0) {
-        const alertable = alertableNotifications(fresh, alertsMutedRef.current);
-        if (alertable.length > 0) {
-          void alertFreshNotifications(alertable, pushSubscribedRef.current);
-        }
+      initialized.current = true;
+      if (
+        list.some(
+          (notification) =>
+            !notification.is_read &&
+            notification.entity_accessible !== false &&
+            entityKind(notification) === "task",
+        )
+      ) {
+        publishTaskDataInvalidation();
       }
       return true;
-    } catch {
-      // Transient network error (HMR reload, offline, navigation abort) —
-      // ignore; the next poll / realtime ping retries.
-      return false;
     }
-  }, []);
+
+    // Only rows newer than the previous mark are news. Reading the top of the
+    // Unread list pulls older unread rows into page 1, and those must not pop
+    // up as toasts or chime.
+    const previousAt = previousCursor ? Date.parse(previousCursor) : null;
+    const unseen = list.filter(
+      (n) =>
+        !seenIds.current.has(n.id) &&
+        (previousAt === null || Date.parse(n.created_at) > previousAt),
+    );
+    const fresh = unseen.filter((n) => !n.is_read);
+    list.forEach((n) => seenIds.current.add(n.id));
+    if (unseen.length > 0) allStaleRef.current = true;
+
+    // Assignment and other task notifications are a second reliable signal
+    // that the board snapshot is stale. This repairs the list immediately
+    // even when the separate global tasks-stream ping was missed.
+    const invalidation = resolveNotificationInvalidation(
+      unseen.filter((notification) => notification.entity_accessible !== false).map((notification) => ({
+        kind: entityKind(notification),
+        id: entityId(notification),
+      })),
+    );
+    if (invalidation) publishTaskDataInvalidation(invalidation);
+
+    // Toast nằm trong trang nên tab nào cũng dựng được — người dùng chỉ thấy
+    // toast của tab đang nhìn. Tiếng chuông và popup hệ điều hành thì thoát ra
+    // ngoài tab, nên chỉ MỘT tab được phát (xem alertFreshNotifications).
+    // Oldest first so the newest toast ends up on top of the stack.
+    for (const n of [...fresh].reverse()) {
+      setToasts((cur) => [n, ...cur].slice(0, 4));
+      const id = n.id;
+      setTimeout(
+        () => setToasts((cur) => cur.filter((t) => t.id !== id)),
+        TOAST_MS
+      );
+    }
+    if (fresh.length > 0) {
+      const alertable = alertableNotifications(fresh, alertsMutedRef.current);
+      if (alertable.length > 0) {
+        void alertFreshNotifications(alertable, pushSubscribedRef.current);
+      }
+    }
+    return true;
+  }, [acceptCount, applyLocalReads]);
+
+  const loadAll = useCallback(async () => {
+    const seq = ++requestSeqRef.current.all;
+    const epoch = readEpochRef.current;
+    allStaleRef.current = false;
+    const page = await requestNotificationPage("all");
+    if (!page) {
+      allStaleRef.current = true;
+      return;
+    }
+    if (seq !== requestSeqRef.current.all) return;
+    const list = applyLocalReads(page.list);
+    fetchedAtRef.current.all = Date.now();
+    setAllList((current) => ({
+      ...mergeFirstPage(list, page.hasMore, current),
+      fetchedAt: Date.now(),
+    }));
+    acceptCount(page.unread, epoch);
+  }, [acceptCount, applyLocalReads]);
 
   const loadSummary = useCallback(async () => {
     // Chặn chồng lượt: một lượt chậm trả về sau lượt mới hơn sẽ ghi đè mốc bằng
     // dữ liệu cũ, và lần sau lại tưởng có thông báo mới.
     if (summaryInFlightRef.current) return;
     summaryInFlightRef.current = true;
+    const epoch = readEpochRef.current;
     try {
       const res = await fetch("/api/tasks/notifications?mode=summary", {
         cache: "no-store",
@@ -324,20 +468,83 @@ export function NotificationBell() {
       // số trên chuông nhảy mà không có gì dựng toast hay kêu chuông, nên người
       // dùng chỉ biết lúc tự bấm vào chuông.
       if (hasNewerNotification(cursorRef.current, latestAt)) {
+        allStaleRef.current = true;
         await load();
         return;
       }
       // Lần quan sát đầu tiên: đặt mốc mà KHÔNG nạp, để khỏi dựng toast cho
       // những thông báo cũ người dùng đã đọc từ lâu.
       if (cursorRef.current === null) cursorRef.current = latestAt;
-      setUnread(data.unread as number);
+      acceptCount(typeof data.unread === "number" ? data.unread : null, epoch);
     } catch {
       // The full load/realtime signal remains the fallback for transient
       // failures; summary polling is only a badge freshness optimization.
     } finally {
       summaryInFlightRef.current = false;
     }
-  }, [load]);
+  }, [acceptCount, load]);
+
+  /** Fetches a tab's first page when the cached one is missing or old. */
+  const refreshTab = useCallback(
+    (which: ListTab, force = false) => {
+      const fetchedAt = fetchedAtRef.current[which];
+      const stale =
+        force ||
+        fetchedAt === null ||
+        Date.now() - fetchedAt > LIST_STALE_MS ||
+        (which === "all" && allStaleRef.current);
+      if (stale) void (which === "unread" ? load() : loadAll());
+    },
+    [load, loadAll],
+  );
+
+  /** Applies a change to every list the dropdown can show. */
+  const updateEveryList = useCallback((update: (list: Notif[]) => Notif[]) => {
+    setUnreadList((current) => ({ ...current, items: update(current.items) }));
+    setAllList((current) => ({ ...current, items: update(current.items) }));
+  }, []);
+
+  const activeList = tab === "unread" ? unreadList : allList;
+  // A row read here leaves the Unread tab at once, whatever a slower
+  // response still says about it.
+  const visibleItems =
+    tab === "unread" ? activeList.items.filter((n) => !n.is_read) : activeList.items;
+  const hasMore = activeList.hasMore;
+  const firstPageLoading = activeList.fetchedAt === null;
+
+  async function loadMore() {
+    if (loadingMore) return;
+    const which = tab;
+    const current = which === "unread" ? unreadList : allList;
+    setLoadingMore(true);
+    try {
+      const page = await requestNotificationPage(which, current.items);
+      if (!page) return;
+      const list = applyLocalReads(page.list);
+      // An older page's unread count is not used: the first page owns the badge.
+      (which === "unread" ? setUnreadList : setAllList)((latest) => ({
+        ...latest,
+        items: mergeNotifs(latest.items, list),
+        hasMore: page.hasMore,
+      }));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  // Reading the whole first page must not leave "No unread notifications"
+  // while older unread rows wait on the server: fetch page 1 again. Waits for
+  // reads in flight, or the server would still list the rows just read.
+  const visibleUnreadCount = unreadList.items.filter((n) => !n.is_read).length;
+  useEffect(() => {
+    if (visibleUnreadCount > 0 || !unreadList.hasMore || pendingReadsRef.current > 0) return;
+    void load();
+  }, [load, readsSettled, unreadList.hasMore, visibleUnreadCount]);
+
+  function selectTab(next: ListTab) {
+    setTab(next);
+    refreshTab(next);
+  }
 
   useEffect(() => {
     const pollMs = realtimeLive ? POLL_REALTIME_MS : POLL_FALLBACK_MS;
@@ -359,9 +566,10 @@ export function NotificationBell() {
   useEffect(() => {
     const refreshFromForeground = () => {
       if (document.visibilityState !== "visible") return;
-      // A visible dropdown should always show a fresh enriched list. The
-      // closed bell only needs its cheap unread summary.
-      void (open ? load() : initialized.current ? loadSummary() : load());
+      // An open dropdown refreshes the tab it shows. The closed bell only
+      // needs its cheap unread summary.
+      if (open) refreshTab(tab, true);
+      else void (initialized.current ? loadSummary() : load());
     };
     window.addEventListener("focus", refreshFromForeground);
     document.addEventListener("visibilitychange", refreshFromForeground);
@@ -369,7 +577,7 @@ export function NotificationBell() {
       window.removeEventListener("focus", refreshFromForeground);
       document.removeEventListener("visibilitychange", refreshFromForeground);
     };
-  }, [load, loadSummary, open]);
+  }, [load, loadSummary, open, refreshTab, tab]);
 
   // Máy có push thì service worker lo popup. Đọc lại mỗi lần cửa sổ được focus,
   // vì người dùng có thể vừa bật/tắt push ở Settings trong tab khác.
@@ -394,14 +602,22 @@ export function NotificationBell() {
   useEffect(
     () =>
       subscribeNotificationsRead((taskId) => {
-        setItems((cur) =>
-          cur.map((n) =>
-            entityKind(n) === "task" && entityId(n) === taskId ? { ...n, is_read: true } : n
-          )
+        const isThisTask = (n: Notif) => entityKind(n) === "task" && entityId(n) === taskId;
+        for (const n of [...unreadList.items, ...allList.items]) {
+          if (!isThisTask(n)) continue;
+          readIdsRef.current.add(n.id);
+          unreadIdsRef.current.delete(n.id);
+        }
+        updateEveryList((cur) =>
+          cur.map((n) => (isThisTask(n) && !n.is_read ? { ...n, is_read: true } : n))
         );
+        setUnreadList((current) => ({
+          ...current,
+          items: current.items.filter((n) => !isThisTask(n)),
+        }));
         void loadSummary();
       }),
-    [loadSummary]
+    [allList.items, loadSummary, unreadList.items, updateEveryList]
   );
 
   // Ask once for OS-notification permission (so background toasts can fire).
@@ -441,6 +657,7 @@ export function NotificationBell() {
         if (pingTimerRef.current !== null) window.clearTimeout(pingTimerRef.current);
         pingTimerRef.current = window.setTimeout(() => {
           pingTimerRef.current = null;
+          allStaleRef.current = true;
           void load();
         }, REALTIME_PING_DEBOUNCE_MS);
       })
@@ -477,52 +694,116 @@ export function NotificationBell() {
   }, [open]);
 
   function toggleNotifications() {
-    setOpen((current) => {
-      const next = !current;
-      if (next) void load();
-      return next;
-    });
+    const next = !open;
+    setOpen(next);
+    // Show what is cached at once; fetch only the open tab, and only if old.
+    if (next) refreshTab(tab);
   }
 
   /**
    * Đánh dấu đã đọc đổi ngay; lỗi thì chỉ trả lại đúng những thông báo lượt này
-   * đã đổi, rồi lấy số chưa đọc chuẩn từ server (`loadSummary`) thay vì cộng trừ
-   * tay — poll/realtime có thể đã đổi con số đó (plan instant feedback T3.5).
+   * đã đổi. Xong (dù được hay hỏng) thì lấy số chưa đọc chuẩn từ server thay vì
+   * cộng trừ tay — poll/realtime có thể đã đổi con số đó (plan instant feedback T3.5).
    */
-  async function postRead(body: { ids?: string[] }): Promise<boolean> {
-    return fetch("/api/tasks/notifications/read", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    })
-      .then((response) => response.ok)
-      .catch(() => false);
+  async function postRead(body: { ids?: string[]; before?: string; read?: false }): Promise<boolean> {
+    readEpochRef.current += 1;
+    pendingReadsRef.current += 1;
+    try {
+      const response = await fetch("/api/tasks/notifications/read", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      return response.ok;
+    } catch {
+      return false;
+    } finally {
+      pendingReadsRef.current -= 1;
+      // Counts were held back while this travelled; ask again now it is saved.
+      if (pendingReadsRef.current === 0) {
+        setReadsSettled((current) => current + 1);
+        void loadSummary();
+      }
+    }
   }
 
   async function markRead(ids: string[]) {
     if (ids.length === 0) return;
-    const known = new Map(items.map((n) => [n.id, n]));
+    const known = new Map([...allList.items, ...unreadList.items].map((n) => [n.id, n]));
     // Chỉ những thông báo đang chưa đọc mới làm giảm số trên chuông (trước đây
     // trừ cả thông báo đã đọc rồi). Id chưa có trong danh sách coi như chưa đọc.
     const changedIds = ids.filter((id) => !known.get(id)?.is_read);
     if (changedIds.length === 0) return;
     const changed = new Set(changedIds);
-    setItems((cur) => cur.map((n) => (changed.has(n.id) ? { ...n, is_read: true } : n)));
+    const wasPutBack = changedIds.filter((id) => unreadIdsRef.current.has(id));
+    changedIds.forEach((id) => {
+      readIdsRef.current.add(id);
+      unreadIdsRef.current.delete(id);
+    });
+    const removed = unreadList.items.filter((n) => changed.has(n.id));
+    updateEveryList((cur) => cur.map((n) => (changed.has(n.id) ? { ...n, is_read: true } : n)));
+    setUnreadList((current) => ({
+      ...current,
+      items: current.items.filter((n) => !changed.has(n.id)),
+    }));
     setUnread((current) => Math.max(0, current - changedIds.length));
     if (await postRead({ ids })) return;
-    setItems((cur) => cur.map((n) => (changed.has(n.id) ? { ...n, is_read: false } : n)));
-    void loadSummary();
+    changedIds.forEach((id) => readIdsRef.current.delete(id));
+    wasPutBack.forEach((id) => unreadIdsRef.current.add(id));
+    updateEveryList((cur) => cur.map((n) => (changed.has(n.id) ? { ...n, is_read: false } : n)));
+    setUnreadList((current) => ({
+      ...current,
+      items: mergeNotifs(current.items, removed.map((n) => ({ ...n, is_read: false }))),
+    }));
+  }
+
+  /** Puts a read notification back on the Unread tab, to deal with later. */
+  async function markUnread(n: Notif) {
+    if (!n.is_read) return;
+    readIdsRef.current.delete(n.id);
+    unreadIdsRef.current.add(n.id);
+    const back = { ...n, is_read: false };
+    updateEveryList((cur) => cur.map((item) => (item.id === n.id ? back : item)));
+    setUnreadList((current) => ({ ...current, items: mergeNotifs([back], current.items) }));
+    setUnread((current) => current + 1);
+    if (await postRead({ ids: [n.id], read: false })) return;
+    unreadIdsRef.current.delete(n.id);
+    updateEveryList((cur) => cur.map((item) => (item.id === n.id ? { ...item, is_read: true } : item)));
   }
 
   async function markAllRead() {
     if (unread === 0) return;
-    const changed = new Set(items.filter((n) => !n.is_read).map((n) => n.id));
+    // Only what this bell has seen. A notification that lands while the
+    // request travels stays unread instead of being cleared unseen.
+    const upTo = cursorRef.current ?? newestNotificationAt([...unreadList.items, ...allList.items]);
+    if (!upTo) return;
+    const upToMs = Date.parse(upTo);
+    const previousUpTo = allReadUpToRef.current;
+    const previousPutBack = new Set(unreadIdsRef.current);
+    allReadUpToRef.current = upToMs;
+    // Mark all read clears the to-dos too: they were all created before now.
+    unreadIdsRef.current.clear();
+    const changed = new Set(
+      [...unreadList.items, ...allList.items]
+        .filter((n) => !n.is_read && Date.parse(n.created_at) <= upToMs)
+        .map((n) => n.id),
+    );
+    const removed = unreadList.items.filter((n) => changed.has(n.id));
     setUnread(0);
-    setItems((cur) => cur.map((n) => ({ ...n, is_read: true })));
+    updateEveryList((cur) => cur.map((n) => (changed.has(n.id) ? { ...n, is_read: true } : n)));
+    setUnreadList((current) => ({
+      ...current,
+      items: current.items.filter((n) => !changed.has(n.id)),
+    }));
     setToasts([]);
-    if (await postRead({})) return;
-    setItems((cur) => cur.map((n) => (changed.has(n.id) ? { ...n, is_read: false } : n)));
-    void loadSummary();
+    if (await postRead({ before: upTo })) return;
+    allReadUpToRef.current = previousUpTo;
+    unreadIdsRef.current = previousPutBack;
+    updateEveryList((cur) => cur.map((n) => (changed.has(n.id) ? { ...n, is_read: false } : n)));
+    setUnreadList((current) => ({
+      ...current,
+      items: mergeNotifs(current.items, removed.map((n) => ({ ...n, is_read: false }))),
+    }));
   }
 
   const dismissToast = (id: string) =>
@@ -583,25 +864,91 @@ export function NotificationBell() {
                 </button>
               ) : null}
             </div>
+            <div role="tablist" className="flex gap-4 border-b border-slate-100 px-3">
+              {(
+                [
+                  ["all", "All"],
+                  ["unread", "Unread"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === value}
+                  onClick={() => selectTab(value)}
+                  className={`-mb-px flex items-center gap-1.5 border-b-2 py-2 text-xs font-semibold transition ${
+                    tab === value
+                      ? "border-[#0c66e4] text-[#0c66e4]"
+                      : "border-transparent text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  {label}
+                  {value === "unread" && unread > 0 ? (
+                    <span className="rounded-full bg-[#e9f2ff] px-1.5 text-[10px] font-bold tabular-nums text-[#0c66e4]">
+                      {unread}
+                    </span>
+                  ) : null}
+                </button>
+              ))}
+            </div>
             <div className="max-h-80 overflow-y-auto">
-              {items.length === 0 ? (
+              {visibleItems.length === 0 ? (
                 <p className="px-3 py-6 text-center text-xs text-slate-400">
-                  Nothing yet.
+                  {firstPageLoading
+                    ? "Loading…"
+                    : tab === "unread"
+                      ? "No unread notifications."
+                      : "Nothing yet."}
                 </p>
               ) : (
-                items.map((n) => (
-                  <Link
-                    key={n.id}
-                    href={notificationHref(n)}
-                    onClick={(event) => handleOpenNotification(n, event)}
-                    className={`block px-3 py-2.5 hover:bg-slate-50 ${
-                      n.is_read ? "" : "bg-blue-50/40"
-                    }`}
-                  >
-                    <NotifContent n={n} />
-                  </Link>
+                visibleItems.map((n) => (
+                  // The button sits beside the link, not inside it: a button
+                  // inside an <a> is invalid and its click would open the item.
+                  <div key={n.id} className="group relative">
+                    <Link
+                      href={notificationHref(n)}
+                      onClick={(event) => handleOpenNotification(n, event)}
+                      className={`block py-2.5 pl-3 pr-11 hover:bg-slate-50 ${
+                        n.is_read ? "" : "bg-blue-50/40"
+                      }`}
+                    >
+                      <NotifContent n={n} />
+                    </Link>
+                    {!n.is_read ? (
+                      <button
+                        type="button"
+                        onClick={() => void markRead([n.id])}
+                        aria-label="Mark as read"
+                        title="Mark as read"
+                        className={ROW_ACTION_CLASS}
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                    ) : canMarkUnread(n) ? (
+                      <button
+                        type="button"
+                        onClick={() => void markUnread(n)}
+                        aria-label="Mark as unread"
+                        title="Mark as unread — keep it on the Unread tab"
+                        className={ROW_ACTION_CLASS}
+                      >
+                        <Undo2 className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
+                  </div>
                 ))
               )}
+              {hasMore && visibleItems.length > 0 ? (
+                <button
+                  type="button"
+                  disabled={loadingMore}
+                  onClick={() => void loadMore()}
+                  className="w-full border-t border-slate-100 px-3 py-2.5 text-center text-xs font-semibold text-[#0c66e4] transition hover:bg-[#e9f2ff] disabled:cursor-wait disabled:text-slate-400"
+                >
+                  {loadingMore ? "Loading…" : "Load older"}
+                </button>
+              ) : null}
             </div>
           </div>
         )}

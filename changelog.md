@@ -6,6 +6,46 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-19 — Chuông thông báo: số chưa đọc luôn về được 0 (đã deploy 2026-10-19)
+
+- **Lỗi**: danh sách chỉ lấy 30 thông báo mới nhất nhưng số "unread" đếm mọi thông báo chưa đọc trong
+  DB → thông báo chưa đọc cũ hơn top 30 không bao giờ hiện để bấm, số không về 0 (trừ "Mark all
+  read"). Production 19/10: 25/43 người bị (Khang 3.614 cái ẩn, Kay 3.138, Charlotte 1.449…).
+- **Mốc `UNREAD_SINCE` = 2026-10-19T00:00:00Z** (`lib/notifications/unread-cutoff.ts`, user chốt "fix từ
+  hôm nay"): thông báo trước mốc coi như đã đọc — không vào số unread (cả `mode=summary`), không vào
+  tab Unread, trả về `is_read: true`, cũng không tính vào `unreadAssignedTaskIds`. DB không đổi; bỏ/dời
+  mốc là các thông báo cũ quay lại.
+- **API `GET /api/tasks/notifications`**: `filter=unread` (chỉ cái còn tính là chưa đọc), phân trang
+  `before=<created_at>&skip=<id đã hiện tại đúng mốc đó>` (cron chèn nhiều dòng cùng một thời điểm —
+  `lte` + `skip` để mép trang không làm rơi dòng), trả thêm `hasMore`. Đã chạy thử bộ lọc trên production
+  (đọc): 7 trang liền, không trùng dòng.
+- **Chuông**: tab Unread (mặc định, kèm số) / All, nút "Load older" cuối danh sách; đánh dấu đã đọc cập
+  nhật mọi danh sách đang hiện.
+- **Tốc độ / đúng trạng thái** (sau phản biện của agent thứ hai): tab Unread là nguồn chính — nạp lúc mở
+  trang, realtime/poll làm mới, toast lấy từ đây (chỉ dòng mới hơn mốc trước, để đọc bớt đầu danh sách
+  không làm bật toast cho dòng cũ); All chỉ nạp khi mở tab đó. Mở chuông hiện ngay dữ liệu có sẵn, chỉ
+  gọi 1 request cho tab đang mở khi dữ liệu cũ hơn 60 giây. API trả `latestAt` (dòng mới nhất mọi trạng
+  thái) làm mốc. Chống "lật lại": phản hồi cũ không đè lên dòng vừa đánh dấu đọc, số trên chuông không
+  nhận từ phản hồi chạy cắt ngang một lượt đánh dấu; trang 1 mới không chạm danh sách cũ thì làm lại từ
+  đầu (khỏi sót dòng giữa).
+- **`POST /api/tasks/notifications/read`**: chỉ ghi dòng còn `is_read = false` (Mark all read và mở task
+  trước đây ghi lại mọi dòng — hàng nghìn); Mark all read nhận `before` = mốc đã thấy, thông báo tới
+  trong lúc gửi vẫn chưa đọc.
+- **Mark as unread** (kiểu to-do): thông báo đã đọc có nút đưa về Unread; `POST .../read` với
+  `{ ids, read: false }` đặt `is_read = false`. Chỉ cho thông báo từ `UNREAD_SINCE` (trước mốc vẫn luôn
+  tính là đã đọc). Mark all read và mở task trên board vẫn xoá luôn các mục này.
+
+## 2026-10-19 — Monitor của Medicaid xem được record như người được assign (đã deploy 2026-10-19)
+
+- **Người được chọn ở cột "Monitor"** (cột Person tuỳ chỉnh của Medicaid, key `monitor`, Kay tạo
+  19/10) giờ xem được record đó, giống người tạo / Caller / Responsible — chỉ thêm quyền XEM, không
+  thêm quyền sửa. `VIEWER_PERSON_FIELD_KEYS` trong `enrollment/scope.ts`: `isRecordInScope` đọc
+  `custom_values.monitor`, `applyEnrollmentScope` thêm `custom_values->>monitor.eq.<viewer>` vào bộ lọc
+  danh sách / overview. Ba chỗ lọc thông báo (notifications route, recipients, push-dispatch) lấy thêm
+  `custom_values` để Monitor cũng nhận thông báo của record. Chỉ ảnh hưởng người bị giới hạn phạm vi
+  (Position Agent / Assistant); Manager và CS thường vốn thấy hết. Đã thử bộ lọc trên production (đọc):
+  ra đúng 2 record Monitor của Cheryl.
+
 ## 2026-10-19 — Giữ notification theo quyền hiện tại và xóa Role trong một transaction
 
 - Chuông và Web Push đọc trạng thái account, Role và membership hiện tại trước khi trả/gửi nội dung. Notification cũ mất phạm vi vẫn ở lịch sử và vẫn tính unread, nhưng không trả tiêu đề, bình luận, chi tiết, người gửi hay ID bản ghi. Account bị tắt không đọc/đánh dấu đã đọc/đăng ký push bằng cookie cũ.

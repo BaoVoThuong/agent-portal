@@ -19,6 +19,7 @@ type EnrollmentNotificationRecord = {
   caller_email: string | null;
   responsible_enroll_email: string | null;
   created_by_email: string | null;
+  custom_values?: Record<string, unknown> | null;
   archived_at: string | null;
 };
 
@@ -149,7 +150,7 @@ async function loadEnrollmentNotificationRecords(
   const { data, error } = await getSupabaseAdmin()
     .from("enrollment_records")
     .select(
-      "id,agent_email,caller_email,responsible_enroll_email,created_by_email,archived_at",
+      "id,agent_email,caller_email,responsible_enroll_email,created_by_email,custom_values,archived_at",
     )
     .in("id", [...new Set(ids)]);
   if (error) throw new Error(error.message);

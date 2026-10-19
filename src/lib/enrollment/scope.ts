@@ -21,6 +21,28 @@ type ScopeableQuery = {
 
 const NO_SCOPE_RECORD_ID = "00000000-0000-0000-0000-000000000000";
 
+/**
+ * Person columns (custom_values keys) that put someone on a record the way
+ * Caller and Responsible do: the person picked there can see the record.
+ * Medicaid "Monitor" since 2026-10-19.
+ */
+export const VIEWER_PERSON_FIELD_KEYS = ["monitor"] as const;
+
+type ScopedRecord = {
+  agent_email: string | null;
+  caller_email: string | null;
+  responsible_enroll_email: string | null;
+  created_by_email: string | null;
+  custom_values?: Record<string, unknown> | null;
+};
+
+/** Emails picked in a Person column: one email, or a list of them. */
+function personFieldEmails(value: unknown): string[] {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string");
+  return [];
+}
+
 function normalize(email: string | null | undefined): string {
   return email?.trim().toLowerCase() ?? "";
 }
@@ -95,16 +117,11 @@ export function buildEnrollmentScope({
   };
 }
 
-/** Fail closed: a null-agent record is visible only via direct assignment. */
-export function isRecordInScope(
-  scope: EnrollmentScope,
-  record: {
-    agent_email: string | null;
-    caller_email: string | null;
-    responsible_enroll_email: string | null;
-    created_by_email: string | null;
-  }
-): boolean {
+/**
+ * Fail closed: a null-agent record is visible only via direct assignment
+ * (creator, Caller, Responsible, or a viewer Person column such as Monitor).
+ */
+export function isRecordInScope(scope: EnrollmentScope, record: ScopedRecord): boolean {
   if (scope.seeAll) return true;
   const viewerEmail = normalize(scope.viewerEmail);
   if (
@@ -113,6 +130,9 @@ export function isRecordInScope(
       record.created_by_email,
       record.caller_email,
       record.responsible_enroll_email,
+      ...VIEWER_PERSON_FIELD_KEYS.flatMap((key) =>
+        personFieldEmails(record.custom_values?.[key])
+      ),
     ].some((email) => normalize(email) === viewerEmail)
   ) {
     return true;
@@ -150,7 +170,8 @@ export function applyEnrollmentScope<TQuery>(
     filters.push(
       `created_by_email.eq.${quotedViewer}`,
       `caller_email.eq.${quotedViewer}`,
-      `responsible_enroll_email.eq.${quotedViewer}`
+      `responsible_enroll_email.eq.${quotedViewer}`,
+      ...VIEWER_PERSON_FIELD_KEYS.map((key) => `custom_values->>${key}.eq.${quotedViewer}`)
     );
   }
   if (filters.length === 0) {

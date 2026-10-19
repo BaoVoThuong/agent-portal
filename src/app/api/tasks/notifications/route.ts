@@ -18,8 +18,16 @@ import { canAccessEnrollment } from "@/lib/enrollment/access";
 import { buildEnrollmentScope, isRecordInScope } from "@/lib/enrollment/scope";
 import { freshNotificationMembership } from "@/lib/notifications/membership";
 import { alertsMutedFromRow } from "@/lib/notifications/alert-preferences";
+import {
+  countsAsUnread,
+  parseNotificationPageCursor,
+  UNREAD_SINCE,
+} from "@/lib/notifications/unread-cutoff";
 
 export const dynamic = "force-dynamic";
+
+/** Notifications per bell page. */
+const PAGE_SIZE = 30;
 
 export async function GET(req: Request) {
   const timing = new RouteTiming("task-notifications");
@@ -39,7 +47,8 @@ export async function GET(req: Request) {
   const viewerActor = buildTaskActor(access.permissions, email);
 
   const supabase = getSupabaseAdmin();
-  const mode = new URL(req.url).searchParams.get("mode");
+  const searchParams = new URL(req.url).searchParams;
+  const mode = searchParams.get("mode");
 
   // Background consumers only need the unread badge and the task ids used by
   // the board's assignment hint. Keeping this path free of notification text
@@ -58,23 +67,27 @@ export async function GET(req: Request) {
         .from("task_notifications")
         .select("id", { count: "exact", head: true })
         .eq("recipient_email", email)
-        .eq("is_read", false),
+        .eq("is_read", false)
+        .gte("created_at", UNREAD_SINCE),
       supabase
         .from("enrollment_notifications")
         .select("id", { count: "exact", head: true })
         .eq("recipient_email", email)
-        .eq("is_read", false),
+        .eq("is_read", false)
+        .gte("created_at", UNREAD_SINCE),
       supabase
         .from("time_off_notifications")
         .select("id", { count: "exact", head: true })
         .eq("recipient_email", email)
-        .eq("is_read", false),
+        .eq("is_read", false)
+        .gte("created_at", UNREAD_SINCE),
       supabase
         .from("task_notifications")
         .select("task_id")
         .eq("recipient_email", email)
         .eq("type", "assigned")
-        .eq("is_read", false),
+        .eq("is_read", false)
+        .gte("created_at", UNREAD_SINCE),
       // Mốc phát hiện thông báo mới cho vòng lặp nền.
       //
       // Số chưa đọc KHÔNG dùng làm mốc được: nó là tổng của ba bảng và lên
@@ -162,6 +175,39 @@ export async function GET(req: Request) {
     });
   }
 
+  // One bell page, newest first. `filter=unread` keeps only what still counts
+  // as unread; `before` + `skip` continue with the next, older page. `skip`
+  // covers rows already shown at exactly `before`: a cron run inserts many
+  // rows at the same instant, and a page edge inside that batch must not drop
+  // the rest of it.
+  const unreadOnly = searchParams.get("filter") === "unread";
+  const cursor = parseNotificationPageCursor(searchParams);
+  const pageOf = (table: string, columns: string, skipIds: readonly string[]) => {
+    let query = supabase.from(table).select(columns).eq("recipient_email", email);
+    if (unreadOnly) query = query.eq("is_read", false).gte("created_at", UNREAD_SINCE);
+    if (cursor) {
+      query = query.lte("created_at", cursor.before);
+      if (skipIds.length > 0) query = query.not("id", "in", `(${skipIds.join(",")})`);
+    }
+    return query.order("created_at", { ascending: false }).limit(PAGE_SIZE + 1);
+  };
+
+  // The newest row of any read state, first page only. The bell keeps it as
+  // its "seen up to" mark: taken from the Unread list instead, a newest row
+  // that is already read would make every poll look like news.
+  const latestPromise = cursor
+    ? Promise.resolve([] as { data: { created_at?: string | null }[] | null }[])
+    : Promise.all(
+        ["task_notifications", "enrollment_notifications", "time_off_notifications"].map((table) =>
+          supabase
+            .from(table)
+            .select("created_at")
+            .eq("recipient_email", email)
+            .order("created_at", { ascending: false })
+            .limit(1),
+        ),
+      );
+
   const tLists = performance.now();
   const [
     { data, error },
@@ -173,45 +219,46 @@ export async function GET(req: Request) {
     unreadAssignedRes,
     notificationPreferencesRes,
   ] = await Promise.all([
-    supabase
-      .from("task_notifications")
-      .select("id,task_id,type,actor_email,comment_id,detail,is_read,created_at")
-      .eq("recipient_email", email)
-      .order("created_at", { ascending: false })
-      .limit(30),
-    supabase
-      .from("enrollment_notifications")
-      .select("id,record_id,type,actor_email,comment_id,detail,is_read,created_at")
-      .eq("recipient_email", email)
-      .order("created_at", { ascending: false })
-      .limit(30),
-    supabase
-      .from("time_off_notifications")
-      .select("id,request_id,type,actor_email,detail,is_read,created_at")
-      .eq("recipient_email", email)
-      .order("created_at", { ascending: false })
-      .limit(30),
+    pageOf(
+      "task_notifications",
+      "id,task_id,type,actor_email,comment_id,detail,is_read,created_at",
+      cursor?.skip.task ?? [],
+    ),
+    pageOf(
+      "enrollment_notifications",
+      "id,record_id,type,actor_email,comment_id,detail,is_read,created_at",
+      cursor?.skip.enrollment ?? [],
+    ),
+    pageOf(
+      "time_off_notifications",
+      "id,request_id,type,actor_email,detail,is_read,created_at",
+      cursor?.skip.timeoff ?? [],
+    ),
     supabase
       .from("task_notifications")
       .select("id", { count: "exact", head: true })
       .eq("recipient_email", email)
-      .eq("is_read", false),
+      .eq("is_read", false)
+      .gte("created_at", UNREAD_SINCE),
     supabase
       .from("enrollment_notifications")
       .select("id", { count: "exact", head: true })
       .eq("recipient_email", email)
-      .eq("is_read", false),
+      .eq("is_read", false)
+      .gte("created_at", UNREAD_SINCE),
     supabase
       .from("time_off_notifications")
       .select("id", { count: "exact", head: true })
       .eq("recipient_email", email)
-      .eq("is_read", false),
+      .eq("is_read", false)
+      .gte("created_at", UNREAD_SINCE),
     supabase
       .from("task_notifications")
       .select("task_id")
       .eq("recipient_email", email)
       .eq("type", "assigned")
-      .eq("is_read", false),
+      .eq("is_read", false)
+      .gte("created_at", UNREAD_SINCE),
     supabase
       .from("notification_preferences")
       .select("sound_enabled")
@@ -251,7 +298,7 @@ export async function GET(req: Request) {
     return respond({ error: unreadAssignedRes.error.message }, 500);
   }
 
-  const taskBase = ((data ?? []) as {
+  const taskBase = ((data ?? []) as unknown as {
     id: string;
     task_id: string;
     type: string;
@@ -262,11 +309,12 @@ export async function GET(req: Request) {
     created_at: string;
   }[]).map((n) => ({
     ...n,
+    is_read: !countsAsUnread(n),
     id: `task:${n.id}`,
     entity_type: "task" as const,
     entity_id: n.task_id,
   }));
-  const enrollmentBase = ((enrollmentRes.data ?? []) as {
+  const enrollmentBase = ((enrollmentRes.data ?? []) as unknown as {
     id: string;
     record_id: string;
     type: string;
@@ -277,6 +325,7 @@ export async function GET(req: Request) {
     created_at: string;
   }[]).map((n) => ({
     ...n,
+    is_read: !countsAsUnread(n),
     id: `enrollment:${n.id}`,
     task_id: n.record_id,
     entity_type: "enrollment" as const,
@@ -284,7 +333,7 @@ export async function GET(req: Request) {
   }));
   // Time Off không có bình luận, nên `comment_id` luôn null — vẫn phải có mặt
   // để ba nguồn cùng một hình dạng khi trộn.
-  const timeOffBase = ((timeOffRes.data ?? []) as {
+  const timeOffBase = ((timeOffRes.data ?? []) as unknown as {
     id: string;
     request_id: string;
     type: string;
@@ -294,15 +343,20 @@ export async function GET(req: Request) {
     created_at: string;
   }[]).map((n) => ({
     ...n,
+    is_read: !countsAsUnread(n),
     id: `timeoff:${n.id}`,
     task_id: n.request_id,
     comment_id: null as string | null,
     entity_type: "time_off" as const,
     entity_id: n.request_id,
   }));
-  const base = [...taskBase, ...enrollmentBase, ...timeOffBase]
-    .sort((a, b) => b.created_at.localeCompare(a.created_at))
-    .slice(0, 30);
+  const merged = [...taskBase, ...enrollmentBase, ...timeOffBase].sort((a, b) =>
+    b.created_at.localeCompare(a.created_at),
+  );
+  // Each table returned up to PAGE_SIZE + 1 rows, so anything past PAGE_SIZE
+  // here means an older page exists.
+  const hasMore = merged.length > PAGE_SIZE;
+  const base = merged.slice(0, PAGE_SIZE);
 
   // Enrich with the task title, actor display name, and comment body so the bell
   // tells users exactly what happened before they click.
@@ -351,7 +405,7 @@ export async function GET(req: Request) {
     enrollmentIds.length
       ? supabase
           .from("enrollment_records")
-          .select("id,client_name,display_number,program,agent_email,caller_email,responsible_enroll_email,created_by_email,archived_at")
+          .select("id,client_name,display_number,program,agent_email,caller_email,responsible_enroll_email,created_by_email,custom_values,archived_at")
           .in("id", enrollmentIds)
       : Promise.resolve({ data: [] as {
           id: string;
@@ -362,6 +416,7 @@ export async function GET(req: Request) {
           caller_email: string | null;
           responsible_enroll_email: string | null;
           created_by_email: string | null;
+          custom_values: Record<string, unknown> | null;
           archived_at: string | null;
         }[], error: null }),
     timeOffIds.length
@@ -491,6 +546,7 @@ export async function GET(req: Request) {
       caller_email: string | null;
       responsible_enroll_email: string | null;
       created_by_email: string | null;
+      custom_values: Record<string, unknown> | null;
       archived_at: string | null;
     }>).map((record) => [
       record.id,
@@ -543,8 +599,16 @@ export async function GET(req: Request) {
       ((unreadAssignedRes.data ?? []) as { task_id: string }[]).map((n) => n.task_id)
     ),
   ];
+  const latestAt = newestNotificationAt(
+    (await latestPromise).flatMap(
+      (result) => (result.data ?? []) as { created_at?: string | null }[],
+    ),
+  );
+
   return respond({
     notifications,
+    hasMore,
+    latestAt,
     unread,
     unreadAssignedTaskIds,
     alertsMuted: notificationPreferencesRes.error

@@ -159,7 +159,7 @@ describe("applyEnrollmentScope", () => {
       viewerEmail: "viewer@x.com",
     });
     expect(query.or).toHaveBeenCalledWith(
-      'agent_email.in.("agent@x.com"),created_by_email.eq."viewer@x.com",caller_email.eq."viewer@x.com",responsible_enroll_email.eq."viewer@x.com"'
+      'agent_email.in.("agent@x.com"),created_by_email.eq."viewer@x.com",caller_email.eq."viewer@x.com",responsible_enroll_email.eq."viewer@x.com",custom_values->>monitor.eq."viewer@x.com"'
     );
   });
 
@@ -171,7 +171,41 @@ describe("applyEnrollmentScope", () => {
       viewerEmail: "viewer@x.com",
     });
     expect(query.or).toHaveBeenCalledWith(
-      'created_by_email.eq."viewer@x.com",caller_email.eq."viewer@x.com",responsible_enroll_email.eq."viewer@x.com"'
+      'created_by_email.eq."viewer@x.com",caller_email.eq."viewer@x.com",responsible_enroll_email.eq."viewer@x.com",custom_values->>monitor.eq."viewer@x.com"'
     );
+  });
+});
+
+describe("Monitor (viewer Person column)", () => {
+  const scope = {
+    seeAll: false as const,
+    agentEmails: ["a@x.com"],
+    viewerEmail: "viewer@x.com",
+  };
+  const outsideRecord = {
+    agent_email: "other@x.com",
+    caller_email: null,
+    responsible_enroll_email: null,
+    created_by_email: "other@x.com",
+  };
+
+  it("lets the person picked as Monitor see the record, like an assignee", () => {
+    expect(
+      isRecordInScope(scope, { ...outsideRecord, custom_values: { monitor: "Viewer@X.com" } })
+    ).toBe(true);
+  });
+
+  it("keeps the record hidden from everyone else", () => {
+    expect(
+      isRecordInScope(scope, { ...outsideRecord, custom_values: { monitor: "someone@x.com" } })
+    ).toBe(false);
+    expect(isRecordInScope(scope, { ...outsideRecord, custom_values: null })).toBe(false);
+    expect(isRecordInScope(scope, outsideRecord)).toBe(false);
+  });
+
+  it("adds Monitor to the list query filter", () => {
+    const or = vi.fn(() => "scoped");
+    applyEnrollmentScope({ eq: vi.fn(), in: vi.fn(), or }, scope);
+    expect(or).toHaveBeenCalledWith(expect.stringContaining('custom_values->>monitor.eq."viewer@x.com"'));
   });
 });

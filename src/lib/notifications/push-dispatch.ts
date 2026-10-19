@@ -76,6 +76,7 @@ type EnrollmentPushScopeRow = {
   caller_email: string | null;
   responsible_enroll_email: string | null;
   created_by_email: string | null;
+  custom_values?: Record<string, unknown> | null;
   archived_at: string | null;
 };
 
@@ -253,7 +254,7 @@ export async function pushForEnrollmentNotifications(
     try {
       const { data, error } = await getSupabaseAdmin()
         .from("enrollment_records")
-        .select("id,client_name,display_number,program,agent_email,caller_email,responsible_enroll_email,created_by_email,archived_at")
+        .select("id,client_name,display_number,program,agent_email,caller_email,responsible_enroll_email,created_by_email,custom_values,archived_at")
         .in("id", ids);
       if (error) return;
       enrollmentRows = (data ?? []) as EnrollmentPushScopeRow[];

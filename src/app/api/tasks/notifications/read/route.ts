@@ -15,12 +15,21 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => null);
   const hasIds = Array.isArray(body?.ids);
+  // `read: false` with `ids` puts those notifications back to unread, so the
+  // bell keeps them on the Unread tab like a to-do. Only the ids form takes it.
+  const markUnread = hasIds && body?.read === false;
   const ids = hasIds
     ? (body.ids as unknown[]).filter((x): x is string => typeof x === "string")
     : null;
   const taskId = typeof body?.taskId === "string" ? body.taskId.trim() : "";
   const recordId = typeof body?.recordId === "string" ? body.recordId.trim() : "";
   const type = typeof body?.type === "string" ? body.type.trim() : "";
+  // Mark all read covers only what the bell had seen: rows created after this
+  // instant arrived while the request travelled and stay unread.
+  const before =
+    typeof body?.before === "string" && Number.isFinite(Date.parse(body.before))
+      ? body.before
+      : null;
 
   const supabase = getSupabaseAdmin();
   if (hasIds) {
@@ -39,7 +48,7 @@ export async function POST(req: Request) {
       updates.push(
         supabase
           .from("task_notifications")
-          .update({ is_read: true })
+          .update({ is_read: !markUnread })
           .eq("recipient_email", email)
           .in("id", taskIds)
       );
@@ -48,7 +57,7 @@ export async function POST(req: Request) {
       updates.push(
         supabase
           .from("enrollment_notifications")
-          .update({ is_read: true })
+          .update({ is_read: !markUnread })
           .eq("recipient_email", email)
           .in("id", enrollmentIds)
       );
@@ -57,7 +66,7 @@ export async function POST(req: Request) {
       updates.push(
         supabase
           .from("time_off_notifications")
-          .update({ is_read: true })
+          .update({ is_read: !markUnread })
           .eq("recipient_email", email)
           .in("id", timeOffIds)
       );
@@ -75,7 +84,8 @@ export async function POST(req: Request) {
       .from("enrollment_notifications")
       .update({ is_read: true })
       .eq("recipient_email", email)
-      .eq("record_id", recordId);
+      .eq("record_id", recordId)
+      .eq("is_read", false);
     if (type) query = query.eq("type", type);
     const { error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -86,17 +96,25 @@ export async function POST(req: Request) {
     let taskQuery = supabase
       .from("task_notifications")
       .update({ is_read: true })
-      .eq("recipient_email", email);
+      .eq("recipient_email", email)
+      .eq("is_read", false);
     let enrollmentQuery = supabase
       .from("enrollment_notifications")
       .update({ is_read: true })
-      .eq("recipient_email", email);
+      .eq("recipient_email", email)
+      .eq("is_read", false);
     // Bỏ sót bảng này là "Đánh dấu đã đọc tất cả" không bao giờ đưa chuông về 0:
     // phần đếm đã cộng cả ba nguồn, nên phần ghi cũng phải quét đủ ba.
     let timeOffQuery = supabase
       .from("time_off_notifications")
       .update({ is_read: true })
-      .eq("recipient_email", email);
+      .eq("recipient_email", email)
+      .eq("is_read", false);
+    if (before) {
+      taskQuery = taskQuery.lte("created_at", before);
+      enrollmentQuery = enrollmentQuery.lte("created_at", before);
+      timeOffQuery = timeOffQuery.lte("created_at", before);
+    }
     if (type) {
       taskQuery = taskQuery.eq("type", type);
       enrollmentQuery = enrollmentQuery.eq("type", type);
@@ -122,7 +140,8 @@ export async function POST(req: Request) {
   let query = supabase
     .from("task_notifications")
     .update({ is_read: true })
-    .eq("recipient_email", email);
+    .eq("recipient_email", email)
+    .eq("is_read", false);
   if (taskId) query = query.eq("task_id", taskId);
   if (type) query = query.eq("type", type);
 
