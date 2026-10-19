@@ -15,7 +15,7 @@ import {
   fetchRolesWithPermissions,
 } from "@/lib/rbac/role-management";
 import { isAdminRoleName } from "@/lib/rbac/admin-role";
-import { checkRolePermissionChange, rolePatchGrant } from "@/lib/rbac/delegation";
+import { checkRolePermissionChange, permissionsNotHeld, rolePatchGrant } from "@/lib/rbac/delegation";
 import { checkRoleDeletion } from "@/lib/rbac/role-deletion";
 
 type RouteContext = {
@@ -193,44 +193,60 @@ export async function DELETE(req: Request, context: RouteContext) {
       );
     }
 
-    const supabase = getSupabaseAdmin();
     let moved = 0;
     if (deletion.moveToRoleId) {
-      // One UPDATE: every holder moves or none does. user_roles has one row per
-      // account (user_roles_one_role_per_user_idx), so changing role_id cannot
-      // collide. Moving people out of a non-Admin role never removes an Admin.
-      const { error: moveError, count } = await supabase
-        .from("user_roles")
-        .update(
-          { role_id: deletion.moveToRoleId, created_at: new Date().toISOString() },
-          { count: "exact" }
-        )
-        .eq("role_id", id);
-
-      if (moveError) {
-        return NextResponse.json({ error: moveError.message }, { status: 500 });
+      const [sourceKeys, targetKeys] = await Promise.all([
+        fetchRolePermissionKeys(id),
+        fetchRolePermissionKeys(deletion.moveToRoleId),
+      ]);
+      const notHeld = permissionsNotHeld(session?.user?.permissions ?? [], [
+        ...sourceKeys,
+        ...targetKeys,
+      ]);
+      if (notHeld.length > 0) {
+        return NextResponse.json(
+          { error: `This role has permissions you do not have: ${notHeld.join(", ")}` },
+          { status: 403 },
+        );
       }
-
-      moved = count ?? 0;
-      invalidateRbacLookups();
-      console.info("[role-manager:delete] moved holders", {
-        actor: session?.user?.email ?? null,
-        roleId: id,
-        moveToRoleId: deletion.moveToRoleId,
-        moved,
-      });
     }
-
-    // Not in the same transaction as the move. If this fails the role is left
-    // empty, and deleting it again takes the "nobody holds it" path.
-    const { error } = await supabase.from("roles").delete().eq("id", id);
-
+    // The RPC rechecks current actor/target permissions and moves holders and
+    // deletes the role in one transaction. The checks above provide useful UI
+    // errors; they are not the authorization boundary.
+    const { data, error } = await getSupabaseAdmin().rpc("delete_role_atomic", {
+      p_role_id: id,
+      p_move_to_role_id: deletion.moveToRoleId,
+      p_actor_email: session?.user?.email ?? "",
+    });
     if (error) {
-      return NextResponse.json({ error: error.message, moved }, { status: 500 });
+      const forbidden = error.message.includes("ROLE_MOVE_FORBIDDEN") ||
+        error.message.includes("ROLE_MANAGER_REQUIRED");
+      const invalid = error.message.includes("ROLE_MOVE_TARGET_INVALID") ||
+        error.message.includes("ROLE_STILL_HELD") ||
+        error.message.includes("ROLE_PROTECTED");
+      return NextResponse.json(
+        { error: error.message },
+        { status: forbidden ? 403 : invalid ? 409 : 500 },
+      );
     }
-
+    moved = Number(data ?? 0);
     invalidateRbacLookups();
-    return NextResponse.json({ ok: true, moved, roles: await fetchRolesWithPermissions() });
+    console.info("[role-manager:delete] deleted role", {
+      actor: session?.user?.email ?? null,
+      roleId: id,
+      moveToRoleId: deletion.moveToRoleId,
+      moved,
+    });
+    try {
+      return NextResponse.json({ ok: true, moved, roles: await fetchRolesWithPermissions() });
+    } catch (refreshError) {
+      // The transaction already committed. Report success so the client does
+      // not retry a delete that happened; it can refresh the directory later.
+      console.warn("[role-manager:delete] role list refresh failed", {
+        message: refreshError instanceof Error ? refreshError.message : "unknown",
+      });
+      return NextResponse.json({ ok: true, moved });
+    }
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Unable to delete role." },

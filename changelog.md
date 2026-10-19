@@ -6,6 +6,13 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-19 — Giữ notification theo quyền hiện tại và xóa Role trong một transaction
+
+- Chuông và Web Push đọc trạng thái account, Role và membership hiện tại trước khi trả/gửi nội dung. Notification cũ mất phạm vi vẫn ở lịch sử và vẫn tính unread, nhưng không trả tiêu đề, bình luận, chi tiết, người gửi hay ID bản ghi. Account bị tắt không đọc/đánh dấu đã đọc/đăng ký push bằng cookie cũ.
+- Summary chỉ đưa task ID còn xem được vào hint cập nhật board. Phạm vi Task và Enrollment của notification đọc trực tiếp từ bảng Agent/Assistant, không dùng cache 60 giây của Task Board.
+- `DELETE /api/admin/roles/[id]` kiểm Role nguồn/đích trong trần quyền người thao tác; RPC `delete_role_atomic` kiểm lại quyền trong database rồi chuyển account và xóa Role trong cùng transaction. Rollout `2026-10-18-delete-role-atomic.sql` đã áp dụng production trước code; không sửa dòng Role, account hay permission hiện có.
+- Đính chính audit: production đã có constraint chống manager tự quản lý và trigger chống vòng lặp, nên không thêm migration manager.
+
 ## 2026-10-18 — Account Manager: Org chart tương tác
 
 - Thay Tree bằng Org chart có tìm người, pan/zoom, thu gọn nhánh và nhóm account chưa có manager.

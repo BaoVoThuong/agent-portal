@@ -13,6 +13,12 @@ Ba thư mục, ba vai trò khác nhau:
 
 ---
 
+## 2026-10-19 — Xóa Role nguyên tử
+
+Đã chạy `rollouts/2026-10-18-delete-role-atomic.sql` trên Portal production bằng Supabase CLI trước khi deploy API mới. Migration chỉ tạo RPC `delete_role_atomic`, không chuyển account hoặc sửa Role/permission. Kiểm sau khi chạy: RPC tồn tại, chỉ `service_role` được execute; 49 account, 47 active và 49 dòng `user_roles` như trước. RPC đã được thử trên Postgres tạm với chuyển Role hợp lệ, chặn vượt trần quyền và rollback khi DELETE thất bại.
+
+---
+
 ## 2026-08-16 — đợt vá lớn
 
 Chạy theo đúng thứ tự dưới đây. Cột "Vì sao" ghi lại lý do, vì vài file sửa

@@ -6,9 +6,17 @@ import { notifTopic } from "@/lib/tasks/realtime";
 import type { EnrollmentProgram } from "@/lib/enrollment/types";
 import { RouteTiming } from "@/lib/server-timing";
 import { buildTaskActor } from "@/lib/tasks/access";
+import { getUserAccessByEmail } from "@/lib/rbac/access";
+import { canViewTimeOffNotification } from "@/lib/time-off/notification-access";
+import { redactNotification } from "@/lib/notifications/redaction";
+import {
+  visibleNotificationTaskIds,
+  visibleNotificationTaskIdsById,
+  type NotificationTaskScopeRow,
+} from "@/lib/notifications/task-visibility";
 import { canAccessEnrollment } from "@/lib/enrollment/access";
-import { isRecordInScope, resolveEnrollmentScope } from "@/lib/enrollment/scope";
-import { redactEnrollmentNotification } from "@/lib/enrollment/notification-redaction";
+import { buildEnrollmentScope, isRecordInScope } from "@/lib/enrollment/scope";
+import { freshNotificationMembership } from "@/lib/notifications/membership";
 import { alertsMutedFromRow } from "@/lib/notifications/alert-preferences";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +32,11 @@ export async function GET(req: Request) {
   const session = await timing.measure("auth", async () => auth());
   const email = session?.user?.email;
   if (!email) return respond({ error: "Unauthorized" }, 401);
+  // Read current RBAC rather than the per-instance JWT lookup: notifications
+  // outlive assignments and a disabled account can retain a valid cookie.
+  const access = await timing.measure("access", () => getUserAccessByEmail(email));
+  if (!access.isActive) return respond({ error: "Unauthorized" }, 401);
+  const viewerActor = buildTaskActor(access.permissions, email);
 
   const supabase = getSupabaseAdmin();
   const mode = new URL(req.url).searchParams.get("mode");
@@ -111,13 +124,22 @@ export async function GET(req: Request) {
       );
     }
 
-    const unreadAssignedTaskIds = [
+    const assignedTaskIds = [
       ...new Set(
         ((unreadAssignedRes.data ?? []) as { task_id: string }[]).map(
           (notification) => notification.task_id,
         ),
       ),
     ];
+    let visibleAssignedIds = new Set<string>();
+    try {
+      visibleAssignedIds = await visibleNotificationTaskIdsById(viewerActor, assignedTaskIds, supabase);
+    } catch (error) {
+      console.warn("Task notification scope lookup failed", {
+        code: error instanceof Error ? error.message : "unknown",
+      });
+    }
+    const unreadAssignedTaskIds = assignedTaskIds.filter((id) => visibleAssignedIds.has(id));
     // Bảng enrollment/time-off có thể chưa tồn tại ở môi trường cũ — lỗi "thiếu
     // bảng" đã được bỏ qua ở trên, nên ở đây cũng chỉ nhặt dữ liệu đọc được.
     //
@@ -324,8 +346,8 @@ export async function GET(req: Request) {
     enrollmentCommentsRes,
   ] = await Promise.all([
     taskIds.length
-      ? supabase.from("tasks").select("id,title,display_number").in("id", taskIds)
-      : Promise.resolve({ data: [] as { id: string; title: string; display_number: number | null }[], error: null }),
+      ? supabase.from("tasks").select("id,title,display_number,agent_email,assignee_email,reporter_email").in("id", taskIds)
+      : Promise.resolve({ data: [] as Array<NotificationTaskScopeRow & { title: string; display_number: number | null }>, error: null }),
     enrollmentIds.length
       ? supabase
           .from("enrollment_records")
@@ -345,7 +367,7 @@ export async function GET(req: Request) {
     timeOffIds.length
       ? supabase
           .from("time_off_requests")
-          .select("id,start_date,end_date,total_days")
+          .select("id,start_date,end_date,total_days,requester_id")
           .in("id", timeOffIds)
       : Promise.resolve({
           data: [] as {
@@ -353,6 +375,7 @@ export async function GET(req: Request) {
             start_date: string;
             end_date: string;
             total_days: number;
+            requester_id: string;
           }[],
           error: null,
         }),
@@ -426,11 +449,33 @@ export async function GET(req: Request) {
     ].map((c) => [c.id, c.body] as const)
   );
 
-  const viewerActor = buildTaskActor(session.user.permissions, email);
-  let enrollmentScope: Awaited<ReturnType<typeof resolveEnrollmentScope>> | null = null;
+  let visibleTaskIds = new Set<string>();
+  try {
+    visibleTaskIds = await visibleNotificationTaskIds(
+      viewerActor,
+      (titlesRes.data ?? []) as NotificationTaskScopeRow[],
+      supabase,
+    );
+  } catch (error) {
+    console.warn("Task notification scope lookup failed", {
+      code: error instanceof Error ? error.message : "unknown",
+    });
+  }
+  const timeOffAccessById = new Map(
+    ((timeOffTitlesRes.data ?? []) as Array<{ id: string; requester_id: string }>).map((request) => [
+      request.id,
+      canViewTimeOffNotification(access.permissions, access.userId, request.requester_id),
+    ]),
+  );
+  let enrollmentScope: ReturnType<typeof buildEnrollmentScope> | null = null;
   if (enrollmentIds.length > 0 && canAccessEnrollment(viewerActor)) {
     try {
-      enrollmentScope = await resolveEnrollmentScope(viewerActor);
+      enrollmentScope = buildEnrollmentScope({
+        actor: viewerActor,
+        ...(viewerActor.isManager
+          ? { isSelectedAgent: false, assistantAgentEmails: [] }
+          : await freshNotificationMembership(email, supabase)),
+      });
     } catch (error) {
       // A scope lookup failure must redact content instead of turning an old
       // notification into a data disclosure path.
@@ -477,11 +522,13 @@ export async function GET(req: Request) {
           : titleById.get(n.entity_id) ?? null,
     actor_name: nameByEmail.get(n.actor_email) ?? null,
     comment_body: n.comment_id ? commentById.get(n.comment_id) ?? null : null,
-  })).map((notification) => redactEnrollmentNotification(
+  })).map((notification) => redactNotification(
     notification,
     notification.entity_type === "enrollment"
       ? enrollmentAccessById.get(notification.entity_id) === true
-      : true,
+      : notification.entity_type === "time_off"
+        ? timeOffAccessById.get(notification.entity_id) === true
+        : visibleTaskIds.has(notification.entity_id),
   ));
   const unread =
     typeof unreadRes.count === "number" ||

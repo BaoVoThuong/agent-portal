@@ -3,6 +3,14 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { taskDisplayKey } from "@/lib/tasks/sorting";
 import { enrollmentDisplayKey } from "@/lib/enrollment/helpers";
 import type { EnrollmentProgram } from "@/lib/enrollment/types";
+import { getUserAccessByEmail } from "@/lib/rbac/access";
+import { buildTaskActor } from "@/lib/tasks/access";
+import { buildEnrollmentScope, isRecordInScope } from "@/lib/enrollment/scope";
+import {
+  visibleNotificationTaskIds,
+  type NotificationTaskScopeRow,
+} from "./task-visibility";
+import { freshNotificationMembership } from "./membership";
 import { buildPushPayload, sendPushToEmails } from "./push-server";
 import type { NotificationCopySource, NotificationCopyType } from "./copy";
 import { isDirectNotification } from "./alert-policy";
@@ -61,6 +69,51 @@ export type PushGroup = {
   actorEmail: string;
   emails: string[];
 };
+
+type EnrollmentPushScopeRow = {
+  id: string;
+  agent_email: string | null;
+  caller_email: string | null;
+  responsible_enroll_email: string | null;
+  created_by_email: string | null;
+  archived_at: string | null;
+};
+
+async function authorizedDispatchRows(
+  rows: readonly DispatchRow[],
+  entityType: "task" | "enrollment",
+  taskRows: readonly NotificationTaskScopeRow[],
+  enrollmentRows: readonly EnrollmentPushScopeRow[],
+): Promise<DispatchRow[]> {
+  const supabase = getSupabaseAdmin();
+  const recipients = [...new Set(rows.map((row) => row.recipient_email.trim().toLowerCase()))];
+  const visibleByEmail = new Map<string, Set<string>>();
+  await Promise.all(recipients.map(async (email) => {
+    try {
+      const access = await getUserAccessByEmail(email);
+      if (!access.isActive) return;
+      const actor = buildTaskActor(access.permissions, email);
+      if (entityType === "task") {
+        visibleByEmail.set(email, await visibleNotificationTaskIds(actor, taskRows, supabase));
+      } else if (actor.isWorker) {
+        const scope = buildEnrollmentScope({
+          actor,
+          ...(actor.isManager
+            ? { isSelectedAgent: false, assistantAgentEmails: [] }
+            : await freshNotificationMembership(email, supabase)),
+        });
+        visibleByEmail.set(email, new Set(enrollmentRows
+          .filter((record) => !record.archived_at && isRecordInScope(scope, record))
+          .map((record) => record.id)));
+      }
+    } catch {
+      // A failed access lookup must suppress this recipient's push content.
+    }
+  }));
+  return rows.filter((row) =>
+    visibleByEmail.get(row.recipient_email.trim().toLowerCase())?.has(row.entity_id),
+  );
+}
 
 /**
  * Gom những dòng cho ra CÙNG một nội dung push, rồi gửi một lượt cho tất cả
@@ -145,12 +198,15 @@ export async function pushForTaskNotifications(
     if (rows.length === 0) return;
     const ids = [...new Set(rows.map((row) => row.task_id))];
     const titles = new Map<string, string>();
+    let taskRows: NotificationTaskScopeRow[] = [];
 
     try {
-      const { data } = await getSupabaseAdmin()
+      const { data, error } = await getSupabaseAdmin()
         .from("tasks")
-        .select("id,title,display_number")
+        .select("id,title,display_number,agent_email,assignee_email,reporter_email")
         .in("id", ids);
+      if (error) return;
+      taskRows = (data ?? []) as NotificationTaskScopeRow[];
       for (const row of (data ?? []) as {
         id: string;
         title: string | null;
@@ -161,11 +217,16 @@ export async function pushForTaskNotifications(
         titles.set(row.id, title ? `${key} · ${title}` : key);
       }
     } catch {
-      // Thiếu tiêu đề thì push vẫn gửi, chỉ là tiêu đề chung chung.
+      // Scope cannot be established, so do not send record content.
+      return;
     }
 
-    await dispatch(
+    const dispatchRows = await authorizedDispatchRows(
       rows.map((row) => ({ ...row, entity_id: row.task_id })),
+      "task", taskRows, [],
+    );
+    await dispatch(
+      dispatchRows,
       "task",
       titles
     );
@@ -187,12 +248,15 @@ export async function pushForEnrollmentNotifications(
     if (rows.length === 0) return;
     const ids = [...new Set(rows.map((row) => row.record_id))];
     const titles = new Map<string, string>();
+    let enrollmentRows: EnrollmentPushScopeRow[] = [];
 
     try {
-      const { data } = await getSupabaseAdmin()
+      const { data, error } = await getSupabaseAdmin()
         .from("enrollment_records")
-        .select("id,client_name,display_number,program")
+        .select("id,client_name,display_number,program,agent_email,caller_email,responsible_enroll_email,created_by_email,archived_at")
         .in("id", ids);
+      if (error) return;
+      enrollmentRows = (data ?? []) as EnrollmentPushScopeRow[];
       for (const row of (data ?? []) as {
         id: string;
         client_name: string | null;
@@ -204,11 +268,15 @@ export async function pushForEnrollmentNotifications(
         titles.set(row.id, name ? `${key} · ${name}` : key);
       }
     } catch {
-      // như trên
+      return;
     }
 
-    await dispatch(
+    const dispatchRows = await authorizedDispatchRows(
       rows.map((row) => ({ ...row, entity_id: row.record_id })),
+      "enrollment", [], enrollmentRows,
+    );
+    await dispatch(
+      dispatchRows,
       "enrollment",
       titles
     );

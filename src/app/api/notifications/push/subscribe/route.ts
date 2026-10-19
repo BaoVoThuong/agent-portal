@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { getUserAccessByEmail } from "@/lib/rbac/access";
 
 /**
  * Lưu / gỡ "địa chỉ đẩy" của MỘT MÁY.
@@ -33,6 +34,9 @@ export async function POST(request: Request) {
   const session = await auth();
   const email = session?.user?.email?.trim().toLowerCase();
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await getUserAccessByEmail(email)).isActive) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const body = (await request.json().catch(() => null)) as SubscriptionBody | null;
   const endpoint = readString(body?.subscription?.endpoint, 2000);

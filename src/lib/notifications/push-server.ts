@@ -135,7 +135,15 @@ export async function sendPushToEmails(
     if (!ensureVapid()) return result;
 
     const unique = [...new Set(emails.map(normalizeEmail).filter(Boolean))];
-    const allowed = await filterByPreference(unique, options.direct ?? true);
+    if (unique.length === 0) return result;
+    const activeResult = await getSupabaseAdmin()
+      .from("portal_account")
+      .select("email")
+      .in("email", unique)
+      .eq("is_active", true);
+    if (activeResult.error) return result;
+    const activeEmails = (activeResult.data ?? []).map((row) => normalizeEmail(row.email));
+    const allowed = await filterByPreference(activeEmails, options.direct ?? true);
     if (allowed.length === 0) return result;
 
     const { data, error } = await getSupabaseAdmin()

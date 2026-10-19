@@ -43,7 +43,7 @@ import {
 type Notif = {
   id: string;
   task_id: string;
-  entity_type?: "task" | "enrollment";
+  entity_type?: "task" | "enrollment" | "time_off";
   entity_id?: string;
   type: NotificationCopyType;
   actor_email: string;
@@ -112,7 +112,7 @@ function entityLabel(n: Notif): string {
 }
 
 function notificationHref(n: Notif): string {
-  if (n.entity_type === "enrollment" && n.entity_accessible === false) return "#";
+  if (n.entity_accessible === false) return "#";
   return sharedNotificationHref(n);
 }
 
@@ -141,14 +141,14 @@ function detailLabel(n: Notif): string {
 }
 
 function notificationHeading(n: Notif): string {
-  if (n.entity_type === "enrollment" && n.entity_accessible === false) {
-    return "Enrollment record is no longer accessible";
+  if (n.entity_accessible === false) {
+    return `${entityLabel(n)} is no longer accessible`;
   }
   return isSystemNotif(n) ? actionText(n) : `${actorName(n)} ${actionText(n)}`;
 }
 
 function nativeNotificationBody(n: Notif): string {
-  if (n.entity_type === "enrollment" && n.entity_accessible === false) {
+  if (n.entity_accessible === false) {
     return notificationHeading(n);
   }
   return [
@@ -200,7 +200,10 @@ async function alertFreshNotifications(
       tag: notificationAlertTag(n),
       renotify: shouldRenotify(n),
     };
-    new Notification(`${entityKey(n)} · ${notificationHeading(n)}`, options);
+    new Notification(
+      `${n.entity_accessible === false ? "Unavailable" : entityKey(n)} · ${notificationHeading(n)}`,
+      options,
+    );
   }
 }
 
@@ -252,7 +255,9 @@ export function NotificationBell() {
         if (
           list.some(
             (notification) =>
-              !notification.is_read && entityKind(notification) === "task",
+              !notification.is_read &&
+              notification.entity_accessible !== false &&
+              entityKind(notification) === "task",
           )
         ) {
           publishTaskDataInvalidation();
@@ -268,7 +273,7 @@ export function NotificationBell() {
       // that the board snapshot is stale. This repairs the list immediately
       // even when the separate global tasks-stream ping was missed.
       const invalidation = resolveNotificationInvalidation(
-        unseen.map((notification) => ({
+        unseen.filter((notification) => notification.entity_accessible !== false).map((notification) => ({
           kind: entityKind(notification),
           id: entityId(notification),
         })),
@@ -527,7 +532,7 @@ export function NotificationBell() {
     n: Notif,
     event?: ReactMouseEvent<HTMLAnchorElement>
   ) {
-    if (n.entity_type === "enrollment" && n.entity_accessible === false) {
+    if (n.entity_accessible === false) {
       event?.preventDefault();
       setOpen(false);
       dismissToast(n.id);
@@ -645,7 +650,7 @@ function NotifContent({ n }: { n: Notif }) {
     <>
       <div className="flex items-center gap-2">
         <span className="font-mono text-[11px] font-bold text-[#0c66e4]">
-          {entityKey(n)}
+          {n.entity_accessible === false ? "Unavailable" : entityKey(n)}
         </span>
         {!n.is_read && <span className="h-1.5 w-1.5 rounded-full bg-[#0c66e4]" />}
         <span className="ml-auto text-[10px] text-slate-400">
@@ -657,7 +662,9 @@ function NotifContent({ n }: { n: Notif }) {
           n.is_read ? "text-slate-500" : "text-slate-800"
         }`}
       >
-        {isSystemNotif(n) ? (
+        {n.entity_accessible === false ? (
+          "You no longer have access to this record."
+        ) : isSystemNotif(n) ? (
           actionText(n)
         ) : (
           <>
@@ -665,11 +672,6 @@ function NotifContent({ n }: { n: Notif }) {
           </>
         )}
       </p>
-      {n.entity_type === "enrollment" && n.entity_accessible === false && (
-        <p className="mt-0.5 text-xs leading-5 text-slate-500">
-          You no longer have access to this record.
-        </p>
-      )}
       {n.task_title && (
         <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-slate-500" title={n.task_title}>
           <span className="font-semibold text-slate-600">{entityLabel(n)}:</span>{" "}
