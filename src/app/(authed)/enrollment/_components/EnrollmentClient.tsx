@@ -491,13 +491,40 @@ function programColumnLabel(
  * để hai danh sách trông cùng một hệ: date 120, phần còn lại 180. Checkbox lấy
  * 96 theo cột QC/Consent của chính bảng enrollment.
  */
-function isYearTableColumn(column: Pick<TableColumn, "key" | "label">): boolean {
-  const tokens = `${column.key} ${column.label}`
+function columnTokens(column: Pick<TableColumn, "key" | "label">): string[] {
+  return `${column.key} ${column.label}`
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
     .trim()
     .split(/\s+/);
-  return tokens.includes("year");
+}
+
+function isYearTableColumn(column: Pick<TableColumn, "key" | "label">): boolean {
+  return columnTokens(column).includes("year");
+}
+
+/**
+ * A program without the built-in Caller can keep its own Person column for it
+ * (Medicare: "Caller", key caller_2, added 2026-10). The Caller filter then
+ * reads that column instead of caller_email.
+ */
+function customCallerColumnFor(columns: readonly EnrollmentColumn[]): EnrollmentColumn | null {
+  return (
+    columns.find(
+      (column) =>
+        column.configColumn &&
+        !column.configColumn.is_system &&
+        column.configColumn.type === "person" &&
+        columnTokens(column.configColumn).includes("caller")
+    ) ?? null
+  );
+}
+
+/** Emails picked in a Person value: one email, or a list of them. */
+function personValueEmails(value: unknown): string[] {
+  if (typeof value === "string") return value ? [value] : [];
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string");
+  return [];
 }
 
 function yearColumnFor(columns: readonly EnrollmentColumn[]): EnrollmentColumn | null {
@@ -982,6 +1009,16 @@ export function EnrollmentClient({
   );
   const yearColumn = useMemo(() => yearColumnFor(columns), [columns]);
   const yearColumnKey = yearColumn?.key ?? null;
+  // Looked up in every column of the program, not the viewer's layout, so
+  // hiding the column does not take the filter away.
+  const callerColumn = useMemo(
+    () =>
+      isColumnInProgram(program, "caller")
+        ? null
+        : customCallerColumnFor(enrollmentColumnsForProgram(program, tableColumns)),
+    [program, tableColumns]
+  );
+  const callerColumnKey = callerColumn?.configColumn?.key ?? null;
   const yearOptionLabels = useMemo(
     () => optionLabelsForColumn(tableColumnOptions, yearColumn?.configColumn?.id),
     [tableColumnOptions, yearColumn]
@@ -1229,12 +1266,30 @@ export function EnrollmentClient({
   const rankedRecords = useMemo(
     () =>
       sortRecords(
-        filterRecords(records, filters, optionsById, currentEmail, yearColumn, yearOptionLabels),
+        filterRecords(
+          records,
+          filters,
+          optionsById,
+          currentEmail,
+          yearColumn,
+          yearOptionLabels,
+          callerColumnKey
+        ),
         sort,
         optionsById,
         peopleByEmail
       ),
-    [records, filters, optionsById, peopleByEmail, sort, currentEmail, yearColumn, yearOptionLabels]
+    [
+      records,
+      filters,
+      optionsById,
+      peopleByEmail,
+      sort,
+      currentEmail,
+      yearColumn,
+      yearOptionLabels,
+      callerColumnKey,
+    ]
   );
 
   // Hold the order steady while the user works. sortRecords tiebreaks on
@@ -2005,6 +2060,7 @@ export function EnrollmentClient({
             optionsBySet={optionsBySet}
             yearColumnKey={yearColumnKey}
             yearOptions={yearOptions}
+            customCallerLabel={callerColumn?.configColumn?.label ?? null}
             columns={columns}
             hiddenColumnKeys={hiddenColumnKeys}
             onToggleColumn={toggleColumn}
@@ -2162,6 +2218,7 @@ export function EnrollmentClient({
                 currentEmail,
                 yearColumn,
                 yearOptionLabels,
+                callerColumnKey,
               ).length === 0;
             setNotice({
               message: `${enrollmentDisplayKey(created.display_number, created.program)} created${hidden ? " — hidden by your current filters" : ""}.`,
@@ -2252,6 +2309,7 @@ function EnrollmentToolbar({
   optionsBySet,
   yearColumnKey,
   yearOptions,
+  customCallerLabel,
   columns,
   hiddenColumnKeys,
   onToggleColumn,
@@ -2271,6 +2329,8 @@ function EnrollmentToolbar({
   optionsBySet: EnrollmentOptionsBySet;
   yearColumnKey: string | null;
   yearOptions: { value: string; label: string }[];
+  /** Label of the custom Person column used as Caller (Medicare), or null. */
+  customCallerLabel: string | null;
   columns: EnrollmentColumn[];
   hiddenColumnKeys: Set<EnrollmentColumnKey>;
   onToggleColumn: (key: EnrollmentColumnKey) => void;
@@ -2401,14 +2461,14 @@ function EnrollmentToolbar({
           onValuesChange={(agent) => setFilters((current) => ({ ...current, agent }))}
         />
 
-        {isColumnInProgram(program, "caller") ? (
+        {isColumnInProgram(program, "caller") || customCallerLabel ? (
           <TaskSelect
-            label={columnByKey.get("caller")?.label ?? "Caller"}
+            label={customCallerLabel ?? columnByKey.get("caller")?.label ?? "Caller"}
             multi
             searchable
             values={filters.caller}
             options={[{ value: "", label: "All Callers" }, ...peopleOptions(people)]}
-            placeholder={columnByKey.get("caller")?.label ?? "Caller"}
+            placeholder={customCallerLabel ?? columnByKey.get("caller")?.label ?? "Caller"}
             allValue=""
             summaryLabel="callers"
             className="w-max min-w-[10rem]"
@@ -6067,9 +6127,12 @@ function filterRecords(
   optionsById: Map<string, EnrollmentOption>,
   currentEmail: string,
   yearColumn: EnrollmentColumn | null,
-  yearOptionLabels: ReadonlyMap<string, string>
+  yearOptionLabels: ReadonlyMap<string, string>,
+  /** Custom Person column standing in for Caller, or null for caller_email. */
+  callerColumnKey: string | null = null
 ) {
   const query = filters.query.trim().toLowerCase();
+  const callerFilter = new Set(filters.caller.map(normalizeEnrollmentEmail));
   const normalizedCurrentEmail = normalizeEnrollmentEmail(currentEmail);
   return records.filter((record) => {
     const stage = record.stage_id ? optionsById.get(record.stage_id) ?? null : null;
@@ -6091,7 +6154,12 @@ function filterRecords(
     }
     if (filters.stage.length > 0 && !filters.stage.includes(record.stage_id ?? "")) return false;
     if (filters.agent.length > 0 && !filters.agent.includes(record.agent_email ?? "")) return false;
-    if (filters.caller.length > 0 && !filters.caller.includes(record.caller_email ?? "")) return false;
+    if (callerFilter.size > 0) {
+      const callers = callerColumnKey
+        ? personValueEmails(record.custom_values?.[callerColumnKey])
+        : [record.caller_email ?? ""];
+      if (!callers.some((email) => callerFilter.has(normalizeEnrollmentEmail(email)))) return false;
+    }
     if (
       filters.mineOnly &&
       ![

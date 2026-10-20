@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-20 — Enrollment Medicare: bộ lọc Caller (đã deploy 2026-10-20)
+
+- Medicare không có Caller hệ thống (`caller_email` không áp dụng; cột hệ thống đã archive) nên ô lọc
+  Caller bị ẩn. Admin đã thêm cột Person tuỳ chỉnh "Caller" (`caller_2`). Chương trình nào không có Caller
+  hệ thống mà có cột Person tuỳ chỉnh chứa chữ "caller" (dò như cột Year) thì ô lọc Caller hiện và lọc
+  theo `custom_values` của cột đó (tìm trong mọi cột của chương trình, không theo layout người xem). ACA
+  vẫn lọc `caller_email` như cũ. So email không phân biệt hoa thường. Production: 50 hồ sơ Medicare có
+  `caller_2`, đều khớp email tài khoản.
+
 ## 2026-10-20 — Provider Finder: lỗi 405 trên production (đã deploy 2026-10-20)
 
 - **Nguyên nhân** (từ 07e098a, 18/09): commit đó đổi CẢ proxy Apps Script (ContentService → HtmlService,
