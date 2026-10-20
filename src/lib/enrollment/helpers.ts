@@ -9,6 +9,7 @@ const ENROLLMENT_PROGRAM_PREFIX: Record<EnrollmentProgram, string> = {
   aca: "ACA",
   medicare: "MED",
   medicaid: "MCD",
+  other_service: "OTH",
 };
 
 export function enrollmentKey(

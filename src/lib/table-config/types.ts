@@ -3,6 +3,7 @@ export const TABLE_SCOPES = [
   "aca",
   "medicare",
   "medicaid",
+  "other_service",
   "lead",
   // Provider List: bảng tra cứu bác sĩ/cơ sở trong Automation Tool. Dùng chung
   // quyền `automation.provider_finder` với Provider Finder.

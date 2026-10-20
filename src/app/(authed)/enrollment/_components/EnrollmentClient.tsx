@@ -415,6 +415,16 @@ const PROGRAM_HIDDEN_COLUMNS: Record<
     "pcp2025",
     "pcp2026",
   ]),
+  // ACA without its Marketplace-only columns; Caller stays.
+  other_service: new Set([
+    "carrier",
+    "payment",
+    "aca",
+    "consent",
+    "platform",
+    "pcp2025",
+    "pcp2026",
+  ]),
 };
 
 /**
@@ -437,6 +447,7 @@ const PROGRAM_COLUMN_LABELS: Record<
     responsible: "People",
     qc: "Complete",
   },
+  other_service: {},
 };
 
 /**
@@ -461,6 +472,7 @@ const PROGRAM_COLUMN_WIDTHS: Record<
     responsible: 170,
     qc: 96,
   },
+  other_service: {},
 };
 
 /** Cột này có thuộc chương trình đang mở không. */

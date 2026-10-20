@@ -81,6 +81,9 @@ export const REQUIRED_CAPABLE_SYSTEM_KEYS: Record<TableScope, ReadonlySet<string
   medicare: new Set([
     "client", "description", "fub", "due", "stage", "carrier", "pcp2025", "agent", "responsible",
   ]),
+  other_service: new Set([
+    "client", "description", "fub", "due", "stage", "agent", "caller", "responsible",
+  ]),
   lead: new Set(["name", "phone", "email", "assignee", "status"]),
   // Mọi cột văn bản của provider đều có ô nhập thật trong hộp thoại Add
   // address, nên đều đánh Required được. Riêng "source" thì không: nó là cột
@@ -106,6 +109,7 @@ const OPTIONAL_SYSTEM_DETAIL_KEYS: Record<TableScope, ReadonlySet<string>> = {
   aca: new Set(),
   medicare: new Set(),
   medicaid: new Set(),
+  other_service: new Set(),
   provider: new Set(),
   lead: new Set(["createdAt"]),
 };

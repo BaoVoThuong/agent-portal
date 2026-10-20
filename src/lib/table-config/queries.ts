@@ -102,6 +102,25 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("medicaid", "updatedBy", "Last Updated by", "person", 170, true),
     col("medicaid", "updated", "Last Updated", "date", 180, true),
   ],
+  // Other Service (2026-10-21): ACA's system columns minus the Marketplace-only
+  // ones (Carrier, Payment, AC, Consent, Platform, PCP). Year / Broker
+  // Effective Date / Follow up / ID are custom columns copied by the rollout.
+  other_service: [
+    col("other_service", "key", "Key", "text", 10, false, true),
+    col("other_service", "client", "Client Name", "text", 20, false, true),
+    col("other_service", "agent", "Agent", "person", 25),
+    col("other_service", "stage", "Stage", "dropdown", 30),
+    col("other_service", "timeProgress", "Time Progress", "text", 35),
+    col("other_service", "caller", "Caller", "person", 40),
+    col("other_service", "responsible", "Responsible Enroll", "person", 50),
+    col("other_service", "due", "Due Date", "date", 130),
+    col("other_service", "fub", "FUB Link", "link", 140),
+    col("other_service", "createdBy", "Opened by", "person", 150, true),
+    col("other_service", "createdAt", "Created date", "date", 160, true),
+    col("other_service", "updatedBy", "Last Updated by", "person", 170, true),
+    col("other_service", "updated", "Last Updated", "date", 180, true),
+    col("other_service", "qc", "Complete", "checkbox", 190),
+  ],
   medicare: [
     col("medicare", "key", "Key", "text", 10, false, true),
     col("medicare", "client", "Client Name", "text", 20, false, true),

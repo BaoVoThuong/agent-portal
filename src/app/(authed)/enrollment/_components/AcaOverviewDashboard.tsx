@@ -31,8 +31,15 @@ function rememberOverviewSnapshot(key: string, snapshot: AcaOverviewSnapshot): v
   }
 }
 
+const OVERVIEW_PROGRAM_LABEL: Record<EnrollmentProgram, string> = {
+  aca: "ACA",
+  medicare: "Medicare",
+  medicaid: "Medicaid",
+  other_service: "Other Service",
+};
+
 export function AcaOverviewDashboard({ program, from, to, onOpenRecord }: Props) {
-  const programLabel = program === "aca" ? "ACA" : "Medicare";
+  const programLabel = OVERVIEW_PROGRAM_LABEL[program];
   const cacheKey = overviewCacheKey(program, from, to);
   const [snapshot, setSnapshot] = useState<AcaOverviewSnapshot | null>(() => overviewSnapshotCache.get(cacheKey) ?? null);
   const [matrixMode, setMatrixMode] = useState<"occupancy" | "speed">("occupancy");

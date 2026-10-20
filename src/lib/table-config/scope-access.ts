@@ -1,7 +1,7 @@
 import type { TableScope } from "./types";
 
 /** Bảng Health do quyền task quản; bảng lead do quyền lead quản. */
-const TASK_SCOPES: readonly TableScope[] = ["cs", "aca", "medicare", "medicaid"];
+const TASK_SCOPES: readonly TableScope[] = ["cs", "aca", "medicare", "medicaid", "other_service"];
 const LEAD_SCOPES: readonly TableScope[] = ["lead"];
 /** Bảng Provider List do quyền Automation Tool quản. */
 const PROVIDER_SCOPES: readonly TableScope[] = ["provider"];

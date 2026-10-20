@@ -6,6 +6,24 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-21 — Health Other Service Enrollment (chương trình thứ tư; rollout đã chạy production, code đã deploy 2026-10-21)
+
+- **Chương trình mới `other_service`** ("Health Other Service Enrollment", số hồ sơ `OTH-1`…, menu Task
+  Management, quyền task.* như ACA). Dùng chung toàn bộ backend với ACA như Medicaid đã làm; chỉ khác data
+  schema. User chốt 21/10: bỏ Carrier, PCP 2025/2026, Platform, Consent, Payment status, ACA status
+  (`INAPPLICABLE_FIELDS_BY_PROGRAM` + constraint `enrollment_records_other_service_fields_check`) và hai
+  cột tuỳ chỉnh Household/Apply number; GIỮ Caller.
+- **Stage đơn giản**: Need quote (mặc định) / In progress / Enrolled / Cancelled; Enrolled + Cancelled
+  kết thúc và bật Complete (như stage kết thúc của ACA); key stage (bắn thông báo) = Enrolled, Cancelled.
+- **Cột**: copy từ bảng ACA đang chạy — 14 cột hệ thống + 4 cột tuỳ chỉnh Year (kèm option),
+  Broker Effective Date, Follow up, ID.
+- **Overview**: Other Service tính stage chặn theo `is_terminal` như ACA, không có mục "thiếu thông tin"
+  (không còn cột Carrier/PCP/…); nhãn Overview theo đúng chương trình (trước đây non-ACA đều ghi
+  "Medicare"). Bảng /config: Other Service nằm trong nhóm Health (Lead Management lùi một vị trí).
+- **Rollout** `2026-10-21-other-service-enrollment.sql` (một transaction, idempotent; rollback kèm theo):
+  4 program check, 3 scope check, `is_table_scope`, sequence + nhánh trigger OTH, seed stage/cột. Phải chạy
+  TRƯỚC khi deploy code. `schema.sql` cập nhật theo.
+
 ## 2026-10-20 — Enrollment Medicare: bộ lọc Caller (đã deploy 2026-10-20)
 
 - Medicare không có Caller hệ thống (`caller_email` không áp dụng; cột hệ thống đã archive) nên ô lọc

@@ -132,6 +132,13 @@ const menuData: MenuItem[] = [
         anyPermission: [PERMISSIONS.TASK_MANAGE, PERMISSIONS.TASK_WORK],
       },
       {
+        href: "/enrollment?program=other_service",
+        label: "Health Other Service Enrollment",
+        activePath: "/enrollment",
+        activeQuery: { program: "other_service" },
+        anyPermission: [PERMISSIONS.TASK_MANAGE, PERMISSIONS.TASK_WORK],
+      },
+      {
         href: "/tasks/leads",
         label: "Lead Management",
         activePath: "/tasks/leads",

@@ -52,6 +52,18 @@ export const INAPPLICABLE_FIELDS_BY_PROGRAM: Record<
     "payment_status_id",
     "aca_status_id",
   ],
+  // Other Service = ACA bỏ các phần chỉ Marketplace mới có (user chốt
+  // 2026-10-21): không Carrier, PCP, Platform, Consent, Payment, ACA status.
+  // Caller vẫn giữ.
+  other_service: [
+    "carrier_id",
+    "pcp_2025",
+    "pcp_2026",
+    "platform_id",
+    "consent_id",
+    "payment_status_id",
+    "aca_status_id",
+  ],
 };
 
 /** Giữ lại tên cũ cho chỗ đang import; ngữ nghĩa không đổi. */

@@ -1,10 +1,11 @@
-export const ENROLLMENT_PROGRAMS = ["aca", "medicare", "medicaid"] as const;
+export const ENROLLMENT_PROGRAMS = ["aca", "medicare", "medicaid", "other_service"] as const;
 export type EnrollmentProgram = (typeof ENROLLMENT_PROGRAMS)[number];
 
 export const ENROLLMENT_PROGRAM_LABELS: Record<EnrollmentProgram, string> = {
   aca: "Health ACA Enrollment",
   medicare: "Health Medicare Enrollment",
   medicaid: "Health Medicaid Enrollment",
+  other_service: "Health Other Service Enrollment",
 };
 
 export function isEnrollmentProgram(value: unknown): value is EnrollmentProgram {
@@ -50,6 +51,9 @@ export const ENROLLMENT_OPTION_SET_KEYS_BY_PROGRAM: Record<
   // dropdown còn lại của nó, "Who need?" và "Program", là cột tuỳ chỉnh nên
   // giá trị nằm ở table_column_option, không phải ở đây.
   medicaid: ["stage"],
+  // Other Service (2026-10-21): ACA without its Marketplace-only pieces — only
+  // Stage is a system option set; Year stays a custom dropdown.
+  other_service: ["stage"],
 };
 
 export function enrollmentOptionSetKeysForProgram(

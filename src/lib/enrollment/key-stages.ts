@@ -7,6 +7,7 @@ export const KEY_STAGE_LABELS_BY_PROGRAM: Record<
   aca: new Set(["5-ready to enroll", "12-terminated"]),
   medicare: new Set(["5-ready to enroll", "11-terminated"]),
   medicaid: new Set(["urgent", "need apply", "approved"]),
+  other_service: new Set(["enrolled", "cancelled"]),
 };
 
 export function isKeyStage(

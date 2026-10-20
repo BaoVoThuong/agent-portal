@@ -168,7 +168,9 @@ function requiredMissingItems(
 
 function stageIsBlocking(program: EnrollmentProgram, stage: EnrollmentOption | null): boolean {
   if (!stage) return false;
-  if (program === "aca") return Boolean(stage.is_terminal);
+  // Other Service runs ACA's flow on its own short stage list, so its terminal
+  // flag means the same thing; the Medicare label list does not apply to it.
+  if (program === "aca" || program === "other_service") return Boolean(stage.is_terminal);
   return MEDICARE_BLOCKING_STAGE_LABELS.has(normalizeLabel(stage.label));
 }
 
@@ -295,8 +297,14 @@ export function aggregateEnrollmentOverview(input: {
   const activeRecords = input.records.filter((record) => !record.archived_at);
   const today = dateKey(input.now);
   const dueSoonEnd = dateKey(addDays(parseDateKey(today), thresholds.dueSoonDays));
+  // Other Service has none of these fields (no Carrier / PCP / Marketplace
+  // fields), so nothing can be "missing" from it.
   const collectables =
-    input.program === "aca" ? ACA_COLLECTABLE_KEYS : MEDICARE_COLLECTABLE_KEYS;
+    input.program === "aca"
+      ? ACA_COLLECTABLE_KEYS
+      : input.program === "other_service"
+        ? []
+        : MEDICARE_COLLECTABLE_KEYS;
   const derived = activeRecords.map((record) => {
     const stage = record.stage_id ? stageById.get(record.stage_id) ?? null : null;
     const open = !record.closed_at;

@@ -10,6 +10,7 @@ describe("configScopesFor", () => {
       "aca",
       "medicare",
       "medicaid",
+      "other_service",
     ]);
   });
 
@@ -33,7 +34,7 @@ describe("configScopesFor", () => {
     // Lead Management và nhóm Health không đổi.
     expect(
       configScopesFor({ isTaskAdmin: true, isLeadManager: true, isProviderManager: true })
-    ).toEqual(["cs", "aca", "medicare", "medicaid", "lead", "provider"]);
+    ).toEqual(["cs", "aca", "medicare", "medicaid", "other_service", "lead", "provider"]);
   });
 
   it("không có gì thì rỗng", () => {

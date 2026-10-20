@@ -121,6 +121,7 @@ const SCOPE_LABEL: Record<TableScope, string> = {
   aca: "Health ACA Enrollment",
   medicare: "Health Medicare Enrollment",
   medicaid: "Health Medicaid Enrollment",
+  other_service: "Health Other Service Enrollment",
   lead: "Lead Management",
   provider: "Provider List",
 };
