@@ -126,11 +126,16 @@ async function postAppsScriptMaps(
   });
   let redirectCount = 0;
 
-  // Apps Script Web Apps commonly return 302 from script.google.com to
-  // script.googleusercontent.com. Node's automatic 302 handling changes a
-  // POST into a GET, which returns doGet() with HTTP 200 and silently drops
-  // the directions/geocode result. Follow only Google's HTTPS redirect and
-  // resend the original POST body.
+  // Follow only Google's HTTPS redirects, by hand, because the method to use
+  // depends on where the redirect lands:
+  // - script.googleusercontent.com/macros/echo (or a 303): a proxy that
+  //   answers with ContentService JSON (the pre-2026-09-18 version still
+  //   deployed behind production's URL) has already run doPost; the echo URL
+  //   holds its result and answers GET only. Re-sending the POST there was
+  //   the "405" Provider Finder showed on production.
+  // - any other Google hop (e.g. /macros/u/0/s/<id>/exec) has not run doPost
+  //   yet; Node's automatic handling would turn the POST into a GET and get
+  //   doGet() back, so the original POST is sent again.
   while ([301, 302, 303, 307, 308].includes(response.status)) {
     const location = response.headers.get("location");
     if (!location || redirectCount >= 3) {
@@ -148,12 +153,16 @@ async function postAppsScriptMaps(
     }
 
     redirectCount += 1;
-    response = await fetch(redirectUrl, {
-      method: "POST",
-      redirect: "manual",
-      headers,
-      body,
-    });
+    const resultIsReady =
+      response.status === 303 ||
+      (redirectUrl.hostname === "script.googleusercontent.com" &&
+        redirectUrl.pathname.startsWith("/macros/echo"));
+    response = await fetch(
+      redirectUrl,
+      resultIsReady
+        ? { method: "GET", redirect: "manual" }
+        : { method: "POST", redirect: "manual", headers, body },
+    );
   }
   if (redirectCount > 0) {
     logs.push(`apps script redirects: ${redirectCount}`);

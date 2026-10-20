@@ -6,6 +6,17 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-20 — Provider Finder: lỗi 405 trên production (đã deploy 2026-10-20)
+
+- **Nguyên nhân** (từ 07e098a, 18/09): commit đó đổi CẢ proxy Apps Script (ContentService → HtmlService,
+  trả 200 thẳng) LẪN client (tự theo redirect và gửi lại POST). Bản proxy mới chỉ được deploy ở URL trong
+  `.env.local`; URL trên Vercel vẫn trỏ bản cũ trả ContentService → Google redirect sang
+  `script.googleusercontent.com/macros/echo` → client gửi lại POST → 405. Production hỏng từ ~18/09, ít
+  người dùng nên không ai thấy (7 ngày chỉ 4 lượt, đều 502 ngày 20/10).
+- **Sửa** `postAppsScriptMaps`: redirect tới `/macros/echo` (hoặc 303) thì đi theo bằng GET (kết quả
+  doPost đã có sẵn ở đó); hop khác của Google (`/macros/u/0/s/…/exec`) vẫn gửi lại POST. Chạy được với
+  cả proxy cũ lẫn mới (cùng hợp đồng `results`/`origin`). Thêm `maps-service.test.ts`.
+
 ## 2026-10-19 — Chuông thông báo: số chưa đọc luôn về được 0 (đã deploy 2026-10-19)
 
 - **Lỗi**: danh sách chỉ lấy 30 thông báo mới nhất nhưng số "unread" đếm mọi thông báo chưa đọc trong
