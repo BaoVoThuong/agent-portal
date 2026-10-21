@@ -45,7 +45,6 @@ import {
   type DraftMention,
   type MentionPerson,
 } from "@/lib/tasks/mention-draft";
-import { recoverPendingAttachments, uploadAttachment } from "@/lib/tasks/upload-attachment";
 import { moveEnabledChoiceIndex } from "@/lib/ui/option-search";
 import {
   isNearBottom,
@@ -493,16 +492,6 @@ export function CommentThread({
   const optimisticUrlsRef = useRef(new Map<string, string[]>());
   const optimisticFilesRef = useRef(new Map<string, Map<string, File>>());
   const optimisticFileRequestIdsRef = useRef(new Map<string, Map<string, string>>());
-  const recoveredEndpointRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    const endpoint = `${apiBase}/${taskId}/attachments`;
-    if (recoveredEndpointRef.current === endpoint) return;
-    recoveredEndpointRef.current = endpoint;
-    void recoverPendingAttachments(endpoint).then((count) => {
-      if (count > 0) void Promise.resolve(onReload()).catch(() => undefined);
-    });
-  }, [apiBase, taskId, onReload]);
 
   const mutationHeaders = useCallback(
     (contentType?: string): Record<string, string> => ({
@@ -1105,13 +1094,16 @@ export function CommentThread({
         ),
       );
       try {
+        const form = new FormData();
+        form.append("file", file);
+        form.append("comment_id", comment.id);
         const requestIdForFile = optimisticFileRequestIdsRef.current.get(tempId)?.get(fileId);
-        const upload = await uploadAttachment(
-          `${apiBase}/${taskId}/attachments`,
-          file,
-          { commentId: comment.id, clientRequestId: requestIdForFile },
-          mutationHeaders(),
-        );
+        if (requestIdForFile) form.append("client_request_id", requestIdForFile);
+        const upload = await fetch(`${apiBase}/${taskId}/attachments`, {
+          method: "POST",
+          headers: mutationHeaders(),
+          body: form,
+        });
         if (!upload.ok) {
           throw new Error(await readResponseError(upload, "Failed to upload attachment."));
         }
@@ -1240,13 +1232,16 @@ export function CommentThread({
       ),
     );
     try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("comment_id", realId);
       const requestIdForFile = optimisticFileRequestIdsRef.current.get(tempId)?.get(fileId);
-      const upload = await uploadAttachment(
-        `${apiBase}/${taskId}/attachments`,
-        file,
-        { commentId: realId, clientRequestId: requestIdForFile },
-        mutationHeaders(),
-      );
+      if (requestIdForFile) form.append("client_request_id", requestIdForFile);
+      const upload = await fetch(`${apiBase}/${taskId}/attachments`, {
+        method: "POST",
+        headers: mutationHeaders(),
+        body: form,
+      });
       if (!upload.ok) {
         throw new Error(await readResponseError(upload, "Failed to upload attachment."));
       }
@@ -1976,12 +1971,6 @@ function CommentItem({
                   )}
                 </div>
               )}
-
-              {c.fileStates?.some((file) => file.status === "pending" || file.status === "uploading") ? (
-                <p role="status" className="mt-1.5 rounded border border-[#b3d4ff] bg-[#e9f2ff] px-2 py-1.5 text-xs font-semibold text-[#0c66e4]">
-                  Uploading attachment… Keep this tab open until it finishes.
-                </p>
-              ) : null}
 
               {c.fileStates?.some((file) => file.status === "failed") ? (
                 <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px]">

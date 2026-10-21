@@ -78,7 +78,6 @@ import {
 import { LeadDistributeDialog } from "./LeadDistributeDialog";
 import { LeadImportDialog } from "./LeadImportDialog";
 import { Toast } from "../../../_shared/Toast";
-import { uploadAttachment } from "@/lib/tasks/upload-attachment";
 import { LeadOverview } from "./LeadOverview";
 import { LeadTable } from "./LeadTable";
 import { LeadTableSettingsButton } from "./LeadTableSettingsButton";
@@ -1013,12 +1012,14 @@ export function LeadsClient({
         nameOf: (item) => item.name,
         retryHint: "Open the lead to attach them again.",
         upload: async (item) => {
+          const body = new FormData();
+          body.append("file", item.file);
           // Key cố định của file: tải lại không tạo bản trùng.
-          const response = await uploadAttachment(
-            `/api/leads/${lead.id}/attachments`,
-            item.file,
-            { clientRequestId: item.key },
-          );
+          body.append("client_request_id", item.key);
+          const response = await fetch(`/api/leads/${lead.id}/attachments`, {
+            method: "POST",
+            body,
+          });
           return response.ok;
         },
       });

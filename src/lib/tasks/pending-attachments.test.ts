@@ -7,7 +7,6 @@ import {
   type PendingFile,
 } from "./pending-attachments";
 import { LIMITS } from "./attachment-limits";
-import { TASK_ATTACHMENT_MAX_BYTES } from "./attachments";
 
 function file(name: string, size = 10): File {
   return new File([new Uint8Array(size)], name, { type: "application/pdf" });
@@ -52,7 +51,7 @@ describe("pending task attachments", () => {
 
   it("enforces the per-file limit", () => {
     const oversized = file("large.pdf", 1);
-    Object.defineProperty(oversized, "size", { value: TASK_ATTACHMENT_MAX_BYTES + 1 });
+    Object.defineProperty(oversized, "size", { value: 15 * 1024 * 1024 + 1 });
     const result = addPendingFiles([], [oversized]);
     expect(result).toMatchObject({ ok: false, limit: "per_file" });
   });

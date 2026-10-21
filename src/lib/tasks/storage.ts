@@ -13,17 +13,9 @@ export function sanitizeFileName(name: string): string {
   return cleaned.length > 0 ? cleaned : "file";
 }
 
-/**
- * `objectId` is the upload's client_request_id on the direct-to-Storage path,
- * so the route can rebuild the exact path at finalize instead of trusting one
- * sent by the browser, and a retried upload lands on the same object.
- */
-export function buildStoragePath(
-  taskId: string,
-  fileName: string,
-  objectId: string = globalThis.crypto.randomUUID(),
-): string {
-  return `tasks/${taskId}/${objectId}-${sanitizeFileName(fileName)}`;
+export function buildStoragePath(taskId: string, fileName: string): string {
+  const uuid = globalThis.crypto.randomUUID();
+  return `tasks/${taskId}/${uuid}-${sanitizeFileName(fileName)}`;
 }
 
 function isAlreadyExistsError(error: { message?: string; statusCode?: string }) {
@@ -80,86 +72,6 @@ export async function uploadTaskFile(
     .from(TASK_BUCKET)
     .upload(path, data, { contentType, upsert: false });
   if (error) throw new Error(error.message);
-}
-
-export type TaskUploadTicket =
-  | { bucket: string; path: string; token: string; alreadyUploaded: false }
-  | { bucket: string; path: string; token: null; alreadyUploaded: true };
-
-/**
- * A one-time token the browser uses to PUT this exact object straight to
- * Storage, so the bytes never pass through a Vercel Function (4.5MB body cap).
- * Valid for 2 hours and never overwrites; the bucket's size and type limits
- * still apply to the PUT.
- *
- * Storage refuses to sign a path that already holds an object ("The resource
- * already exists", seen on production 2026-10-21). That is a retry whose
- * upload landed but whose finalize did not, so report it instead of failing:
- * the browser skips straight to finalize.
- */
-export async function createTaskUploadTicket(path: string): Promise<TaskUploadTicket> {
-  await ensureTaskBucket();
-  const { data, error } = await getSupabaseAdmin()
-    .storage.from(TASK_BUCKET)
-    .createSignedUploadUrl(path);
-  if (error && isAlreadyExistsError(error as { message?: string; statusCode?: string })) {
-    return { bucket: TASK_BUCKET, path, token: null, alreadyUploaded: true };
-  }
-  if (error || !data) throw new Error(error?.message ?? "Could not prepare the upload.");
-  return { bucket: TASK_BUCKET, path: data.path, token: data.token, alreadyUploaded: false };
-}
-
-export type TaskFileInfo = { size: number; contentType: string | null };
-
-function isNotFoundError(error: { message?: string; status?: number; statusCode?: string }) {
-  return (
-    error.status === 404 ||
-    error.statusCode === "404" ||
-    (error.message?.toLowerCase().includes("not found") ?? false)
-  );
-}
-
-/** Size and content type Storage recorded for an object; null when it does not exist. */
-export async function readTaskFileInfo(path: string): Promise<TaskFileInfo | null> {
-  const { data, error } = await getSupabaseAdmin().storage.from(TASK_BUCKET).info(path);
-  if (error) {
-    if (isNotFoundError(error as { message?: string; status?: number; statusCode?: string })) {
-      return null;
-    }
-    throw new Error(error.message);
-  }
-  return { size: data.size ?? 0, contentType: data.contentType ?? null };
-}
-
-/**
- * The first `byteCount` bytes of an object: enough for the file-signature
- * checks. Stops reading after them even if Storage ignores the Range header,
- * so a 50MB upload is never pulled into the function.
- */
-export async function readTaskFileHead(path: string, byteCount = 512): Promise<ArrayBuffer> {
-  const url = await signTaskFile(path, 60);
-  const response = await fetch(url, {
-    headers: { Range: `bytes=0-${byteCount - 1}` },
-    cache: "no-store",
-  });
-  if (!response.ok || !response.body) {
-    throw new Error(`Could not read the uploaded file (${response.status}).`);
-  }
-  const reader = response.body.getReader();
-  const head = new Uint8Array(byteCount);
-  let length = 0;
-  try {
-    while (length < byteCount) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const part = value.subarray(0, byteCount - length);
-      head.set(part, length);
-      length += part.length;
-    }
-  } finally {
-    await reader.cancel().catch(() => undefined);
-  }
-  return head.slice(0, length).buffer;
 }
 
 export async function signTaskFile(path: string, expiresIn = 3600): Promise<string> {

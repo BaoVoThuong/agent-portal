@@ -27,11 +27,10 @@ describe("attachment validation", () => {
     );
   });
 
-  // Tệp tải thẳng lên Supabase Storage (không qua Vercel nữa), và hằng này
-  // cũng là trần của bucket. Bucket không được vượt "Global file size limit"
-  // của project — gói Free tối đa 50MB. Nâng quá thì updateBucket lỗi và mọi
-  // lượt upload đều hỏng, nên phải nâng cả trần chung trước.
-  it("fits within Supabase's 50MB global upload cap", () => {
-    expect(TASK_ATTACHMENT_MAX_BYTES).toBeLessThanOrEqual(50 * 1024 * 1024);
+  // Tệp đi xuyên qua API route, và Vercel chặn mọi request body trên 4.5MB
+  // trước khi tới code — người dùng chỉ thấy "upload failed" và thử lại mãi.
+  // Trần của app phải thấp hơn để câu báo "chia nhỏ" hiện ra trước.
+  it("stays under Vercel's 4.5MB request body limit", () => {
+    expect(TASK_ATTACHMENT_MAX_BYTES).toBeLessThan(4.5 * 1024 * 1024);
   });
 });

@@ -6,6 +6,19 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-22 — ROLLBACK: bỏ upload đính kèm 50MB, về luồng multipart 4MB như trước
+
+- User yêu cầu ("lỗi quá"). Gỡ code của ee8065e, 9bcabcf, c0c2d52, 6485325 — ba entry đính kèm ngay dưới
+  (50MB, PUT treo, khôi phục ảnh) KHÔNG còn hiệu lực. Các file đính kèm của Task/Enrollment/Leads về đúng bản
+  d833990: upload multipart qua route, tối đa 4MB/tệp (giới hạn body 4.5MB của Vercel).
+- **Giữ nguyên DB**: rollout `2026-10-21-attachment-limits-atomic.sql` đã chạy production nên `schema.sql`,
+  `APPLIED.md`, file rollout giữ như cũ. Code cũ vẫn khớp: `create_task_attachment_atomic` cùng tham số và kiểu
+  trả về, chỉ thêm khoá + kiểm 50 tệp / 250MB (đúng trần app vẫn dùng); `create_lead_attachment_atomic` không
+  được code cũ gọi tới.
+- Bucket `task-attachments` đang 50MB; code cũ tự đặt lại 4MB ở lần upload đầu của mỗi instance
+  (`configureTaskBucket`). File >4MB đã lên trong lúc chạy bản 50MB vẫn xem/tải bình thường (signed URL).
+- Giữ phần P&C Statement (a8f2852).
+
 ## 2026-10-22 — PUT Storage treo sau khi đã lưu file
 
 - Production ghi nhận file đã vào Storage nhưng promise `uploadToSignedUrl` của trình duyệt không hoàn tất,
