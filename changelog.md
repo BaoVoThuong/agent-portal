@@ -14,6 +14,8 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
   kiểm tra object thực tế. Lỗi tạm ở `finalize` được thử lại với cùng request ID để không tạo dòng trùng.
 - Lưu yêu cầu xác nhận đang chờ trong `sessionStorage`; khi mở lại task/comment, thử xác nhận file đã lên rồi
   tải lại danh sách comment. Nếu Storage từ chối chắc chắn vì quá dung lượng thì bỏ yêu cầu chờ.
+- Preview trong comment hiện rõ trạng thái đang tải và nhắc giữ tab mở cho tới khi hoàn tất, tránh nhầm ảnh
+  tạm trên trình duyệt với ảnh đã được lưu.
 
 ## 2026-10-21 — P&C Statement: kéo 5 cột của file vào 5 input (đã deploy 2026-10-21)
 

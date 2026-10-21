@@ -1977,6 +1977,12 @@ function CommentItem({
                 </div>
               )}
 
+              {c.fileStates?.some((file) => file.status === "pending" || file.status === "uploading") ? (
+                <p role="status" className="mt-1.5 rounded border border-[#b3d4ff] bg-[#e9f2ff] px-2 py-1.5 text-xs font-semibold text-[#0c66e4]">
+                  Uploading attachment… Keep this tab open until it finishes.
+                </p>
+              ) : null}
+
               {c.fileStates?.some((file) => file.status === "failed") ? (
                 <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px]">
                   {c.fileStates.filter((file) => file.status === "failed").map((file) => {
