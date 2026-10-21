@@ -35,6 +35,8 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
   `2026-10-21-attachment-limits-atomic.sql` đã chạy trên production trước code, thử giới hạn trong
   transaction rollback và xác nhận không còn dòng thử. Signed upload đúng 50 MiB đã được thử trên
   Storage production: `info.size = 52.428.800` byte; object thử đã xoá.
+- Nút Attach file riêng lẻ giữ lại `File` và request id khi thất bại, hiện nút Retry upload để hoàn tất
+  object đã tải lên mà không bắt người dùng chọn lại và gửi lại 50 MiB.
 
 ## 2026-10-21 — Comment: Enter khi đang @mention bằng bộ gõ tiếng Việt chỉ chọn người, không gửi (đã deploy 2026-10-21)
 
