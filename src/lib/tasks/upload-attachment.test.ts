@@ -45,7 +45,10 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 describe("uploadAttachment", () => {
   it("prepares, PUTs the bytes to Storage with the route's type, then finalizes", async () => {
@@ -132,14 +135,34 @@ describe("uploadAttachment", () => {
   });
 
   it("returns the upload error when the object did not land", async () => {
+    vi.useFakeTimers();
     fetchMock
       .mockResolvedValueOnce(json(TICKET))
-      .mockResolvedValueOnce(json({ error: "The upload did not finish. Please try again." }, 400));
+      .mockResolvedValue(json({ error: "The upload did not finish. Please try again." }, 400));
     browser.uploadToSignedUrl.mockRejectedValue(new Error("Network connection lost"));
 
-    const response = await uploadAttachment(ENDPOINT, file, { clientRequestId: REQUEST_ID });
+    const result = uploadAttachment(ENDPOINT, file, { clientRequestId: REQUEST_ID });
+    await vi.advanceTimersByTimeAsync(30_100);
+    const response = await result;
     expect(response.status).toBe(502);
     expect((await response.json()).error).toBe("Network connection lost");
+  });
+
+  it("keeps confirming when Storage reports an error before the object commits", async () => {
+    vi.useFakeTimers();
+    fetchMock
+      .mockResolvedValueOnce(json(TICKET))
+      .mockResolvedValueOnce(json({ error: "The upload did not finish. Please try again." }, 400))
+      .mockResolvedValueOnce(json({ error: "The upload did not finish. Please try again." }, 400))
+      .mockResolvedValueOnce(json({ attachment: { id: "a-1" } }));
+    browser.uploadToSignedUrl.mockRejectedValue(new Error("Failed to fetch"));
+
+    const result = uploadAttachment(ENDPOINT, file, { clientRequestId: REQUEST_ID });
+    await vi.advanceTimersByTimeAsync(2_100);
+    await vi.advanceTimersByTimeAsync(5_100);
+
+    expect((await result).ok).toBe(true);
+    expect(sentBodies().map((body) => body.action)).toEqual(["prepare", "finalize", "finalize", "finalize"]);
   });
 
   it("retries a transient finalize failure with the same request id", async () => {
@@ -156,6 +179,7 @@ describe("uploadAttachment", () => {
   });
 
   it("recovers a completed PUT after the tab reloads", async () => {
+    vi.useFakeTimers();
     const values = new Map<string, string>();
     vi.stubGlobal("sessionStorage", {
       getItem: (key: string) => values.get(key) ?? null,
@@ -163,18 +187,36 @@ describe("uploadAttachment", () => {
     });
     fetchMock
       .mockResolvedValueOnce(json(TICKET))
-      .mockResolvedValueOnce(json({ error: "The upload did not finish. Please try again." }, 400))
-      .mockResolvedValueOnce(json({ attachment: { id: "a-1" } }));
+      .mockResolvedValue(json({ error: "The upload did not finish. Please try again." }, 400));
     browser.uploadToSignedUrl.mockRejectedValue(new Error("Connection lost"));
 
-    expect((await uploadAttachment(ENDPOINT, file, { commentId: "c-1", clientRequestId: REQUEST_ID })).ok).toBe(false);
+    const result = uploadAttachment(ENDPOINT, file, { commentId: "c-1", clientRequestId: REQUEST_ID });
+    await vi.advanceTimersByTimeAsync(30_100);
+    expect((await result).ok).toBe(false);
+    fetchMock.mockResolvedValueOnce(json({ attachment: { id: "a-1" } }));
     expect(await recoverPendingAttachments(ENDPOINT)).toBe(1);
     expect(await recoverPendingAttachments(ENDPOINT)).toBe(0);
-    expect(sentBodies()[2]).toMatchObject({
+    expect(sentBodies().at(-1)).toMatchObject({
       action: "finalize",
       comment_id: "c-1",
       client_request_id: REQUEST_ID,
     });
+  });
+
+  it("finalizes an uploaded object even when the Storage PUT promise never settles", async () => {
+    vi.useFakeTimers();
+    fetchMock
+      .mockResolvedValueOnce(json(TICKET))
+      .mockResolvedValueOnce(json({ error: "The upload did not finish. Please try again." }, 400))
+      .mockResolvedValueOnce(json({ attachment: { id: "a-1" } }));
+    browser.uploadToSignedUrl.mockReturnValue(new Promise(() => undefined));
+
+    const result = uploadAttachment(ENDPOINT, file, { clientRequestId: REQUEST_ID });
+    await vi.advanceTimersByTimeAsync(2_100);
+    await vi.advanceTimersByTimeAsync(5_100);
+
+    expect((await result).ok).toBe(true);
+    expect(sentBodies().map((body) => body.action)).toEqual(["prepare", "finalize", "finalize"]);
   });
 
   it("passes the route's refusal straight through", async () => {

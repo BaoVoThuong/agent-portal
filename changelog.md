@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-22 — PUT Storage treo sau khi đã lưu file
+
+- Production ghi nhận file đã vào Storage nhưng promise `uploadToSignedUrl` của trình duyệt không hoàn tất,
+  nên bước `finalize` không chạy và comment cứ hiện "Uploading attachment". Trình duyệt giờ chủ động hỏi
+  server theo chu kỳ xem object đã có chưa; khi có, server kiểm tra và ghi attachment bằng request ID cố định,
+  ngay cả khi promise PUT vẫn treo. Nếu PUT báo lỗi trước khi Storage ghi xong, chờ thêm 30 giây để xác nhận
+  thay vì xoá comment ngay. Chu kỳ và thời gian chờ được giới hạn; request xác nhận cũng có timeout.
+
 ## 2026-10-22 — Khôi phục ảnh đính kèm khi PUT đã thành công nhưng trình duyệt mất phản hồi
 
 - Sau khi tải thẳng lên Storage, ảnh chỉ hiện bằng blob URL tạm nếu bước `finalize` chưa ghi dòng
