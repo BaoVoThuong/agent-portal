@@ -6,6 +6,22 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-21 — Enrollment: mọi cột Person tuỳ chỉnh đều cho người được chọn xem hồ sơ (đã deploy 2026-10-21)
+
+- **Trước**: Agent/Assistant (bị giới hạn phạm vi) chỉ xem được hồ sơ ngoài agent mình phụ trách khi là
+  Opened by / Caller / Responsible, hoặc là cột tuỳ chỉnh `monitor` ghi cứng trong code
+  (`VIEWER_PERSON_FIELD_KEYS`). Cột Person tuỳ chỉnh khác thì không cho xem, ví dụ Caller của Medicare
+  (`caller_2`, 50 hồ sơ) và Follow up.
+- **Sau** (user chốt 21/10): mọi cột **Person tuỳ chỉnh, chưa archive** của ACA/Medicare/Medicaid/Other
+  Service có email của mình → mình xem được hồ sơ. Đọc danh sách cột từ `table_column` (`fetchViewerPersonColumns`)
+  trong mỗi request, nên tạo/archive cột ở /config là có hiệu lực ngay, không sửa code. Cột hệ thống giữ luật
+  cũ (Agent theo agent/assistant; Last Updated by không cho xem vì không phải người được giao).
+- So theo cặp (chương trình, key): `follow_up` đang dùng ở Medicare nhưng đã archive ở ACA, nên giá trị cũ
+  bên ACA không cho xem. Bộ lọc danh sách thêm `and(program.eq.<p>,custom_values->>key.eq."email")`
+  mỗi cột; key chỉ nhận `a-z0-9_`. Áp dụng cho danh sách, chi tiết, export, Overview, chuông thông báo và
+  push (lọc nội dung theo quyền xem). Không đổi ai **nhận** thông báo. Đọc cột lỗi thì báo lỗi, không mở
+  rộng quyền. Không cần rollout.
+
 ## 2026-10-21 — Health Other Service Enrollment (chương trình thứ tư; rollout đã chạy production, code đã deploy 2026-10-21)
 
 - **Chương trình mới `other_service`** ("Health Other Service Enrollment", số hồ sơ `OTH-1`…, menu Task

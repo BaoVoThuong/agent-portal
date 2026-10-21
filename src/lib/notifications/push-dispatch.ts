@@ -5,7 +5,12 @@ import { enrollmentDisplayKey } from "@/lib/enrollment/helpers";
 import type { EnrollmentProgram } from "@/lib/enrollment/types";
 import { getUserAccessByEmail } from "@/lib/rbac/access";
 import { buildTaskActor } from "@/lib/tasks/access";
-import { buildEnrollmentScope, isRecordInScope } from "@/lib/enrollment/scope";
+import {
+  buildEnrollmentScope,
+  fetchViewerPersonColumns,
+  isRecordInScope,
+  type ViewerPersonColumn,
+} from "@/lib/enrollment/scope";
 import {
   visibleNotificationTaskIds,
   type NotificationTaskScopeRow,
@@ -72,6 +77,7 @@ export type PushGroup = {
 
 type EnrollmentPushScopeRow = {
   id: string;
+  program: string | null;
   agent_email: string | null;
   caller_email: string | null;
   responsible_enroll_email: string | null;
@@ -89,6 +95,10 @@ async function authorizedDispatchRows(
   const supabase = getSupabaseAdmin();
   const recipients = [...new Set(rows.map((row) => row.recipient_email.trim().toLowerCase()))];
   const visibleByEmail = new Map<string, Set<string>>();
+  // One read per dispatch, shared by every scoped recipient; awaited inside
+  // each recipient's try so a failure suppresses content instead of throwing.
+  let personColumns: Promise<ViewerPersonColumn[]> | null = null;
+  const loadPersonColumns = () => (personColumns ??= fetchViewerPersonColumns(supabase));
   await Promise.all(recipients.map(async (email) => {
     try {
       const access = await getUserAccessByEmail(email);
@@ -100,8 +110,11 @@ async function authorizedDispatchRows(
         const scope = buildEnrollmentScope({
           actor,
           ...(actor.isManager
-            ? { isSelectedAgent: false, assistantAgentEmails: [] }
-            : await freshNotificationMembership(email, supabase)),
+            ? { isSelectedAgent: false, assistantAgentEmails: [], personColumns: [] }
+            : {
+                ...(await freshNotificationMembership(email, supabase)),
+                personColumns: await loadPersonColumns(),
+              }),
         });
         visibleByEmail.set(email, new Set(enrollmentRows
           .filter((record) => !record.archived_at && isRecordInScope(scope, record))

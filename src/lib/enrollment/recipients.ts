@@ -7,6 +7,7 @@ import type { EnrollmentNotificationInsertInput } from "./notifications";
 import { canAccessEnrollment, type EnrollmentActor } from "./access";
 import {
   buildEnrollmentScope,
+  fetchViewerPersonColumns,
   isRecordInScope,
   type EnrollmentScope,
 } from "./scope";
@@ -15,6 +16,7 @@ type RecipientAccountRow = AccessRow & { email: string };
 
 type EnrollmentNotificationRecord = {
   id: string;
+  program: string | null;
   agent_email: string | null;
   caller_email: string | null;
   responsible_enroll_email: string | null;
@@ -62,7 +64,7 @@ export async function loadEnrollmentRecipientScopes(
   const result = new Map<string, EnrollmentScope | null>();
   if (normalizedEmails.length === 0) return result;
 
-  const [accounts, assistantRows, selectedAgents] = await Promise.all([
+  const [accounts, assistantRows, selectedAgents, personColumns] = await Promise.all([
     loadActiveAccounts(normalizedEmails),
     getSupabaseAdmin()
       .from("agent_members")
@@ -70,6 +72,7 @@ export async function loadEnrollmentRecipientScopes(
       .in("cs_email", normalizedEmails)
       .eq("is_assistant", true),
     fetchSelectedAgentEmails(),
+    fetchViewerPersonColumns(),
   ]);
   if (assistantRows.error) throw new Error(assistantRows.error.message);
 
@@ -107,6 +110,7 @@ export async function loadEnrollmentRecipientScopes(
         actor,
         isSelectedAgent: selected.has(email),
         assistantAgentEmails: assistantAgentsByCs.get(email) ?? [],
+        personColumns,
       }),
     );
   }
@@ -150,7 +154,7 @@ async function loadEnrollmentNotificationRecords(
   const { data, error } = await getSupabaseAdmin()
     .from("enrollment_records")
     .select(
-      "id,agent_email,caller_email,responsible_enroll_email,created_by_email,custom_values,archived_at",
+      "id,program,agent_email,caller_email,responsible_enroll_email,created_by_email,custom_values,archived_at",
     )
     .in("id", [...new Set(ids)]);
   if (error) throw new Error(error.message);

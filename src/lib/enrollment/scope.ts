@@ -1,16 +1,36 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchSelectedAgentEmails } from "@/lib/tasks/assignees";
 import { fetchAssistantAgentsForCs } from "@/lib/tasks/membership";
 import type { EnrollmentActor } from "./access";
-import type { EnrollmentRecordWithStats } from "./types";
+import {
+  ENROLLMENT_PROGRAMS,
+  isEnrollmentProgram,
+  type EnrollmentProgram,
+  type EnrollmentRecordWithStats,
+} from "./types";
+
+/**
+ * A custom Person column of one program. Whoever is picked in it can see the
+ * record, the way Caller and Responsible do (user decision 2026-10-21: any
+ * active custom Person column, so a new column works without a code change).
+ */
+export type ViewerPersonColumn = { program: EnrollmentProgram; key: string };
 
 export type EnrollmentScope =
   | { seeAll: true }
-  | { seeAll: false; agentEmails: string[]; viewerEmail: string };
+  | {
+      seeAll: false;
+      agentEmails: string[];
+      viewerEmail: string;
+      personColumns: readonly ViewerPersonColumn[];
+    };
 
 export type EnrollmentScopeInputs = {
   actor: EnrollmentActor;
   isSelectedAgent: boolean;
   assistantAgentEmails: readonly string[];
+  personColumns: readonly ViewerPersonColumn[];
 };
 
 type ScopeableQuery = {
@@ -21,14 +41,12 @@ type ScopeableQuery = {
 
 const NO_SCOPE_RECORD_ID = "00000000-0000-0000-0000-000000000000";
 
-/**
- * Person columns (custom_values keys) that put someone on a record the way
- * Caller and Responsible do: the person picked there can see the record.
- * Medicaid "Monitor" since 2026-10-19.
- */
-export const VIEWER_PERSON_FIELD_KEYS = ["monitor"] as const;
+// Keys come from slugifyColumnKey. Anything else is skipped rather than
+// interpolated into a PostgREST filter.
+const SAFE_COLUMN_KEY = /^[a-z0-9_]+$/;
 
 type ScopedRecord = {
+  program: string | null;
   agent_email: string | null;
   caller_email: string | null;
   responsible_enroll_email: string | null;
@@ -54,10 +72,32 @@ function quoteFilterValue(value: string): string {
 }
 
 /**
+ * Active custom Person columns of every Enrollment program. Read live, so a
+ * column created or archived in /config takes effect on the next request.
+ */
+export async function fetchViewerPersonColumns(
+  supabase: SupabaseClient = getSupabaseAdmin()
+): Promise<ViewerPersonColumn[]> {
+  const { data, error } = await supabase
+    .from("table_column")
+    .select("scope,key")
+    .in("scope", [...ENROLLMENT_PROGRAMS])
+    .eq("type", "person")
+    .eq("is_system", false)
+    .is("archived_at", null);
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as { scope: string; key: string }[]).flatMap((row) =>
+    isEnrollmentProgram(row.scope) && SAFE_COLUMN_KEY.test(row.key)
+      ? [{ program: row.scope, key: row.key }]
+      : []
+  );
+}
+
+/**
  * Managers and plain workers see the shared queue. Agents and promoted
  * assistants are restricted to records owned by agents they cover, plus
- * records where they are the creator, caller, or responsible enrollment
- * owner.
+ * records where they are the creator, caller, responsible enrollment owner,
+ * or the person picked in a custom Person column.
  */
 export async function resolveEnrollmentScope(
   actor: EnrollmentActor
@@ -66,11 +106,17 @@ export async function resolveEnrollmentScope(
   // a transient membership-table failure cannot block their shared queue.
   if (actor.isManager) return { seeAll: true };
   if (!actor.isWorker) {
-    return { seeAll: false, agentEmails: [], viewerEmail: normalize(actor.email) };
+    return {
+      seeAll: false,
+      agentEmails: [],
+      viewerEmail: normalize(actor.email),
+      personColumns: await fetchViewerPersonColumns(),
+    };
   }
-  const [selectedAgentEmails, assistantAgents] = await Promise.all([
+  const [selectedAgentEmails, assistantAgents, personColumns] = await Promise.all([
     fetchSelectedAgentEmails(),
     fetchAssistantAgentsForCs(actor.email),
+    fetchViewerPersonColumns(),
   ]);
   const normalizedActor = normalize(actor.email);
   return buildEnrollmentScope({
@@ -79,6 +125,7 @@ export async function resolveEnrollmentScope(
       (email) => normalize(email) === normalizedActor
     ),
     assistantAgentEmails: assistantAgents,
+    personColumns,
   });
 }
 
@@ -92,11 +139,12 @@ export function buildEnrollmentScope({
   actor,
   isSelectedAgent,
   assistantAgentEmails,
+  personColumns,
 }: EnrollmentScopeInputs): EnrollmentScope {
   if (actor.isManager) return { seeAll: true };
   const viewerEmail = normalize(actor.email);
   if (!actor.isWorker) {
-    return { seeAll: false, agentEmails: [], viewerEmail };
+    return { seeAll: false, agentEmails: [], viewerEmail, personColumns };
   }
   if (!isSelectedAgent && assistantAgentEmails.length === 0) {
     return { seeAll: true };
@@ -104,6 +152,7 @@ export function buildEnrollmentScope({
   return {
     seeAll: false,
     viewerEmail,
+    personColumns,
     agentEmails: [
       ...new Set(
         [
@@ -119,7 +168,7 @@ export function buildEnrollmentScope({
 
 /**
  * Fail closed: a null-agent record is visible only via direct assignment
- * (creator, Caller, Responsible, or a viewer Person column such as Monitor).
+ * (creator, Caller, Responsible, or a custom Person column of its program).
  */
 export function isRecordInScope(scope: EnrollmentScope, record: ScopedRecord): boolean {
   if (scope.seeAll) return true;
@@ -130,9 +179,9 @@ export function isRecordInScope(scope: EnrollmentScope, record: ScopedRecord): b
       record.created_by_email,
       record.caller_email,
       record.responsible_enroll_email,
-      ...VIEWER_PERSON_FIELD_KEYS.flatMap((key) =>
-        personFieldEmails(record.custom_values?.[key])
-      ),
+      ...scope.personColumns
+        .filter((column) => column.program === record.program)
+        .flatMap((column) => personFieldEmails(record.custom_values?.[column.key])),
     ].some((email) => normalize(email) === viewerEmail)
   ) {
     return true;
@@ -171,7 +220,12 @@ export function applyEnrollmentScope<TQuery>(
       `created_by_email.eq.${quotedViewer}`,
       `caller_email.eq.${quotedViewer}`,
       `responsible_enroll_email.eq.${quotedViewer}`,
-      ...VIEWER_PERSON_FIELD_KEYS.map((key) => `custom_values->>${key}.eq.${quotedViewer}`)
+      ...scope.personColumns
+        .filter((column) => SAFE_COLUMN_KEY.test(column.key))
+        .map(
+          (column) =>
+            `and(program.eq.${column.program},custom_values->>${column.key}.eq.${quotedViewer})`
+        )
     );
   }
   if (filters.length === 0) {

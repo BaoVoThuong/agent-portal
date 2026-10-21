@@ -15,7 +15,11 @@ import {
   type NotificationTaskScopeRow,
 } from "@/lib/notifications/task-visibility";
 import { canAccessEnrollment } from "@/lib/enrollment/access";
-import { buildEnrollmentScope, isRecordInScope } from "@/lib/enrollment/scope";
+import {
+  buildEnrollmentScope,
+  fetchViewerPersonColumns,
+  isRecordInScope,
+} from "@/lib/enrollment/scope";
 import { freshNotificationMembership } from "@/lib/notifications/membership";
 import { alertsMutedFromRow } from "@/lib/notifications/alert-preferences";
 import {
@@ -528,8 +532,11 @@ export async function GET(req: Request) {
       enrollmentScope = buildEnrollmentScope({
         actor: viewerActor,
         ...(viewerActor.isManager
-          ? { isSelectedAgent: false, assistantAgentEmails: [] }
-          : await freshNotificationMembership(email, supabase)),
+          ? { isSelectedAgent: false, assistantAgentEmails: [], personColumns: [] }
+          : await Promise.all([
+              freshNotificationMembership(email, supabase),
+              fetchViewerPersonColumns(supabase),
+            ]).then(([membership, personColumns]) => ({ ...membership, personColumns }))),
       });
     } catch (error) {
       // A scope lookup failure must redact content instead of turning an old
@@ -542,6 +549,7 @@ export async function GET(req: Request) {
   const enrollmentAccessById = new Map(
     ((enrollmentTitlesRes.data ?? []) as Array<{
       id: string;
+      program: string | null;
       agent_email: string | null;
       caller_email: string | null;
       responsible_enroll_email: string | null;
