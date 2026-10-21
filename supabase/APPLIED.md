@@ -13,6 +13,12 @@ Ba thư mục, ba vai trò khác nhau:
 
 ---
 
+## 2026-10-21 — Giới hạn đính kèm nguyên tử cho Task và Lead
+
+Đã chạy `rollouts/2026-10-21-attachment-limits-atomic.sql` trên EPS Portal production trước khi deploy luồng upload 50 MB. RPC Task khóa task rồi kiểm 50 file / 250 MB ngay trước insert; RPC Lead mới khóa lead rồi kiểm 50 file. Đã thử hai giới hạn trong một transaction rollback trên production: file Task thứ sáu 50 MB và file Lead thứ 51 đều bị từ chối. Không còn dòng thử sau rollback; chỉ `service_role` gọi được RPC Lead.
+
+---
+
 ## 2026-10-19 — Xóa Role nguyên tử
 
 Đã chạy `rollouts/2026-10-18-delete-role-atomic.sql` trên Portal production bằng Supabase CLI trước khi deploy API mới. Migration chỉ tạo RPC `delete_role_atomic`, không chuyển account hoặc sửa Role/permission. Kiểm sau khi chạy: RPC tồn tại, chỉ `service_role` được execute; 49 account, 47 active và 49 dòng `user_roles` như trước. RPC đã được thử trên Postgres tạm với chuyển Role hợp lệ, chặn vượt trần quyền và rollback khi DELETE thất bại.

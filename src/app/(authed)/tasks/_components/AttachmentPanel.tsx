@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Paperclip, Trash2 } from "lucide-react";
 import type { SignedAttachment } from "@/lib/tasks/detail";
+import { uploadAttachment } from "@/lib/tasks/upload-attachment";
 import {
   attachmentTooLargeMessage,
   TASK_ATTACHMENT_MAX_BYTES,
@@ -41,16 +42,14 @@ export function AttachmentPanel({
 
     setBusy(true);
     try {
-      const form = new FormData();
-      form.append("file", file);
-      form.append("client_request_id", crypto.randomUUID());
-      const res = await fetch(`${apiBase}/${taskId}/attachments`, {
-        method: "POST",
-        headers: mutationSourceId && mutationSourceHeader
+      const res = await uploadAttachment(
+        `${apiBase}/${taskId}/attachments`,
+        file,
+        { clientRequestId: crypto.randomUUID() },
+        mutationSourceId && mutationSourceHeader
           ? { [mutationSourceHeader]: mutationSourceId }
-          : undefined,
-        body: form,
-      });
+          : {},
+      );
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as
           | { error?: string }

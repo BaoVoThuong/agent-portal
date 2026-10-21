@@ -16,6 +16,14 @@ import {
   TASK_ATTACHMENT_MAX_BYTES,
   validateAttachmentFile,
 } from "@/lib/tasks/attachments";
+import { createTaskUploadTicket } from "@/lib/tasks/storage";
+import {
+  directUploadTicketBody,
+  isDirectUploadRequest,
+  readDirectUploadRequest,
+  verifyDirectUpload,
+  type DirectUploadRequest,
+} from "@/lib/tasks/direct-upload";
 import {
   enrollmentRecordOwnerEmails,
   insertEnrollmentNotifications,
@@ -78,31 +86,46 @@ export async function POST(request: Request, { params }: Ctx) {
     return NextResponse.json({ error: context.error }, { status: context.status });
   }
 
-  const form = await request.formData().catch(() => null);
-  const file = form?.get("file");
-  if (!(file instanceof File)) {
-    return NextResponse.json({ error: "No file provided." }, { status: 400 });
+  // JSON = direct-to-Storage upload (prepare / finalize); multipart = the old
+  // path, kept for tabs opened before 2026-10-21 (still capped by Vercel).
+  let direct: DirectUploadRequest | null = null;
+  let file: File | null = null;
+  let commentId: string | null;
+  let clientRequestId: string | null;
+  if (isDirectUploadRequest(request)) {
+    const parsed = await readDirectUploadRequest(request);
+    if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+    direct = parsed.upload;
+    commentId = direct.commentId;
+    clientRequestId = direct.clientRequestId;
+  } else {
+    const form = await request.formData().catch(() => null);
+    const formFile = form?.get("file");
+    if (!(formFile instanceof File)) {
+      return NextResponse.json({ error: "No file provided." }, { status: 400 });
+    }
+    if (formFile.size > TASK_ATTACHMENT_MAX_BYTES) {
+      return NextResponse.json(
+        { error: attachmentTooLargeMessage() },
+        { status: 400 }
+      );
+    }
+    file = formFile;
+    const rawCommentId = form?.get("comment_id");
+    commentId =
+      typeof rawCommentId === "string" && rawCommentId.trim() !== ""
+        ? rawCommentId.trim()
+        : null;
+    const rawClientRequestId = form?.get("client_request_id");
+    clientRequestId =
+      typeof rawClientRequestId === "string" && rawClientRequestId.trim() !== ""
+        ? rawClientRequestId.trim()
+        : null;
+    if (clientRequestId !== null && !UUID_RE.test(clientRequestId)) {
+      return NextResponse.json({ error: "Invalid request id." }, { status: 400 });
+    }
   }
-  if (file.size > TASK_ATTACHMENT_MAX_BYTES) {
-    return NextResponse.json(
-      { error: attachmentTooLargeMessage() },
-      { status: 400 }
-    );
-  }
-
-  const rawCommentId = form?.get("comment_id");
-  const commentId =
-    typeof rawCommentId === "string" && rawCommentId.trim() !== ""
-      ? rawCommentId.trim()
-      : null;
-  const rawClientRequestId = form?.get("client_request_id");
-  const clientRequestId =
-    typeof rawClientRequestId === "string" && rawClientRequestId.trim() !== ""
-      ? rawClientRequestId.trim()
-      : null;
-  if (clientRequestId !== null && !UUID_RE.test(clientRequestId)) {
-    return NextResponse.json({ error: "Invalid request id." }, { status: 400 });
-  }
+  const fileName = direct ? direct.fileName : file!.name;
 
   if (commentId) {
     const { data: comment } = await context.supabase
@@ -141,10 +164,15 @@ export async function POST(request: Request, { params }: Ctx) {
     }
   }
 
-  const dataBuffer = await file.arrayBuffer();
-  const validation = validateAttachmentFile(file.name, dataBuffer);
-  if (!validation.ok) {
-    return NextResponse.json({ error: validation.error }, { status: 400 });
+  let dataBuffer: ArrayBuffer | null = null;
+  let legacyContentType: string | null = null;
+  if (file) {
+    dataBuffer = await file.arrayBuffer();
+    const validation = validateAttachmentFile(file.name, dataBuffer);
+    if (!validation.ok) {
+      return NextResponse.json({ error: validation.error }, { status: 400 });
+    }
+    legacyContentType = validation.contentType;
   }
 
   if (clientRequestId) {
@@ -182,30 +210,68 @@ export async function POST(request: Request, { params }: Ctx) {
     }
   }
 
-  const storagePath = buildEnrollmentStoragePath(id, file.name);
-  let signedUrl: string;
-  try {
-    await uploadTaskFile(storagePath, dataBuffer, validation.contentType);
-    // Sign before creating metadata so a signing failure cannot leave a DB row
-    // that makes the next upload appear to have failed and invites duplicates.
-    signedUrl = await signTaskFile(storagePath);
-  } catch (error) {
+  if (direct?.action === "prepare") {
     try {
-      await removeTaskFile(storagePath);
-    } catch (cleanupError) {
-      console.error("Enrollment attachment cleanup failed after upload error", {
-        recordId: id,
-        storagePath,
-        error: cleanupError,
-      });
+      const ticket = await createTaskUploadTicket(
+        buildEnrollmentStoragePath(id, fileName, direct.clientRequestId),
+      );
+      return NextResponse.json(directUploadTicketBody(ticket, fileName));
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Could not prepare the upload." },
+        { status: 500 },
+      );
     }
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Could not upload attachment.",
-      },
-      { status: 500 }
-    );
+  }
+
+  let storagePath: string;
+  let contentType: string;
+  let sizeBytes: number;
+  let signedUrl: string;
+  if (direct) {
+    storagePath = buildEnrollmentStoragePath(id, fileName, direct.clientRequestId);
+    const verified = await verifyDirectUpload(storagePath, fileName);
+    if (!verified.ok) {
+      return NextResponse.json({ error: verified.error }, { status: verified.status });
+    }
+    contentType = verified.contentType;
+    sizeBytes = verified.size;
+    try {
+      signedUrl = await signTaskFile(storagePath);
+    } catch {
+      // Keep the object: a retry finalizes it without uploading again.
+      return NextResponse.json(
+        { error: "Could not prepare the attachment link. Please try again." },
+        { status: 500 },
+      );
+    }
+  } else {
+    storagePath = buildEnrollmentStoragePath(id, fileName);
+    contentType = legacyContentType!;
+    sizeBytes = file!.size;
+    try {
+      await uploadTaskFile(storagePath, dataBuffer!, contentType);
+      // Sign before creating metadata so a signing failure cannot leave a DB row
+      // that makes the next upload appear to have failed and invites duplicates.
+      signedUrl = await signTaskFile(storagePath);
+    } catch (error) {
+      try {
+        await removeTaskFile(storagePath);
+      } catch (cleanupError) {
+        console.error("Enrollment attachment cleanup failed after upload error", {
+          recordId: id,
+          storagePath,
+          error: cleanupError,
+        });
+      }
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error ? error.message : "Could not upload attachment.",
+        },
+        { status: 500 }
+      );
+    }
   }
 
   const { data, error } = await context.supabase
@@ -214,9 +280,9 @@ export async function POST(request: Request, { params }: Ctx) {
       record_id: id,
       comment_id: commentId,
       storage_path: storagePath,
-      file_name: file.name,
-      mime_type: validation.contentType,
-      size_bytes: file.size,
+      file_name: fileName,
+      mime_type: contentType,
+      size_bytes: sizeBytes,
       uploaded_by: context.actor.email,
       client_request_id: clientRequestId,
     })
@@ -237,9 +303,13 @@ export async function POST(request: Request, { params }: Ctx) {
         .eq("uploaded_by", context.actor.email)
         .eq("client_request_id", clientRequestId)
         .maybeSingle();
-      await removeTaskFile(storagePath).catch((cleanupError) => {
-        console.error("Enrollment duplicate attachment cleanup failed", cleanupError);
-      });
+      // A direct upload's path comes from the request id, so the winner points
+      // at this very object; only a legacy retry left a second copy behind.
+      if (!direct) {
+        await removeTaskFile(storagePath).catch((cleanupError) => {
+          console.error("Enrollment duplicate attachment cleanup failed", cleanupError);
+        });
+      }
       if (!existingError && existing) {
         try {
           return NextResponse.json({
@@ -266,14 +336,18 @@ export async function POST(request: Request, { params }: Ctx) {
         return NextResponse.json({ error: existingError.message }, { status: 500 });
       }
     }
-    try {
-      await removeTaskFile(storagePath);
-    } catch (cleanupError) {
-      console.error("Enrollment attachment cleanup failed after metadata error", {
-        recordId: id,
-        storagePath,
-        error: cleanupError,
-      });
+    // The insert may have committed even if its response failed. A direct
+    // upload has a stable path, so leave it for a later idempotent retry.
+    if (!direct) {
+      try {
+        await removeTaskFile(storagePath);
+      } catch (cleanupError) {
+        console.error("Enrollment attachment cleanup failed after metadata error", {
+          recordId: id,
+          storagePath,
+          error: cleanupError,
+        });
+      }
     }
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
@@ -295,7 +369,7 @@ export async function POST(request: Request, { params }: Ctx) {
         record_id: id,
         actor_email: context.actor.email,
         type: "attachment_added",
-        meta: { file_name: file.name },
+        meta: { file_name: fileName },
       });
       if (activityError) sideEffectWarnings.push(`Attachment activity failed: ${activityError.message}`);
       const recipients = uniqueEnrollmentNotificationRecipients(
@@ -309,7 +383,7 @@ export async function POST(request: Request, { params }: Ctx) {
             record_id: id,
             type: "attachment_added",
             actor_email: context.actor.email,
-            detail: file.name,
+            detail: fileName,
           })),
         );
       } catch (notificationError) {

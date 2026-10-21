@@ -45,6 +45,7 @@ import {
   type DraftMention,
   type MentionPerson,
 } from "@/lib/tasks/mention-draft";
+import { uploadAttachment } from "@/lib/tasks/upload-attachment";
 import { moveEnabledChoiceIndex } from "@/lib/ui/option-search";
 import {
   isNearBottom,
@@ -1094,16 +1095,13 @@ export function CommentThread({
         ),
       );
       try {
-        const form = new FormData();
-        form.append("file", file);
-        form.append("comment_id", comment.id);
         const requestIdForFile = optimisticFileRequestIdsRef.current.get(tempId)?.get(fileId);
-        if (requestIdForFile) form.append("client_request_id", requestIdForFile);
-        const upload = await fetch(`${apiBase}/${taskId}/attachments`, {
-          method: "POST",
-          headers: mutationHeaders(),
-          body: form,
-        });
+        const upload = await uploadAttachment(
+          `${apiBase}/${taskId}/attachments`,
+          file,
+          { commentId: comment.id, clientRequestId: requestIdForFile },
+          mutationHeaders(),
+        );
         if (!upload.ok) {
           throw new Error(await readResponseError(upload, "Failed to upload attachment."));
         }
@@ -1232,16 +1230,13 @@ export function CommentThread({
       ),
     );
     try {
-      const form = new FormData();
-      form.append("file", file);
-      form.append("comment_id", realId);
       const requestIdForFile = optimisticFileRequestIdsRef.current.get(tempId)?.get(fileId);
-      if (requestIdForFile) form.append("client_request_id", requestIdForFile);
-      const upload = await fetch(`${apiBase}/${taskId}/attachments`, {
-        method: "POST",
-        headers: mutationHeaders(),
-        body: form,
-      });
+      const upload = await uploadAttachment(
+        `${apiBase}/${taskId}/attachments`,
+        file,
+        { commentId: realId, clientRequestId: requestIdForFile },
+        mutationHeaders(),
+      );
       if (!upload.ok) {
         throw new Error(await readResponseError(upload, "Failed to upload attachment."));
       }

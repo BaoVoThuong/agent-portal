@@ -5,10 +5,18 @@ import { buildTaskActor, canViewTask, canMutateTask } from "@/lib/tasks/access";
 import { fetchTaskAssigneeEmails, isTaskAssignee } from "@/lib/tasks/assignees";
 import {
   buildStoragePath,
+  createTaskUploadTicket,
   uploadTaskFile,
   signTaskFile,
   removeTaskFile,
 } from "@/lib/tasks/storage";
+import {
+  directUploadTicketBody,
+  isDirectUploadRequest,
+  readDirectUploadRequest,
+  verifyDirectUpload,
+  type DirectUploadRequest,
+} from "@/lib/tasks/direct-upload";
 import { isTaskParticipant } from "@/lib/tasks/participants";
 import {
   actorSeesAllTasks,
@@ -136,26 +144,44 @@ export async function POST(req: Request, { params }: Ctx) {
   if (!(await canViewResolved(r.actor, r.task, id)))
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
-  const form = await req.formData().catch(() => null);
-  const file = form?.get("file");
-  if (!(file instanceof File))
-    return NextResponse.json({ error: "No file provided." }, { status: 400 });
-  if (file.size > TASK_ATTACHMENT_MAX_BYTES)
-    return NextResponse.json(
-      { error: attachmentTooLargeMessage() },
-      { status: 400 }
-    );
+  // JSON = direct-to-Storage upload (prepare / finalize); multipart = the old
+  // path, kept for tabs opened before 2026-10-21 (still capped by Vercel).
+  let direct: DirectUploadRequest | null = null;
+  let file: File | null = null;
+  let commentId: string | null;
+  let silent: boolean;
+  let requestId: string | null;
+  if (isDirectUploadRequest(req)) {
+    const parsed = await readDirectUploadRequest(req);
+    if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+    direct = parsed.upload;
+    commentId = direct.commentId;
+    silent = direct.silent;
+    requestId = direct.clientRequestId;
+  } else {
+    const form = await req.formData().catch(() => null);
+    const formFile = form?.get("file");
+    if (!(formFile instanceof File))
+      return NextResponse.json({ error: "No file provided." }, { status: 400 });
+    if (formFile.size > TASK_ATTACHMENT_MAX_BYTES)
+      return NextResponse.json(
+        { error: attachmentTooLargeMessage() },
+        { status: 400 }
+      );
+    file = formFile;
 
-  const rawCid = form?.get("comment_id");
-  const commentId = typeof rawCid === "string" && rawCid ? rawCid : null;
-  const silent = form?.get("silent") === "1";
+    const rawCid = form?.get("comment_id");
+    commentId = typeof rawCid === "string" && rawCid ? rawCid : null;
+    silent = form?.get("silent") === "1";
 
-  const rawRequestId = form?.get("client_request_id");
-  const requestId =
-    typeof rawRequestId === "string" && rawRequestId ? rawRequestId : null;
-  if (requestId !== null && !UUID_RE.test(requestId)) {
-    return NextResponse.json({ error: "Invalid request id." }, { status: 400 });
+    const rawRequestId = form?.get("client_request_id");
+    requestId =
+      typeof rawRequestId === "string" && rawRequestId ? rawRequestId : null;
+    if (requestId !== null && !UUID_RE.test(requestId)) {
+      return NextResponse.json({ error: "Invalid request id." }, { status: 400 });
+    }
   }
+  const fileName = direct ? direct.fileName : file!.name;
 
   if (commentId) {
     // Comment attachment: any viewer (incl. participants) may attach to their OWN comment.
@@ -176,10 +202,66 @@ export async function POST(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
   }
 
-  // Re-check the running count and aggregate before reading/validating bytes
-  // so sequential retries cannot grow either a comment or task attachment set
-  // beyond the shared limits.
-  {
+  // A retried prepare after the file was already recorded: hand back that
+  // attachment so the browser skips the upload. Finalize replays through the
+  // RPC below, which keys on the same request id.
+  if (direct?.action === "prepare") {
+    const { data: existing, error: existingError } = await r.supabase
+      .from("task_attachments")
+      .select("id,file_name,mime_type,size_bytes,storage_path,created_at")
+      .eq("task_id", id)
+      .eq("uploaded_by", r.actor.email)
+      .eq("client_request_id", direct.clientRequestId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (existingError) {
+      return NextResponse.json({ error: existingError.message }, { status: 500 });
+    }
+    if (existing) {
+      const row = existing as {
+        id: string;
+        file_name: string;
+        mime_type: string | null;
+        size_bytes: number | null;
+        storage_path: string;
+        created_at: string;
+      };
+      let url: string | null = null;
+      try {
+        url = await signTaskFile(row.storage_path);
+      } catch {
+        url = null;
+      }
+      return NextResponse.json({
+        attachment: {
+          id: row.id,
+          file_name: row.file_name,
+          mime_type: row.mime_type,
+          size_bytes: row.size_bytes,
+          created_at: row.created_at,
+          url,
+        },
+        warnings: [],
+      });
+    }
+  }
+
+  // Finalize trusts only the size Storage recorded, so verify the object before
+  // the running limits below see it.
+  let verified: { contentType: string; size: number } | null = null;
+  if (direct?.action === "finalize") {
+    const result = await verifyDirectUpload(
+      buildStoragePath(id, fileName, direct.clientRequestId),
+      fileName,
+    );
+    if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
+    verified = result;
+  }
+  const fileSize = verified ? verified.size : direct ? direct.size : file!.size;
+
+  // Prepare can refuse early. Finalize goes to the locked RPC below: a stale
+  // read here could reject a replay and delete the object its row points to.
+  if (direct?.action !== "finalize") {
     let existingQuery = r.supabase
       .from("task_attachments")
       .select("size_bytes")
@@ -188,6 +270,12 @@ export async function POST(req: Request, { params }: Ctx) {
     existingQuery = commentId
       ? existingQuery.eq("comment_id", commentId)
       : existingQuery.is("comment_id", null);
+    // A replayed finalize must not count its own already-recorded row twice.
+    if (requestId) {
+      existingQuery = existingQuery.or(
+        `client_request_id.is.null,client_request_id.neq.${requestId}`,
+      );
+    }
     const { data: existing, error: existingError } = await existingQuery;
     if (existingError) {
       return NextResponse.json({ error: existingError.message }, { status: 500 });
@@ -195,31 +283,53 @@ export async function POST(req: Request, { params }: Ctx) {
     const existingSizes = ((existing ?? []) as { size_bytes: number | null }[]).map(
       (row) => row.size_bytes ?? 0,
     );
-    const limits = checkOperationLimits({ textLength: 0, sizes: [...existingSizes, file.size] });
+    const limits = checkOperationLimits({ textLength: 0, sizes: [...existingSizes, fileSize] });
     if (!limits.ok) {
       return NextResponse.json({ error: limits.message }, { status: 400 });
     }
   }
 
-  const fileData = await file.arrayBuffer();
-  const validation = validateAttachmentFile(file.name, fileData);
-  if (!validation.ok) {
-    return NextResponse.json({ error: validation.error }, { status: 400 });
+  if (direct?.action === "prepare") {
+    try {
+      const ticket = await createTaskUploadTicket(
+        buildStoragePath(id, fileName, direct.clientRequestId),
+      );
+      return NextResponse.json(directUploadTicketBody(ticket, fileName));
+    } catch (error) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Could not prepare the upload." },
+        { status: 500 },
+      );
+    }
   }
 
-  const path = buildStoragePath(id, file.name);
-  try {
-    await uploadTaskFile(path, fileData, validation.contentType);
-  } catch (error) {
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Could not upload attachment.",
-      },
-      { status: 500 }
-    );
+  let path: string;
+  let contentType: string;
+  if (verified && direct) {
+    path = buildStoragePath(id, fileName, direct.clientRequestId);
+    contentType = verified.contentType;
+  } else {
+    const fileData = await file!.arrayBuffer();
+    const validation = validateAttachmentFile(fileName, fileData);
+    if (!validation.ok) {
+      return NextResponse.json({ error: validation.error }, { status: 400 });
+    }
+
+    path = buildStoragePath(id, fileName);
+    contentType = validation.contentType;
+    try {
+      await uploadTaskFile(path, fileData, contentType);
+    } catch (error) {
+      return NextResponse.json(
+        {
+          error:
+            error instanceof Error
+              ? error.message
+              : "Could not upload attachment.",
+        },
+        { status: 500 }
+      );
+    }
   }
 
   // Sign before the metadata transaction. A signing outage must not leave a
@@ -228,9 +338,12 @@ export async function POST(req: Request, { params }: Ctx) {
   try {
     uploadedUrl = await signTaskFile(path);
   } catch {
-    await removeTaskFile(path).catch((cleanupError) =>
-      console.warn("[attachment] failed to compensate unsigned upload", cleanupError)
-    );
+    // A direct upload stays so a retry can finalize it without re-uploading.
+    if (!direct) {
+      await removeTaskFile(path).catch((cleanupError) =>
+        console.warn("[attachment] failed to compensate unsigned upload", cleanupError)
+      );
+    }
     return NextResponse.json(
       { error: "Could not prepare the attachment link. Please try again." },
       { status: 500 }
@@ -242,17 +355,35 @@ export async function POST(req: Request, { params }: Ctx) {
       p_task_id: id,
       p_comment_id: commentId,
       p_storage_path: path,
-      p_file_name: file.name,
-      p_mime_type: validation.contentType,
-      p_size_bytes: file.size,
+      p_file_name: fileName,
+      p_mime_type: contentType,
+      p_size_bytes: fileSize,
       p_uploaded_by: r.actor.email,
       p_client_request_id: requestId,
     })
     .single();
   if (error) {
-    await removeTaskFile(path).catch((cleanupError) =>
-      console.warn("[attachment] failed to compensate uncommitted upload", cleanupError)
-    );
+    const limitMessage = error.message.includes("ATTACHMENT_AGGREGATE_LIMIT")
+      ? "Attachments are too large in total (max 250MB)."
+      : error.message.includes("ATTACHMENT_COUNT_LIMIT")
+        ? "Too many files (max 50 per comment)."
+        : error.message.includes("ATTACHMENT_FILE_LIMIT")
+          ? attachmentTooLargeMessage()
+          : null;
+    // An unknown RPC/transport error may arrive after the transaction commits.
+    // The direct object has a stable path and must survive for an idempotent
+    // retry; only a definite refusal makes it safe to remove.
+    const definiteRefusal = Boolean(limitMessage) ||
+      error.message.includes("INVALID_COMMENT") ||
+      error.message.includes("TASK_NOT_FOUND");
+    if (!direct || definiteRefusal) {
+      await removeTaskFile(path).catch((cleanupError) =>
+        console.warn("[attachment] failed to compensate uncommitted upload", cleanupError)
+      );
+    }
+    if (limitMessage) {
+      return NextResponse.json({ error: limitMessage }, { status: 400 });
+    }
     if (error.message.includes("INVALID_COMMENT")) {
       return NextResponse.json({ error: "Invalid comment." }, { status: 400 });
     }
@@ -347,7 +478,7 @@ export async function POST(req: Request, { params }: Ctx) {
             task_id: id,
             type: "attachment_added",
             actor_email: r.actor.email,
-            detail: file.name,
+            detail: fileName,
           }))
         );
       },

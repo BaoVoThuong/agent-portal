@@ -6,6 +6,36 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-21 — File đính kèm tối đa 50MB: trình duyệt tải thẳng lên Supabase Storage
+
+- **Vì sao**: Medicaid cần đính kèm application scan lớn. Trần cũ 4MB/tệp vì tệp đi xuyên API route và Vercel
+  chặn mọi request body > 4.5MB (không nâng được; Vercel khuyên upload thẳng từ trình duyệt). User chốt 50MB.
+- **Luồng mới** (Task CS, Enrollment, Leads — cùng endpoint POST `.../attachments`, body JSON):
+  1. `prepare`: kiểm quyền y như cũ + đuôi tệp + dung lượng khai báo + trần số lượng/tổng → cấp token upload
+     một lần (`createSignedUploadUrl`, 2 giờ, không ghi đè) cho đường dẫn DO ROUTE dựng:
+     `<tasks|enrollment|leads>/<id>/<client_request_id>-<tên>`.
+  2. Trình duyệt PUT tệp thẳng lên Storage (`uploadToSignedUrl`, anon key, content-type theo đuôi).
+  3. `finalize`: kiểm quyền lại, dựng lại đúng đường dẫn, đọc dung lượng + loại Storage ghi nhận (`info`),
+     đọc 512 byte đầu (Range) để kiểm chữ ký tệp như cũ; sai thì xoá object. Đạt mới ghi dòng đính kèm,
+     thông báo, realtime như trước. Dung lượng ghi DB lấy từ Storage, không tin số trình duyệt gửi.
+- **Gửi lại / trùng**: đường dẫn suy từ `client_request_id` nên retry dùng lại đúng object + khoá unique cũ;
+  `prepare` lần hai cho object đã có thì trả `already_uploaded` (Storage từ chối ký đường dẫn đã tồn tại) →
+  bỏ qua PUT, đi thẳng `finalize`. Nhánh trùng khoá (23505) của luồng mới KHÔNG xoá object (bản thắng trỏ
+  cùng object). Task: khi kiểm trần tổng không đếm lại chính dòng của request đang gửi lại.
+- **Bucket** `task-attachments`: `fileSizeLimit` theo `TASK_ATTACHMENT_MAX_BYTES` = 50MB (`configureTaskBucket`
+  tự cập nhật). Không được vượt "Global file size limit" của project. Supabase vẫn tự chặn > 50MB (413) và
+  content-type ngoài danh sách. Đã thử thật trên Storage 21/10: PDF 20MB lên được, 51MB bị 413, `text/html`
+  bị chặn, PDF giả bị finalize xoá.
+- **Tương thích**: multipart cũ vẫn nhận (tab mở trước khi deploy), vẫn bị Vercel giới hạn 4.5MB.
+  Mỗi bình luận vẫn tối đa 50 tệp / 250MB tổng (= 5 tệp 50MB). Chưa có cron dọn object mồ côi
+  (upload xong nhưng không finalize) — để sau.
+- **Vá trước deploy**: Task/Lead kiểm trần số lượng và tổng bên trong RPC có khóa dòng cha,
+  tránh hai lượt finalize song song cùng vượt giới hạn. Khi DB/transport trả lỗi chưa rõ đã commit hay chưa,
+  giữ object direct upload để retry theo cùng request id; chỉ xoá khi RPC từ chối dứt khoát. Rollout
+  `2026-10-21-attachment-limits-atomic.sql` đã chạy trên production trước code, thử giới hạn trong
+  transaction rollback và xác nhận không còn dòng thử. Signed upload đúng 50 MiB đã được thử trên
+  Storage production: `info.size = 52.428.800` byte; object thử đã xoá.
+
 ## 2026-10-21 — Comment: Enter khi đang @mention bằng bộ gõ tiếng Việt chỉ chọn người, không gửi (đã deploy 2026-10-21)
 
 - Lỗi user báo: gõ `@bao` bằng Telex rồi Enter → chèn người đầu danh sách + chữ "bao" dính sau, và comment

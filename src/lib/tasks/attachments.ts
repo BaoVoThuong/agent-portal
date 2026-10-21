@@ -1,15 +1,16 @@
 /**
- * 4MB, không phải 15MB như trước (2026-09-29).
+ * 50MB (user chốt 2026-10-21, Medicaid cần đính kèm application scan).
  *
- * Tệp đi xuyên qua API route, và Vercel chặn mọi request body trên 4.5MB ngay
- * từ cửa — trước khi tới code, nên người dùng chỉ thấy "upload failed" chung
- * chung và thử lại mãi. Trên production chưa từng có tệp nào quá 4.5MB lên
- * được (lớn nhất 3.96MB / 638 tệp). 4MB chừa chỗ cho phần bao multipart.
+ * Trước đó là 4MB vì tệp đi xuyên qua API route, và Vercel chặn mọi request
+ * body trên 4.5MB ngay từ cửa. Giờ trình duyệt tải thẳng lên Supabase Storage
+ * bằng signed upload URL (xem direct-upload.ts / upload-attachment.ts), không
+ * còn đi qua Vercel. Hằng này cũng là `fileSizeLimit` của bucket (storage.ts),
+ * nên Supabase tự chặn tệp lớn hơn kể cả khi ai đó gọi thẳng signed URL.
  *
- * Nâng trần thật sự thì phải cho trình duyệt tải thẳng lên Supabase Storage
- * (signed upload URL) thay vì đi qua route — chưa làm.
+ * Bucket không được vượt "Global file size limit" của project (Free tối đa
+ * 50MB; Pro chỉnh trong Storage settings) — nâng trên 50MB phải nâng cả cái đó.
  */
-export const TASK_ATTACHMENT_MAX_BYTES = 4 * 1024 * 1024;
+export const TASK_ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024;
 
 const MIME_BY_EXTENSION: Record<string, string> = {
   csv: "text/csv",
@@ -59,6 +60,12 @@ export function attachmentTooLargeMessage(
 ): string {
   const max = formatAttachmentSize(maxBytes).replace(".0MB", "MB");
   return `File is too large (max ${max}). Please break it down into smaller files and upload them separately.`;
+}
+
+/** The stored content type for an allowed file name, or null when its extension is not allowed. */
+export function attachmentContentType(fileName: string): string | null {
+  const extension = fileName.split(".").pop()?.toLowerCase() ?? "";
+  return MIME_BY_EXTENSION[extension] ?? null;
 }
 
 export function inferAttachmentMimeType(
