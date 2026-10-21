@@ -2,10 +2,21 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
+import {
+  isCompletePcMapping,
+  type PcColumnMapping,
+  type PcWorkbookInspection,
+} from "@/lib/automation/pc-statement/column-mapping";
+import { PcColumnMapper } from "./PcColumnMapper";
 
 type PaymentFileInput = {
   id: string;
   file: File | null;
+  /** The file's columns, read once when it is chosen ("clean" step). */
+  inspection: PcWorkbookInspection | null;
+  mapping: Partial<PcColumnMapping>;
+  inspecting: boolean;
+  inspectError: string | null;
 };
 
 type ReviewCellValue = string | number | boolean | null;
@@ -21,6 +32,7 @@ type ReviewGroup = {
 };
 
 type ReviewData = {
+  warnings?: string[];
   totals: {
     totalPayment: number;
     basePolicy: number;
@@ -37,6 +49,7 @@ type ReviewData = {
 };
 
 type ReportPreviewData = {
+  warnings?: string[];
   totals: ReviewData["totals"];
   lastBlackRow: number | null;
   paymentClean: ReviewGroup;
@@ -84,7 +97,47 @@ function createPaymentFileInput(): PaymentFileInput {
   return {
     id: crypto.randomUUID(),
     file: null,
+    inspection: null,
+    mapping: {},
+    inspecting: false,
+    inspectError: null,
   };
+}
+
+const MAPPING_STORAGE_PREFIX = "pc-statement:column-mapping:v1:";
+
+/** Same header layout → same key, so next month's file of the same carrier report reuses the mapping. */
+function mappingStorageKey(inspection: PcWorkbookInspection) {
+  return (
+    MAPPING_STORAGE_PREFIX +
+    inspection.columns.map((column) => `${column.letter}=${column.label.toLowerCase()}`).join("|")
+  );
+}
+
+function rememberedMapping(inspection: PcWorkbookInspection): Partial<PcColumnMapping> | null {
+  try {
+    const raw = window.localStorage.getItem(mappingStorageKey(inspection));
+    const stored = raw ? (JSON.parse(raw) as Partial<PcColumnMapping>) : null;
+    const letters = new Set(inspection.columns.map((column) => column.letter));
+    return stored && isCompletePcMapping(stored) && Object.values(stored).every((letter) => letters.has(letter))
+      ? stored
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function rememberMapping(inspection: PcWorkbookInspection, mapping: Partial<PcColumnMapping>) {
+  if (!isCompletePcMapping(mapping)) return;
+  try {
+    window.localStorage.setItem(mappingStorageKey(inspection), JSON.stringify(mapping));
+  } catch {
+    // Private mode or full storage: the header guess still pre-fills next time.
+  }
+}
+
+function isFileReady(item: PaymentFileInput) {
+  return Boolean(item.file) && !item.inspecting && isCompletePcMapping(item.mapping);
 }
 
 function formatFileSize(bytes: number) {
@@ -608,7 +661,7 @@ export default function PcStatementClient() {
   const [error, setError] = useState<string | null>(null);
 
   const canRun = useMemo(
-    () => paymentFiles.length > 0 && paymentFiles.every((item) => item.file),
+    () => paymentFiles.length > 0 && paymentFiles.every(isFileReady),
     [paymentFiles]
   );
   const selectedFileCount = paymentFiles.filter((item) => item.file).length;
@@ -617,9 +670,13 @@ export default function PcStatementClient() {
 
   const buildPayloadFromFiles = (files: PaymentFileInput[]) => {
     const payload = new FormData();
+    const mappings: Array<PcColumnMapping | null> = [];
     files.forEach((item) => {
-      if (item.file) payload.append("files", item.file);
+      if (!item.file) return;
+      payload.append("files", item.file);
+      mappings.push(isCompletePcMapping(item.mapping) ? item.mapping : null);
     });
+    if (mappings.length > 0) payload.append("mappings", JSON.stringify(mappings));
     return payload;
   };
 
@@ -635,7 +692,10 @@ export default function PcStatementClient() {
     });
   };
 
+  // Only the latest review may land: dragging columns fires one per change.
+  const reviewRequestRef = useRef(0);
   const loadReviewForFiles = async (files: PaymentFileInput[]) => {
+    const requestId = ++reviewRequestRef.current;
     setIsLoadingReview(true);
     setError(null);
 
@@ -652,65 +712,112 @@ export default function PcStatementClient() {
         throw new Error(data?.error ?? "Load review failed");
       }
 
-      applyReviewData((await response.json()) as ReviewData);
+      const data = (await response.json()) as ReviewData;
+      if (requestId === reviewRequestRef.current) applyReviewData(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Load review failed");
+      if (requestId === reviewRequestRef.current) {
+        setError(err instanceof Error ? err.message : "Load review failed");
+      }
     } finally {
-      setIsLoadingReview(false);
+      if (requestId === reviewRequestRef.current) setIsLoadingReview(false);
     }
   };
 
+  // Review follows the inputs: the old/new policies with no file chosen, the
+  // cleaned payments once every chosen file has all five columns mapped. A
+  // file still being read or mapped holds the review back.
+  const reviewKey = paymentFiles
+    .map((item) =>
+      item.file
+        ? `${item.id}:${item.file.name}:${item.file.size}:${item.file.lastModified}:${
+            isFileReady(item) ? JSON.stringify(item.mapping) : "pending"
+          }`
+        : `${item.id}:none`,
+    )
+    .join("|");
+  const filesForReviewRef = useRef(paymentFiles);
+  filesForReviewRef.current = paymentFiles;
   useEffect(() => {
-    let isMounted = true;
+    const files = filesForReviewRef.current;
+    const chosen = files.filter((item) => item.file);
+    if (chosen.length > 0 && !chosen.every(isFileReady)) return;
+    void loadReviewForFiles(files);
+    // loadReviewForFiles reads the files passed in; reviewKey is the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviewKey]);
 
-    const loadInitialReview = async () => {
-      setIsLoadingReview(true);
-      setError(null);
+  const patchPaymentFile = (id: string, patch: Partial<PaymentFileInput>) => {
+    setPaymentFiles((current) =>
+      current.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+    );
+  };
 
-      try {
-        const response = await fetch("/api/automation/pc-statement/review", {
-          method: "POST",
-          body: new FormData(),
-        });
-
-        if (!response.ok) {
-          const data = (await response.json().catch(() => null)) as
-            | { error?: string }
-            | null;
-          throw new Error(data?.error ?? "Load review failed");
-        }
-
-        const data = (await response.json()) as ReviewData;
-        if (!isMounted) return;
-        applyReviewData(data);
-      } catch (err) {
-        if (!isMounted) return;
-        setError(err instanceof Error ? err.message : "Load review failed");
-      } finally {
-        if (isMounted) setIsLoadingReview(false);
+  const inspectPaymentFile = async (id: string, file: File) => {
+    try {
+      const payload = new FormData();
+      payload.append("files", file);
+      const response = await fetch("/api/automation/pc-statement/inspect", {
+        method: "POST",
+        body: payload,
+      });
+      const data = (await response.json().catch(() => null)) as
+        | { error?: string; files?: Array<{ inspection: PcWorkbookInspection }> }
+        | null;
+      const inspection = data?.files?.[0]?.inspection;
+      if (!response.ok || !inspection) {
+        throw new Error(data?.error ?? "Could not read the payment file");
       }
-    };
-
-    void loadInitialReview();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+      setPaymentFiles((current) =>
+        current.map((item) =>
+          // A newer file chosen in the meantime owns this slot now.
+          item.id === id && item.file === file
+            ? {
+                ...item,
+                inspection,
+                mapping: rememberedMapping(inspection) ?? inspection.suggested,
+                inspecting: false,
+                inspectError: null,
+              }
+            : item,
+        ),
+      );
+    } catch (err) {
+      setPaymentFiles((current) =>
+        current.map((item) =>
+          item.id === id && item.file === file
+            ? {
+                ...item,
+                inspecting: false,
+                inspectError: err instanceof Error ? err.message : "Could not read the payment file",
+              }
+            : item,
+        ),
+      );
+    }
+  };
 
   const updatePaymentFile = (id: string, file: File | null) => {
-    const nextFiles = paymentFiles.map((item) =>
-      item.id === id ? { ...item, file } : item
-    );
-
     setReviewData(null);
     setReportPreview(null);
     setTotals(emptyTotals);
     setError(null);
     if (file) setActiveReviewTab("paymentClean");
     else if (selectedFileCount <= 1) setActiveReviewTab("oldPolicies");
-    setPaymentFiles(nextFiles);
-    void loadReviewForFiles(nextFiles);
+    patchPaymentFile(id, {
+      file,
+      inspection: null,
+      mapping: {},
+      inspecting: Boolean(file),
+      inspectError: null,
+    });
+    if (file) void inspectPaymentFile(id, file);
+  };
+
+  const updatePaymentMapping = (id: string, mapping: Partial<PcColumnMapping>) => {
+    setReportPreview(null);
+    const item = paymentFiles.find((entry) => entry.id === id);
+    if (item?.inspection) rememberMapping(item.inspection, mapping);
+    patchPaymentFile(id, { mapping });
   };
 
   const addPaymentFile = () => {
@@ -736,7 +843,6 @@ export default function PcStatementClient() {
       setActiveReviewTab("oldPolicies");
     }
     setPaymentFiles(nextFiles);
-    void loadReviewForFiles(nextFiles);
   };
 
   const buildFilePayload = () => {
@@ -926,6 +1032,22 @@ export default function PcStatementClient() {
                           : "No file selected"}
                       </span>
                     </label>
+
+                    {item.inspecting && (
+                      <p className="mt-3 text-sm text-[#667085]">Reading columns...</p>
+                    )}
+                    {item.inspectError && (
+                      <div className="mt-3 rounded-md border border-[#f2b8b5] bg-[#fff4f2] px-3 py-2 text-sm text-[#9f2f24]">
+                        {item.inspectError}
+                      </div>
+                    )}
+                    {item.inspection && (
+                      <PcColumnMapper
+                        inspection={item.inspection}
+                        mapping={item.mapping}
+                        onChange={(mapping) => updatePaymentMapping(item.id, mapping)}
+                      />
+                    )}
                   </div>
                 ))}
               </div>
@@ -1006,6 +1128,14 @@ export default function PcStatementClient() {
                 />
               </div>
             </div>
+
+            {(reportPreview?.warnings ?? reviewData?.warnings ?? []).length > 0 && (
+              <div className="mt-5 space-y-1 rounded-md border border-[#fedf89] bg-[#fffaeb] px-4 py-3 text-sm font-medium text-[#93370d]">
+                {(reportPreview?.warnings ?? reviewData?.warnings ?? []).map((warning) => (
+                  <p key={warning}>{warning}</p>
+                ))}
+              </div>
+            )}
 
             {error && (
               <div className="mt-5 rounded-md border border-[#f2b8b5] bg-[#fff4f2] px-4 py-3 text-sm font-medium text-[#9f2f24]">

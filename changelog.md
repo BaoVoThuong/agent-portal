@@ -6,6 +6,24 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-21 — P&C Statement: kéo 5 cột của file vào 5 input (đã deploy 2026-10-21)
+
+- **Lỗi**: "Could not detect column: Commission Paid to TWFG" — file payment mới đổi tiêu đề thành "Ag Comm".
+  Parser bắt buộc đủ 12 cột theo đúng tên, nhưng chỉ dùng 5: Insured, Policy No, Policy Exp, Commissionable
+  Premium, Carrier Rate (Tran/Prod Comm chỉ để nhận dòng). Bỏ hết yêu cầu thừa; dòng dữ liệu = có Insured
+  (không phải dòng tổng/chân trang) và có Premium là số hoặc có Policy No.
+- **Map cột lúc nhập file** (user chốt 21/10): chọn file → `POST /api/automation/pc-statement/inspect` đọc
+  bố cục (dòng tiêu đề, tiêu đề 2 dòng, ô gộp — "Ag Comm" ở P gộp sang Q nơi có số) → liệt kê cột có dữ liệu
+  kèm 3 giá trị mẫu, tự điền 5 input theo tên tiêu đề. Người dùng kéo cột vào input (hoặc bấm input rồi bấm
+  cột); mỗi cột chỉ cho một input. Đủ 5/5 mới chạy review / Run Report / Create Excel; mapping gửi kèm form
+  field `mappings` (mảng theo thứ tự file). Không gửi mapping thì đoán theo tiêu đề, thiếu input → 422
+  `mapping_required`. Mapping được nhớ trong trình duyệt theo bộ tiêu đề của file.
+- **Cột tên công ty** không còn ghi cứng cột C: lấy cột của dòng một-ô đứng ngay trên các dòng payment.
+- **Cảnh báo** (Statement Summary): Carrier Rate > 100% (file ghi 15 thay vì 0.15 → tiền ×100 và mọi dòng
+  thành Fee); không có dòng producer "(TWFG)"/"(DP)" (chia 80%/75% để trống); không thấy dòng công ty.
+- Kiểm trên file thật ProducerCommissionDetailClosed.xlsx: 56 dòng, tổng premium 54,686.79 = dòng Grand Total
+  của file, 7 công ty, agency TWFG, không cảnh báo. Phần tính report/reconcile không đổi.
+
 ## 2026-10-21 — File đính kèm tối đa 50MB: trình duyệt tải thẳng lên Supabase Storage
 
 - **Vì sao**: Medicaid cần đính kèm application scan lớn. Trần cũ 4MB/tệp vì tệp đi xuyên API route và Vercel

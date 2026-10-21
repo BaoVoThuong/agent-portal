@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { parsePcPaymentWorkbook } from "@/lib/automation/pc-statement/payment-parser";
+import {
+  mappingRequiredResponse,
+  readPcMappings,
+} from "@/lib/automation/pc-statement/request-mappings";
 import { fetchPcPolicySnapshot } from "@/lib/automation/pc-statement/policy-source";
 import { buildPcStatementReport } from "@/lib/automation/pc-statement/report";
 import { buildPcStatementWorkbook } from "@/lib/automation/pc-statement/workbook";
@@ -44,17 +48,26 @@ export async function POST(request: Request) {
     );
   }
 
+  const mappings = readPcMappings(formData, files.length);
+  if (!mappings.ok) {
+    return NextResponse.json({ error: mappings.error }, { status: 400 });
+  }
+
   let payments;
   let policySnapshot;
+  let currentFile: string | undefined;
 
   try {
-    const parsedFiles = await parseWorkbooksSequentially(files, async (file) => {
+    const parsedFiles = await parseWorkbooksSequentially(files, async (file, index) => {
+        currentFile = file.name;
         const buffer = Buffer.from(await file.arrayBuffer());
-        return parsePcPaymentWorkbook(buffer).rows;
+        return parsePcPaymentWorkbook(buffer, mappings.mappings[index]).rows;
       });
     payments = parsedFiles.flat();
     policySnapshot = await fetchPcPolicySnapshot();
   } catch (err) {
+    const mappingRequired = mappingRequiredResponse(err, currentFile);
+    if (mappingRequired) return mappingRequired;
     return NextResponse.json(
       {
         error:

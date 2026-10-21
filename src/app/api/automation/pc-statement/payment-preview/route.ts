@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { parsePcPaymentWorkbook } from "@/lib/automation/pc-statement/payment-parser";
+import {
+  mappingRequiredResponse,
+  readPcMappings,
+} from "@/lib/automation/pc-statement/request-mappings";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import {
@@ -39,16 +43,24 @@ export async function POST(request: Request) {
     );
   }
 
+  const mappings = readPcMappings(formData, files.length);
+  if (!mappings.ok) {
+    return NextResponse.json({ error: mappings.error }, { status: 400 });
+  }
+
+  let currentFile: string | undefined;
   try {
-    const parsedFiles = await parseWorkbooksSequentially(files, async (file) => {
+    const parsedFiles = await parseWorkbooksSequentially(files, async (file, index) => {
+        currentFile = file.name;
         const buffer = Buffer.from(await file.arrayBuffer());
-        const parsed = parsePcPaymentWorkbook(buffer);
+        const parsed = parsePcPaymentWorkbook(buffer, mappings.mappings[index]);
 
         return {
           fileName: file.name,
           rowCount: parsed.rows.length,
           rows: parsed.rows,
           sheets: parsed.sheets,
+          warnings: parsed.warnings,
         };
       });
 
@@ -61,16 +73,19 @@ export async function POST(request: Request) {
     );
 
     return NextResponse.json({
-      files: parsedFiles.map(({ fileName, rowCount, sheets }) => ({
+      files: parsedFiles.map(({ fileName, rowCount, sheets, warnings }) => ({
         fileName,
         rowCount,
         sheets,
+        warnings,
       })),
       rowCount: rows.length,
       totalPremium: Math.round(totalPremium * 100) / 100,
       rows: rows.slice(0, PREVIEW_LIMIT),
     });
   } catch (err) {
+    const mappingRequired = mappingRequiredResponse(err, currentFile);
+    if (mappingRequired) return mappingRequired;
     return NextResponse.json(
       {
         error:

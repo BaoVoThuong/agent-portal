@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { parsePcPaymentWorkbook } from "@/lib/automation/pc-statement/payment-parser";
+import {
+  mappingRequiredResponse,
+  readPcMappings,
+} from "@/lib/automation/pc-statement/request-mappings";
 import { fetchPcPolicySnapshot } from "@/lib/automation/pc-statement/policy-source";
 import { buildPcStatementReport } from "@/lib/automation/pc-statement/report";
 import {
@@ -44,6 +48,12 @@ export async function POST(request: Request) {
     }
   }
 
+  const mappings = readPcMappings(formData, files.length);
+  if (!mappings.ok) {
+    return NextResponse.json({ error: mappings.error }, { status: 400 });
+  }
+
+  let currentFile: string | undefined;
   try {
     const policySnapshot = await fetchPcPolicySnapshot();
 
@@ -59,6 +69,7 @@ export async function POST(request: Request) {
           balanced: true,
         },
         lastBlackRow: policySnapshot.lastBlackRow,
+        warnings: [],
         paymentClean: {
           count: 0,
           headers: CLEAN_PAYMENT_HEADERS,
@@ -81,11 +92,15 @@ export async function POST(request: Request) {
       });
     }
 
-    const parsedFiles = await parseWorkbooksSequentially(files, async (file) => {
+    const parsedFiles = await parseWorkbooksSequentially(files, async (file, index) => {
+        currentFile = file.name;
         const buffer = Buffer.from(await file.arrayBuffer());
-        return parsePcPaymentWorkbook(buffer).rows;
+        return parsePcPaymentWorkbook(buffer, mappings.mappings[index]);
       });
-    const payments = parsedFiles.flat();
+    const payments = parsedFiles.flatMap((parsed) => parsed.rows);
+    const warnings = parsedFiles.flatMap((parsed, index) =>
+      parsed.warnings.map((warning) => `${files[index].name}: ${warning}`),
+    );
     const report = buildPcStatementReport({
       basePolicies: policySnapshot.basePolicies,
       newPolicies: policySnapshot.newPolicies,
@@ -95,6 +110,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       totals: report.totals,
       lastBlackRow: policySnapshot.lastBlackRow,
+      warnings,
       paymentClean: {
         count: report.cleanPayment.length,
         headers: CLEAN_PAYMENT_HEADERS,
@@ -118,6 +134,8 @@ export async function POST(request: Request) {
       },
     });
   } catch (err) {
+    const mappingRequired = mappingRequiredResponse(err, currentFile);
+    if (mappingRequired) return mappingRequired;
     return NextResponse.json(
       {
         error:

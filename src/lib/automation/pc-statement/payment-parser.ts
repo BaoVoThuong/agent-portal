@@ -1,4 +1,16 @@
 import * as XLSX from "xlsx";
+import {
+  columnIndex,
+  columnLetters,
+  missingPcInputs,
+  pcInputLabel,
+  PC_INPUT_FIELDS,
+  type PcColumnMapping,
+  type PcFileColumn,
+  type PcInputField,
+  type PcInputKind,
+  type PcWorkbookInspection,
+} from "./column-mapping";
 
 type CellValue = string | number | boolean | Date | null;
 type Matrix = CellValue[][];
@@ -16,26 +28,7 @@ type ParsedSheet = {
   merges: MergeRange[];
 };
 
-type ColumnKind = "date" | "number" | "text";
-
-type ColumnSpec = {
-  label: string;
-  kind: ColumnKind;
-};
-
-type ColumnKey =
-  | "insured"
-  | "policyNo"
-  | "policyExpirationDate"
-  | "invoiceDate"
-  | "transactionCode"
-  | "commissionablePremium"
-  | "carrierRate"
-  | "commissionPaidToTwfg"
-  | "producerSplit"
-  | "proRatedPremium"
-  | "fixedAmount"
-  | "producerCommission";
+type ColumnIndexes = Record<PcInputField, number>;
 
 export type PcCleanPaymentRow = {
   insured: string;
@@ -53,34 +46,26 @@ export type PcPaymentParseResult = {
     name: string;
     rowsExtracted: number;
     skipped?: string;
-    columns?: Partial<Record<ColumnKey, string>>;
+    columns?: Partial<Record<PcInputField, string>>;
   }>;
+  /** Layout problems that would not stop the run but would make it wrong. */
+  warnings: string[];
 };
 
-const COLUMN_SPECS: Record<ColumnKey, ColumnSpec> = {
-  insured: { label: "Insured", kind: "text" },
-  policyNo: { label: "Policy No", kind: "text" },
-  policyExpirationDate: { label: "Policy Exp", kind: "date" },
-  invoiceDate: { label: "Inv Date", kind: "date" },
-  transactionCode: { label: "Tran", kind: "text" },
-  commissionablePremium: {
-    label: "Commissionable Premium",
-    kind: "number",
-  },
-  carrierRate: { label: "Carrier Rate (%)", kind: "number" },
-  commissionPaidToTwfg: {
-    label: "Commission Paid to TWFG",
-    kind: "number",
-  },
-  producerSplit: { label: "Prod Split (%)", kind: "number" },
-  proRatedPremium: { label: "Pro-Rated Premium", kind: "number" },
-  fixedAmount: { label: "Fixed $", kind: "number" },
-  producerCommission: { label: "Prod Comm", kind: "number" },
-};
+/** The file's headers do not name every input: the user has to map them. */
+export class PcColumnMappingError extends Error {
+  constructor(readonly missing: PcInputField[]) {
+    super(`Map these columns before running: ${missing.map(pcInputLabel).join(", ")}.`);
+    this.name = "PcColumnMappingError";
+  }
+}
+
+/** Header rows above the one with the field names that still belong to the header (two-row headers). */
+const MAX_EXTRA_HEADER_ROWS = 2;
+const SAMPLE_COUNT = 3;
 
 function normalizeLabel(value: CellValue | undefined) {
   return String(value ?? "")
-    .replace(/\n/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
@@ -93,7 +78,7 @@ function isEmpty(value: CellValue | undefined) {
 function cleanText(value: CellValue | undefined) {
   if (isEmpty(value)) return "";
   if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
-  if (typeof value === "number") return Number.isInteger(value) ? String(value) : String(value);
+  if (typeof value === "number") return String(value);
   if (value instanceof Date) return value.toISOString();
   return String(value).replace(/\s+/g, " ").trim();
 }
@@ -140,23 +125,6 @@ function parseDateValue(value: CellValue | undefined) {
   return text;
 }
 
-function formatPaymentDate(value: CellValue | undefined) {
-  return parseDateValue(value);
-}
-
-function columnLetters(index: number) {
-  let value = index + 1;
-  let output = "";
-
-  while (value > 0) {
-    const remainder = (value - 1) % 26;
-    output = String.fromCharCode(65 + remainder) + output;
-    value = Math.floor((value - 1) / 26);
-  }
-
-  return output;
-}
-
 function rowNonEmpty(row: CellValue[] | undefined) {
   return (row ?? [])
     .map((value, col) => ({ col, value }))
@@ -180,25 +148,11 @@ function regionCols(sheet: ParsedSheet, rowIndex: number, col: number) {
   );
 }
 
-function findLabelRegion(sheet: ParsedSheet, label: string) {
-  const target = normalizeLabel(label);
-
-  for (let rowIndex = 0; rowIndex < sheet.rows.length; rowIndex += 1) {
-    for (const { col, value } of rowNonEmpty(sheet.rows[rowIndex])) {
-      if (normalizeLabel(value) === target) {
-        return regionCols(sheet, rowIndex, col);
-      }
-    }
-  }
-
-  return [];
-}
-
 function isNumericCell(value: CellValue | undefined) {
   return parseNumber(value) !== null;
 }
 
-function scoreCandidateCol(rows: Matrix, col: number, kind: ColumnKind) {
+function scoreCandidateCol(rows: Matrix, col: number, kind: PcInputKind) {
   let nonEmptyCount = 0;
   let preferredCount = 0;
 
@@ -219,44 +173,6 @@ function scoreCandidateCol(rows: Matrix, col: number, kind: ColumnKind) {
   return { preferredCount, nonEmptyCount };
 }
 
-function detectHeaderIndex(sheet: ParsedSheet) {
-  return sheet.rows.findIndex((row) => {
-    const labels = new Set(rowNonEmpty(row).map(({ value }) => normalizeLabel(value)));
-    return labels.has("insured") && labels.has("policy no") && labels.has("tran");
-  });
-}
-
-function detectColumns(sheet: ParsedSheet, headerIndex: number) {
-  const dataRows = sheet.rows.slice(headerIndex + 1);
-  const output = {} as Record<ColumnKey, number>;
-
-  for (const [field, spec] of Object.entries(COLUMN_SPECS) as Array<
-    [ColumnKey, ColumnSpec]
-  >) {
-    const candidates = findLabelRegion(sheet, spec.label);
-    if (candidates.length === 0) {
-      throw new Error(`Could not detect column: ${spec.label}`);
-    }
-
-    output[field] = candidates.reduce((bestCol, col) => {
-      const bestScore = scoreCandidateCol(dataRows, bestCol, spec.kind);
-      const nextScore = scoreCandidateCol(dataRows, col, spec.kind);
-
-      if (nextScore.preferredCount !== bestScore.preferredCount) {
-        return nextScore.preferredCount > bestScore.preferredCount ? col : bestCol;
-      }
-
-      if (nextScore.nonEmptyCount !== bestScore.nonEmptyCount) {
-        return nextScore.nonEmptyCount > bestScore.nonEmptyCount ? col : bestCol;
-      }
-
-      return col < bestCol ? col : bestCol;
-    });
-  }
-
-  return output;
-}
-
 function isStatusRow(text: string) {
   return ["paid items", "unpaid items"].includes(normalizeLabel(text));
 }
@@ -274,49 +190,221 @@ function isSkipLabel(text: string) {
   );
 }
 
-function isDetailRow(row: CellValue[], columns: Record<ColumnKey, number>) {
+function agencyFromProducerAccount(value: string) {
+  const match = value.match(/\((TWFG|DP)\)/i);
+  return match?.[1]?.toUpperCase() ?? null;
+}
+
+const KNOWN_HEADER_LABELS = new Set<string>(
+  PC_INPUT_FIELDS.flatMap((field) => [...field.aliases]),
+);
+
+/**
+ * The row naming the input columns. Prefer the row that names the most of
+ * them; if the carrier renamed all of them, fall back to the last all-text
+ * row (three or more cells) before the first row that carries numbers.
+ */
+function detectHeaderIndex(sheet: ParsedSheet) {
+  let bestIndex = -1;
+  let bestScore = 1;
+  sheet.rows.forEach((row, index) => {
+    const score = rowNonEmpty(row).filter(({ value }) =>
+      KNOWN_HEADER_LABELS.has(normalizeLabel(value)),
+    ).length;
+    if (score > bestScore) {
+      bestScore = score;
+      bestIndex = index;
+    }
+  });
+  if (bestIndex !== -1) return bestIndex;
+
+  let lastTextRow = -1;
+  for (const [index, row] of sheet.rows.entries()) {
+    const cells = rowNonEmpty(row);
+    const numbers = cells.filter(({ value }) => isNumericCell(value)).length;
+    if (cells.length >= 4 && numbers >= 2) return lastTextRow;
+    if (cells.length >= 3 && numbers === 0) lastTextRow = index;
+  }
+  return -1;
+}
+
+/** Header text per column, across a two-row header and merged header cells. */
+function headerLabels(sheet: ParsedSheet, headerIndex: number) {
+  let firstHeaderRow = headerIndex;
+  while (
+    firstHeaderRow > 0 &&
+    headerIndex - firstHeaderRow < MAX_EXTRA_HEADER_ROWS &&
+    rowNonEmpty(sheet.rows[firstHeaderRow - 1]).length >= 2
+  ) {
+    firstHeaderRow -= 1;
+  }
+
+  const labels = new Map<number, string[]>();
+  for (let rowIndex = firstHeaderRow; rowIndex <= headerIndex; rowIndex += 1) {
+    for (const { col, value } of rowNonEmpty(sheet.rows[rowIndex])) {
+      const text = cleanText(value);
+      for (const target of regionCols(sheet, rowIndex, col)) {
+        const current = labels.get(target) ?? [];
+        if (!current.includes(text)) current.push(text);
+        labels.set(target, current);
+      }
+    }
+  }
+  return labels;
+}
+
+/** Rows that look like payment lines: three or more cells, not a total or footer. */
+function dataRows(sheet: ParsedSheet, headerIndex: number) {
+  return sheet.rows.slice(headerIndex + 1).filter((row) => {
+    const cells = rowNonEmpty(row);
+    return cells.length >= 3 && !isSkipLabel(cleanText(cells[0].value));
+  });
+}
+
+type SheetColumn = PcFileColumn & { index: number; labelParts: string[] };
+
+function sampleText(value: CellValue, label: string) {
+  if (typeof value === "number" && /date|exp|eff/i.test(label) && value > 20000 && value < 80000) {
+    return parseDateValue(value);
+  }
+  const text = cleanText(value);
+  return text.length > 40 ? `${text.slice(0, 39)}…` : text;
+}
+
+function sheetColumns(sheet: ParsedSheet, headerIndex: number, rows: Matrix): SheetColumn[] {
+  const labels = headerLabels(sheet, headerIndex);
+  const width = Math.max(0, ...rows.map((row) => row.length));
+  const columns: SheetColumn[] = [];
+  for (let index = 0; index < width; index += 1) {
+    const values = rows.map((row) => row[index]).filter((value) => !isEmpty(value));
+    if (values.length === 0) continue;
+    const parts = labels.get(index) ?? [];
+    const letter = columnLetters(index);
+    // Show the lowest header line ("Insured", not "Company / Insured"); the
+    // guess below still reads every line.
+    const label = parts.length > 0 ? parts[parts.length - 1] : `Column ${letter}`;
+    columns.push({
+      index,
+      letter,
+      label,
+      labelParts: parts.map((part) => normalizeLabel(part)),
+      samples: values.slice(0, SAMPLE_COUNT).map((value) => sampleText(value, label)),
+    });
+  }
+  return columns;
+}
+
+/** Pre-fill each input from a column whose header names it; a column serves one input. */
+function suggestMapping(columns: SheetColumn[], rows: Matrix): Partial<PcColumnMapping> {
+  const used = new Set<number>();
+  const suggested: Partial<PcColumnMapping> = {};
+  for (const field of PC_INPUT_FIELDS) {
+    const aliases = field.aliases as readonly string[];
+    const candidates = columns.filter(
+      (column) => !used.has(column.index) && column.labelParts.some((part) => aliases.includes(part)),
+    );
+    if (candidates.length === 0) continue;
+    const best = candidates.reduce((bestColumn, column) => {
+      const bestScore = scoreCandidateCol(rows, bestColumn.index, field.kind);
+      const nextScore = scoreCandidateCol(rows, column.index, field.kind);
+      if (nextScore.preferredCount !== bestScore.preferredCount) {
+        return nextScore.preferredCount > bestScore.preferredCount ? column : bestColumn;
+      }
+      if (nextScore.nonEmptyCount !== bestScore.nonEmptyCount) {
+        return nextScore.nonEmptyCount > bestScore.nonEmptyCount ? column : bestColumn;
+      }
+      return column.index < bestColumn.index ? column : bestColumn;
+    });
+    used.add(best.index);
+    suggested[field.key] = best.letter;
+  }
+  return suggested;
+}
+
+function toIndexes(mapping: PcColumnMapping): ColumnIndexes {
+  return Object.fromEntries(
+    PC_INPUT_FIELDS.map((field) => [field.key, columnIndex(mapping[field.key])]),
+  ) as ColumnIndexes;
+}
+
+function isDetailRow(row: CellValue[], columns: ColumnIndexes) {
   const insured = cleanText(row[columns.insured]);
   if (!insured || isSkipLabel(insured)) return false;
+  return isNumericCell(row[columns.premium]) || Boolean(cleanText(row[columns.policyNo]));
+}
 
-  return (
-    Boolean(cleanText(row[columns.transactionCode])) ||
-    isNumericCell(row[columns.commissionablePremium]) ||
-    isNumericCell(row[columns.producerCommission])
-  );
+/**
+ * The column holding the carrier name. The report puts it alone on the row
+ * right above that carrier's payments (column C in the TWFG export, while
+ * the producer address lines sit alone in column A). Read it from the file
+ * rather than assume C, so a shifted layout still finds the carriers.
+ */
+function detectCompanyColumn(sheet: ParsedSheet, headerIndex: number, columns: ColumnIndexes) {
+  const counts = new Map<number, number>();
+  let pending: number | null = null;
+  for (const row of sheet.rows.slice(headerIndex + 1)) {
+    const cells = rowNonEmpty(row);
+    if (cells.length === 0) continue;
+    if (isDetailRow(row, columns)) {
+      if (pending !== null) counts.set(pending, (counts.get(pending) ?? 0) + 1);
+      pending = null;
+      continue;
+    }
+    const text = cleanText(cells[0].value);
+    pending =
+      cells.length === 1 && !isStatusRow(text) && !agencyFromProducerAccount(text) && !isSkipLabel(text)
+        ? cells[0].col
+        : null;
+  }
+  let best: number | null = null;
+  for (const [col, count] of counts) {
+    if (best === null || count > (counts.get(best) ?? 0)) best = col;
+  }
+  return best;
 }
 
 function rowToCleanPayment(
   row: CellValue[],
-  columns: Record<ColumnKey, number>,
+  columns: ColumnIndexes,
   company: string,
   agency: string | null
 ): PcCleanPaymentRow {
   return {
     insured: cleanText(row[columns.insured]),
     policyNo: cleanText(row[columns.policyNo]),
-    policyExp: formatPaymentDate(row[columns.policyExpirationDate]),
-    commissionablePremium: parseNumber(row[columns.commissionablePremium]),
+    policyExp: parseDateValue(row[columns.policyExp]),
+    commissionablePremium: parseNumber(row[columns.premium]),
     carrierRate: parseNumber(row[columns.carrierRate]),
     company,
     agency,
   };
 }
 
-function agencyFromProducerAccount(value: string) {
-  const match = value.match(/\((TWFG|DP)\)/i);
-  return match?.[1]?.toUpperCase() ?? null;
+function inspectSheet(sheet: ParsedSheet, headerIndex: number) {
+  const rows = dataRows(sheet, headerIndex);
+  const columns = sheetColumns(sheet, headerIndex, rows);
+  return { columns, suggested: suggestMapping(columns, rows) };
 }
 
-function parseSheet(sheet: ParsedSheet) {
+function parseSheet(sheet: ParsedSheet, mapping: PcColumnMapping | null) {
   const headerIndex = detectHeaderIndex(sheet);
   if (headerIndex === -1) {
     return {
       rows: [],
+      foundCompanyColumn: false,
       summary: { name: sheet.name, rowsExtracted: 0, skipped: "header_not_found" },
     };
   }
 
-  const columns = detectColumns(sheet, headerIndex);
+  let resolved = mapping;
+  if (!resolved) {
+    const { suggested } = inspectSheet(sheet, headerIndex);
+    const missing = missingPcInputs(suggested);
+    if (missing.length > 0) throw new PcColumnMappingError(missing);
+    resolved = suggested as PcColumnMapping;
+  }
+  const columns = toIndexes(resolved);
+  const companyColumn = detectCompanyColumn(sheet, headerIndex, columns);
   const rows: PcCleanPaymentRow[] = [];
   let company = "";
   let agency: string | null = null;
@@ -336,7 +424,7 @@ function parseSheet(sheet: ParsedSheet) {
         continue;
       }
 
-      if (col === 2 && !normalizeLabel(text).startsWith("total ")) {
+      if (col === companyColumn && !normalizeLabel(text).startsWith("total ")) {
         company = text;
         continue;
       }
@@ -352,12 +440,11 @@ function parseSheet(sheet: ParsedSheet) {
 
   return {
     rows,
+    foundCompanyColumn: companyColumn !== null,
     summary: {
       name: sheet.name,
       rowsExtracted: rows.length,
-      columns: Object.fromEntries(
-        Object.entries(columns).map(([field, col]) => [field, columnLetters(col)])
-      ) as Partial<Record<ColumnKey, string>>,
+      columns: { ...resolved },
     },
   };
 }
@@ -386,15 +473,63 @@ function workbookToSheets(buffer: Buffer): ParsedSheet[] {
   });
 }
 
-export function parsePcPaymentWorkbook(buffer: Buffer): PcPaymentParseResult {
+/**
+ * The columns of a payment file, for the mapping step: the first sheet with a
+ * header row, each column that carries data with its header text and a few
+ * sample values, plus the mapping guessed from the header text.
+ */
+export function inspectPcPaymentWorkbook(buffer: Buffer): PcWorkbookInspection {
+  for (const sheet of workbookToSheets(buffer)) {
+    const headerIndex = detectHeaderIndex(sheet);
+    if (headerIndex === -1) continue;
+    const { columns, suggested } = inspectSheet(sheet, headerIndex);
+    return {
+      sheet: sheet.name,
+      headerRow: headerIndex + 1,
+      columns: columns.map(({ letter, label, samples }) => ({ letter, label, samples })),
+      suggested,
+    };
+  }
+  return { sheet: null, headerRow: null, columns: [], suggested: {} };
+}
+
+/**
+ * Clean payment rows from every sheet. `mapping` is the user's choice from the
+ * mapping step and applies to every sheet of this file; without one the
+ * header text must name all five inputs (PcColumnMappingError otherwise).
+ */
+export function parsePcPaymentWorkbook(
+  buffer: Buffer,
+  mapping: PcColumnMapping | null = null,
+): PcPaymentParseResult {
   const output: PcCleanPaymentRow[] = [];
   const sheets = [];
+  let foundCompanyColumn = false;
 
   for (const sheet of workbookToSheets(buffer)) {
-    const parsed = parseSheet(sheet);
+    const parsed = parseSheet(sheet, mapping);
     output.push(...parsed.rows);
     sheets.push(parsed.summary);
+    foundCompanyColumn ||= parsed.foundCompanyColumn;
   }
 
-  return { rows: output, sheets };
+  const warnings: string[] = [];
+  if (output.length > 0) {
+    const percentRates = output.filter((row) => (row.carrierRate ?? 0) > 1).length;
+    if (percentRates > 0) {
+      warnings.push(
+        `Carrier Rate is above 100% on ${percentRates} row(s). It should read like 0.15, not 15 — check the Carrier Rate column.`,
+      );
+    }
+    if (output.every((row) => !row.agency)) {
+      warnings.push(
+        "No producer line with (TWFG) or (DP) was found, so the TWFG/DP commission split stays blank.",
+      );
+    }
+    if (!foundCompanyColumn || output.every((row) => !row.company)) {
+      warnings.push("No carrier (company) rows were found above the payments.");
+    }
+  }
+
+  return { rows: output, sheets, warnings };
 }
