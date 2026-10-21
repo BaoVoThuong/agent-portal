@@ -273,8 +273,9 @@ export function LeadsClient({
     writePersistedFilters(LEAD_FILTERS_STORAGE_KEY, browserFilterStorage(), persistable);
   }, [filters]);
 
-  const [sortKey, setSortKey] = useState<LeadSortKey | null>(null);
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  // Newest first by default (user decision 2026-10-21), shown on the header.
+  const [sortKey, setSortKey] = useState<LeadSortKey>("createdAt");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [leadLayoutColumns, setLeadLayoutColumns] = useState<TableColumn[]>(
     columns,
   );
@@ -1105,7 +1106,6 @@ export function LeadsClient({
 
   const displayedLeads = useMemo(() => {
     const matched = filterLeads(leads, effectiveFilters, healthByLeadId);
-    if (!sortKey) return matched;
     return sortLeads(matched, sortKey, sortDir, {
       statusLabel: (id) => (id ? statusNameById.get(id) ?? null : null),
       personLabel: (email) => personLabel(email, nameByEmail),

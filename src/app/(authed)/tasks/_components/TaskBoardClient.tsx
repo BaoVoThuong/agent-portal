@@ -2273,7 +2273,6 @@ export function TaskBoardClient({
           newAssignedTaskIds={displayNewAssignedTaskIds}
           rules={slaRules}
           now={now}
-          managerView={managerView}
           onUnlockOverdue={setUnlockingTaskId}
           onReopenRequest={setReopeningTaskId}
           visibleColumns={visibleTaskListColumnConfig}

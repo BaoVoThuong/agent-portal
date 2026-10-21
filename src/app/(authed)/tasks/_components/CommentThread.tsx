@@ -327,6 +327,17 @@ function measureTextareaCaret(
   };
 }
 
+/**
+ * A keydown that belongs to an IME composition, e.g. the Enter that commits a
+ * word typed with Vietnamese Telex. It must reach the IME untouched: picking a
+ * mention on it spliced the half-typed query back in after the commit, and the
+ * IME's follow-up Enter then sent the comment. Safari reports that keydown
+ * after compositionend, hence the 229 check.
+ */
+function isImeKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): boolean {
+  return event.nativeEvent.isComposing || event.keyCode === 229;
+}
+
 function mentionOptionId(listId: string, email: string) {
   return `${listId}-option-${email.toLowerCase().replace(/[^a-z0-9_-]/g, "_")}`;
 }
@@ -1651,6 +1662,11 @@ export function CommentThread({
   );
 }
 
+// An inline light-blue pill (no extra line height) with the bare name, no
+// "@", like a Facebook tag.
+const MENTION_CLASS =
+  "rounded-full bg-[#e9f2ff] px-1 pb-px font-normal text-[#0c66e4] [-webkit-box-decoration-break:clone] [box-decoration-break:clone]";
+
 function renderBody(body: string, names?: ReadonlyMap<string, string>): ReactNode[] {
   const nodes: ReactNode[] = [];
   let last = 0;
@@ -1661,11 +1677,8 @@ function renderBody(body: string, names?: ReadonlyMap<string, string>): ReactNod
     const email = m[2].trim().toLowerCase();
     const label = names?.get(email) || m[1] || UNKNOWN_PERSON_LABEL;
     nodes.push(
-      <span
-        key={`m${key++}`}
-        className="inline-flex rounded-md bg-[#e9f2ff] px-1.5 py-0.5 font-semibold text-[#0c66e4]"
-      >
-        @{label}
+      <span key={`m${key++}`} className={MENTION_CLASS}>
+        {label}
       </span>,
     );
     last = idx + m[0].length;
@@ -2338,6 +2351,7 @@ function EditCommentForm({
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (isImeKeyDown(event)) return;
     if (query !== null) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
@@ -2696,6 +2710,7 @@ function Composer({
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (isImeKeyDown(e)) return;
     if (query !== null) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
@@ -2725,8 +2740,9 @@ function Composer({
         return;
       }
     }
-    // Enter sends; Shift+Enter keeps the normal newline behavior.
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+    // Enter sends; Shift+Enter keeps the normal newline behavior. While the
+    // mention menu is open the Enter above only picks the person.
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submit();
     }

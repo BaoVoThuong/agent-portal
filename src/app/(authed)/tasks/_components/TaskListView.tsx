@@ -5,13 +5,7 @@ import { useState } from "react";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import type { TaskCategory, TaskRow, TaskSlaRule } from "@/lib/tasks/types";
 import { resolveTaskCapabilities } from "@/lib/tasks/access";
-import {
-  rankTasksForManager,
-  rankTasks,
-  sortTasks,
-  type SortDir,
-  type SortKey,
-} from "@/lib/tasks/sorting";
+import { sortTasks, type SortDir, type SortKey } from "@/lib/tasks/sorting";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import { applyFrozenOrder } from "@/lib/tasks/frozen-order";
 import { formatEmailAsName } from "@/lib/tasks/people";
@@ -46,7 +40,6 @@ export function TaskListView({
   newAssignedTaskIds,
   rules,
   now,
-  managerView,
   onUnlockOverdue,
   onReopenRequest,
   visibleColumns,
@@ -72,7 +65,6 @@ export function TaskListView({
   newAssignedTaskIds: Set<string>;
   rules: TaskSlaRule[];
   now: Date;
-  managerView: boolean;
   onUnlockOverdue: (id: string) => void;
   onReopenRequest: (id: string) => void;
   visibleColumns: TaskListColumn[];
@@ -101,7 +93,9 @@ export function TaskListView({
       }
     );
   }
-  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  // Newest first by default (user decision 2026-10-21); the Board keeps the
+  // SLA ranking.
+  const [sortKey, setSortKey] = useState<SortKey>("created");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const categoryById = new Map(categories.map((c) => [c.id, c]));
@@ -113,16 +107,11 @@ export function TaskListView({
   if (!labelByEmail.has(currentEmail)) {
     labelByEmail.set(currentEmail, formatEmailAsName(currentEmail));
   }
-  const ranked =
-    sortKey === null
-      ? managerView
-        ? rankTasksForManager(tasks, rules, now)
-        : rankTasks(tasks, rules, now)
-      : sortTasks(tasks, sortKey, sortDir, categoryName);
+  const ranked = sortTasks(tasks, sortKey, sortDir, categoryName);
 
-  // Hold the order steady while the user works. rankTasks reads last_activity_at,
-  // which every patch bumps, so without this the row just edited jumps out from
-  // under the cursor. Reset on an explicit reorder request so clicking a column
+  // Hold the order steady while the user works. Sorting by a value the edit
+  // itself changes (Stage, Priority, Last updated…) would otherwise move the row
+  // just edited out from under the cursor. Reset on an explicit reorder request so clicking a column
   // header still takes effect immediately.
   //
   // Set-during-render is React's documented way to adjust state when an input

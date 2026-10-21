@@ -192,7 +192,6 @@ type SortKey =
   | "pcp2025"
   | "pcp2026"
   | "due"
-  | "attention"
   | "qc"
   | "createdBy"
   | "createdAt"
@@ -935,8 +934,9 @@ export function EnrollmentClient({
       ])
     ) as Record<EnrollmentProgram, TaskDateRangeValue>
   );
+  // Newest first by default (user decision 2026-10-21).
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({
-    key: "attention",
+    key: "createdAt",
     dir: "desc",
   });
   const [openId, setOpenId] = useState<string | null>(null);
@@ -6237,8 +6237,6 @@ function sortValue(
   switch (key) {
     case "key":
       return enrollmentDisplayKey(record.display_number, record.program);
-    case "attention":
-      return enrollmentAttentionScore(record, optionsById);
     case "client":
       return record.client_name?.toLowerCase() ?? null;
     case "stage":
@@ -6292,7 +6290,9 @@ function sortValue(
     case "createdBy":
       return personLabel(record.created_by_email, peopleByEmail).toLowerCase();
     case "createdAt":
-      return record.created_at;
+      // A number, not the ISO text: the numeric collator would misorder
+      // fractional seconds of different lengths within the same second.
+      return Date.parse(record.created_at);
     case "updatedBy":
       return record.last_activity_by_email
         ? personLabel(record.last_activity_by_email, peopleByEmail).toLowerCase()
@@ -6320,23 +6320,6 @@ function enrollmentNeedsAttention(
     !record.responsible_enroll_email ||
     !record.due_date
   );
-}
-
-function enrollmentAttentionScore(
-  record: EnrollmentRecordWithStats,
-  optionsById: Map<string, EnrollmentOption>
-): number {
-  const stage = record.stage_id ? optionsById.get(record.stage_id) ?? null : null;
-  if (record.closed_at && !(stage?.triggers_qc && !record.qc_checked_at)) return 0;
-
-  let score = 0;
-  if (stage?.triggers_qc && !record.qc_checked_at) score += 700;
-  if (!record.responsible_enroll_email) score += 500;
-  if (isEnrollmentFieldApplicable(record.program, "caller_email") && !record.caller_email) {
-    score += 400;
-  }
-  if (!record.due_date) score += 300;
-  return score;
 }
 
 function groupOptions(options: EnrollmentOption[]): EnrollmentOptionsBySet {

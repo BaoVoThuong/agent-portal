@@ -6,6 +6,26 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-21 — Comment: Enter khi đang @mention bằng bộ gõ tiếng Việt chỉ chọn người, không gửi (đã deploy 2026-10-21)
+
+- Lỗi user báo: gõ `@bao` bằng Telex rồi Enter → chèn người đầu danh sách + chữ "bao" dính sau, và comment
+  bị gửi luôn. Nguyên nhân: phím Enter dùng để chốt chữ của bộ gõ (IME composition) bị ô comment xử lý như
+  Enter chọn mention; bộ gõ chốt chữ sau đó rồi phát thêm một Enter thường → gửi.
+- Sửa: ô viết comment và ô sửa comment bỏ qua mọi keydown thuộc composition (`isComposing` hoặc keyCode
+  229 cho Safari). Enter khi danh sách mention đang mở chỉ chọn người; Enter tiếp theo mới gửi.
+
+## 2026-10-21 — List mặc định xếp theo Created date mới nhất trước (đã deploy 2026-10-21)
+
+- User chốt 21/10: **mọi list** mở ra là xếp theo Created date giảm dần, mũi tên hiện trên cột Created date.
+  Bấm tiêu đề cột vẫn đổi cách xếp như cũ.
+  - **Enrollment** (ACA/Medicare/Medicaid/Other Service): trước xếp theo "attention" (Complete chưa tick,
+    thiếu Responsible/Caller/Due lên đầu). Bỏ hẳn khoá sort `attention` (không còn đường nào chọn tới);
+    bộ lọc "Needs attention" giữ nguyên. Created date so bằng số thời gian, không so chuỗi ISO.
+  - **Task CS — List**: trước xếp theo mức ưu tiên SLA (`rankTasks` / `rankTasksForManager`). **Board
+    (Kanban) giữ** xếp theo SLA.
+  - **Leads**: server vốn đã trả theo `created_at` giảm dần; nay đặt sort mặc định rõ ràng trên client để
+    giữ đúng thứ tự khi có lead mới/cập nhật realtime và hiện mũi tên trên cột.
+
 ## 2026-10-21 — Enrollment: mọi cột Person tuỳ chỉnh đều cho người được chọn xem hồ sơ (đã deploy 2026-10-21)
 
 - **Trước**: Agent/Assistant (bị giới hạn phạm vi) chỉ xem được hồ sơ ngoài agent mình phụ trách khi là
