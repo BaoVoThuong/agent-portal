@@ -11,6 +11,79 @@ export type UploadAttachmentFields = {
 
 type StorageUploadError = { message?: string; status?: number; statusCode?: string };
 
+type PendingUpload = {
+  endpoint: string;
+  fileName: string;
+  size: number;
+  commentId: string | null;
+  clientRequestId: string;
+  silent: boolean;
+  createdAt: number;
+};
+
+const PENDING_KEY = "eps.pending-attachment-finalizations.v1";
+const PENDING_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+function pendingUploads(): PendingUpload[] {
+  if (typeof sessionStorage === "undefined") return [];
+  try {
+    const value: unknown = JSON.parse(sessionStorage.getItem(PENDING_KEY) ?? "[]");
+    if (!Array.isArray(value)) return [];
+    return value.filter((item): item is PendingUpload =>
+      item && typeof item.endpoint === "string" && typeof item.fileName === "string" &&
+      typeof item.size === "number" && typeof item.clientRequestId === "string" &&
+      typeof item.createdAt === "number" && Date.now() - item.createdAt < PENDING_MAX_AGE_MS,
+    );
+  } catch {
+    return [];
+  }
+}
+
+function savePending(items: PendingUpload[]): void {
+  if (typeof sessionStorage === "undefined") return;
+  try {
+    sessionStorage.setItem(PENDING_KEY, JSON.stringify(items));
+  } catch {
+    // Storage may be disabled. The current upload still works normally.
+  }
+}
+
+function rememberPending(item: PendingUpload): void {
+  savePending([...pendingUploads().filter((row) => row.clientRequestId !== item.clientRequestId), item]);
+}
+
+function forgetPending(clientRequestId: string): void {
+  savePending(pendingUploads().filter((row) => row.clientRequestId !== clientRequestId));
+}
+
+/** Finish a PUT that landed before its tab was reloaded or lost the response. */
+export async function recoverPendingAttachments(endpoint: string): Promise<number> {
+  let recovered = 0;
+  for (const item of pendingUploads().filter((row) => row.endpoint === endpoint)) {
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "finalize",
+          file_name: item.fileName,
+          size: item.size,
+          comment_id: item.commentId,
+          client_request_id: item.clientRequestId,
+          silent: item.silent,
+        }),
+      });
+      if (response.ok) {
+        forgetPending(item.clientRequestId);
+        recovered++;
+      }
+    } catch {
+      // A later visit can retry the same id without duplicating metadata.
+    }
+  }
+  return recovered;
+}
+
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -29,6 +102,25 @@ function isAlreadyUploaded(error: StorageUploadError): boolean {
 function storageErrorMessage(error: StorageUploadError): string {
   if (error.status === 413 || error.statusCode === "413") return attachmentTooLargeMessage();
   return error.message || "Could not upload attachment.";
+}
+
+function isDefiniteSizeRefusal(error: StorageUploadError): boolean {
+  return error.status === 413 || error.statusCode === "413";
+}
+
+async function finalizeWithRetry(post: () => Promise<Response>): Promise<Response> {
+  let response: Response | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      response = await post();
+      if (response.status < 500) return response;
+    } catch {
+      // The metadata transaction may have committed before the connection
+      // failed. The stable request id makes another finalize safe.
+    }
+    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+  }
+  return response ?? jsonResponse({ error: "Could not confirm the attachment. Please retry." }, 502);
 }
 
 /**
@@ -73,17 +165,34 @@ export async function uploadAttachment(
     };
   } | null;
   // Already recorded under this request id (a retry after success): done.
-  if (ticket?.attachment) return jsonResponse(ticket, 200);
+  if (ticket?.attachment) {
+    forgetPending(clientRequestId);
+    return jsonResponse(ticket, 200);
+  }
   const upload = ticket?.upload;
   if (!upload?.bucket || !upload.path || !upload.content_type) {
     return jsonResponse({ error: "Could not prepare the upload." }, 500);
   }
+  rememberPending({
+    endpoint,
+    fileName: file.name,
+    size: file.size,
+    commentId: fields.commentId ?? null,
+    clientRequestId,
+    silent: fields.silent ?? false,
+    createdAt: Date.now(),
+  });
   // An earlier attempt's upload landed but its finalize did not.
-  if (upload.already_uploaded) return post("finalize");
+  if (upload.already_uploaded) {
+    const finalized = await finalizeWithRetry(() => post("finalize"));
+    if (finalized.ok) forgetPending(clientRequestId);
+    return finalized;
+  }
   if (!upload.token) return jsonResponse({ error: "Could not prepare the upload." }, 500);
 
   const supabase = getBrowserSupabase();
   if (!supabase) return jsonResponse({ error: "File uploads are not configured." }, 500);
+  let storageError: StorageUploadError | null = null;
   try {
     // Raw bytes with an explicit type rather than the File itself: a File goes
     // up as multipart with the browser's guessed type, which is empty for
@@ -94,11 +203,30 @@ export async function uploadAttachment(
         contentType: upload.content_type,
       });
     if (error && !isAlreadyUploaded(error as StorageUploadError)) {
-      return jsonResponse({ error: storageErrorMessage(error as StorageUploadError) }, 502);
+      storageError = error as StorageUploadError;
     }
-  } catch {
-    return jsonResponse({ error: "Could not upload attachment. Check your connection and try again." }, 502);
+  } catch (error) {
+    storageError = {
+      message: error instanceof Error
+        ? error.message
+        : "Could not upload attachment. Check your connection and try again.",
+    };
   }
 
-  return post("finalize");
+  // Storage can commit the PUT and still make the browser reject its response
+  // (for example, a connection drop). Confirm the object with our server even
+  // in that case, so a successful upload cannot remain invisible after reload.
+  if (storageError && isDefiniteSizeRefusal(storageError)) {
+    forgetPending(clientRequestId);
+    return jsonResponse({ error: storageErrorMessage(storageError) }, 502);
+  }
+  const finalized = await finalizeWithRetry(() => post("finalize"));
+  if (finalized.ok) forgetPending(clientRequestId);
+  if (finalized.ok || !storageError) return finalized;
+  const serverError = (await finalized.clone().json().catch(() => null)) as { error?: string } | null;
+  // If the object never landed, the Storage error is the actionable one.
+  if (serverError?.error === "The upload did not finish. Please try again.") {
+    return jsonResponse({ error: storageErrorMessage(storageError) }, 502);
+  }
+  return finalized;
 }

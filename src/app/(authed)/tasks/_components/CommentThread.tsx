@@ -45,7 +45,7 @@ import {
   type DraftMention,
   type MentionPerson,
 } from "@/lib/tasks/mention-draft";
-import { uploadAttachment } from "@/lib/tasks/upload-attachment";
+import { recoverPendingAttachments, uploadAttachment } from "@/lib/tasks/upload-attachment";
 import { moveEnabledChoiceIndex } from "@/lib/ui/option-search";
 import {
   isNearBottom,
@@ -493,6 +493,16 @@ export function CommentThread({
   const optimisticUrlsRef = useRef(new Map<string, string[]>());
   const optimisticFilesRef = useRef(new Map<string, Map<string, File>>());
   const optimisticFileRequestIdsRef = useRef(new Map<string, Map<string, string>>());
+  const recoveredEndpointRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const endpoint = `${apiBase}/${taskId}/attachments`;
+    if (recoveredEndpointRef.current === endpoint) return;
+    recoveredEndpointRef.current = endpoint;
+    void recoverPendingAttachments(endpoint).then((count) => {
+      if (count > 0) void Promise.resolve(onReload()).catch(() => undefined);
+    });
+  }, [apiBase, taskId, onReload]);
 
   const mutationHeaders = useCallback(
     (contentType?: string): Record<string, string> => ({

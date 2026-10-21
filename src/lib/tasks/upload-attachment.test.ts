@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const browser = vi.hoisted(() => {
   const uploadToSignedUrl = vi.fn();
@@ -9,7 +9,7 @@ vi.mock("@/lib/supabase-browser", () => ({
   getBrowserSupabase: () => browser.client,
 }));
 
-import { uploadAttachment } from "./upload-attachment";
+import { recoverPendingAttachments, uploadAttachment } from "./upload-attachment";
 
 const ENDPOINT = "/api/enrollment/r-1/attachments";
 const REQUEST_ID = "3f2b8a1e-5c4d-4e6f-8a9b-0c1d2e3f4a5b";
@@ -44,6 +44,8 @@ beforeEach(() => {
   browser.from.mockClear();
   vi.stubGlobal("fetch", fetchMock);
 });
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("uploadAttachment", () => {
   it("prepares, PUTs the bytes to Storage with the route's type, then finalizes", async () => {
@@ -116,6 +118,63 @@ describe("uploadAttachment", () => {
     expect(response.status).toBe(502);
     expect((await response.json()).error).toContain("max 50MB");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("finalizes an object that Storage committed despite reporting a network error", async () => {
+    fetchMock
+      .mockResolvedValueOnce(json(TICKET))
+      .mockResolvedValueOnce(json({ attachment: { id: "a-1" } }));
+    browser.uploadToSignedUrl.mockRejectedValue(new Error("Failed to fetch"));
+
+    const response = await uploadAttachment(ENDPOINT, file, { clientRequestId: REQUEST_ID });
+    expect(response.ok).toBe(true);
+    expect(sentBodies().map((body) => body.action)).toEqual(["prepare", "finalize"]);
+  });
+
+  it("returns the upload error when the object did not land", async () => {
+    fetchMock
+      .mockResolvedValueOnce(json(TICKET))
+      .mockResolvedValueOnce(json({ error: "The upload did not finish. Please try again." }, 400));
+    browser.uploadToSignedUrl.mockRejectedValue(new Error("Network connection lost"));
+
+    const response = await uploadAttachment(ENDPOINT, file, { clientRequestId: REQUEST_ID });
+    expect(response.status).toBe(502);
+    expect((await response.json()).error).toBe("Network connection lost");
+  });
+
+  it("retries a transient finalize failure with the same request id", async () => {
+    fetchMock
+      .mockResolvedValueOnce(json(TICKET))
+      .mockResolvedValueOnce(json({ error: "Temporary failure" }, 500))
+      .mockResolvedValueOnce(json({ attachment: { id: "a-1" } }));
+    browser.uploadToSignedUrl.mockResolvedValue({ data: {}, error: null });
+
+    const response = await uploadAttachment(ENDPOINT, file, { clientRequestId: REQUEST_ID });
+    expect(response.ok).toBe(true);
+    expect(sentBodies().map((body) => body.action)).toEqual(["prepare", "finalize", "finalize"]);
+    expect(new Set(sentBodies().map((body) => body.client_request_id))).toEqual(new Set([REQUEST_ID]));
+  });
+
+  it("recovers a completed PUT after the tab reloads", async () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("sessionStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value); },
+    });
+    fetchMock
+      .mockResolvedValueOnce(json(TICKET))
+      .mockResolvedValueOnce(json({ error: "The upload did not finish. Please try again." }, 400))
+      .mockResolvedValueOnce(json({ attachment: { id: "a-1" } }));
+    browser.uploadToSignedUrl.mockRejectedValue(new Error("Connection lost"));
+
+    expect((await uploadAttachment(ENDPOINT, file, { commentId: "c-1", clientRequestId: REQUEST_ID })).ok).toBe(false);
+    expect(await recoverPendingAttachments(ENDPOINT)).toBe(1);
+    expect(await recoverPendingAttachments(ENDPOINT)).toBe(0);
+    expect(sentBodies()[2]).toMatchObject({
+      action: "finalize",
+      comment_id: "c-1",
+      client_request_id: REQUEST_ID,
+    });
   });
 
   it("passes the route's refusal straight through", async () => {

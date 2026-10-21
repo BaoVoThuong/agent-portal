@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-22 — Khôi phục ảnh đính kèm khi PUT đã thành công nhưng trình duyệt mất phản hồi
+
+- Sau khi tải thẳng lên Storage, ảnh chỉ hiện bằng blob URL tạm nếu bước `finalize` chưa ghi dòng
+  `task_attachments`; tải lại trang làm ảnh biến mất. Production có các object mới trong Storage nhưng không
+  có dòng đính kèm tương ứng. Khi Storage báo lỗi mạng sau PUT, trình duyệt giờ vẫn gọi `finalize` để server
+  kiểm tra object thực tế. Lỗi tạm ở `finalize` được thử lại với cùng request ID để không tạo dòng trùng.
+- Lưu yêu cầu xác nhận đang chờ trong `sessionStorage`; khi mở lại task/comment, thử xác nhận file đã lên rồi
+  tải lại danh sách comment. Nếu Storage từ chối chắc chắn vì quá dung lượng thì bỏ yêu cầu chờ.
+
 ## 2026-10-21 — P&C Statement: kéo 5 cột của file vào 5 input (đã deploy 2026-10-21)
 
 - **Lỗi**: "Could not detect column: Commission Paid to TWFG" — file payment mới đổi tiêu đề thành "Ag Comm".
