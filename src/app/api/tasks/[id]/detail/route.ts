@@ -3,6 +3,8 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildTaskActor, canViewTask } from "@/lib/tasks/access";
 import { loadTaskDetail } from "@/lib/tasks/detail";
+import { recoverSavedAttachments } from "@/lib/tasks/upload-recovery";
+import { pendingCommentUploads } from "@/lib/tasks/upload-intents";
 import {
   actorSeesAllTasks,
   fetchAgentsForCs,
@@ -98,7 +100,8 @@ export async function GET(req: Request, { params }: Ctx) {
       includeReactions: true,
     } as const;
     const loadDetailAndMetadata = async (includeActivity: boolean) => {
-      const [detail, metadataRows] = await Promise.all([
+      await timing.measure("upload_recovery", () => recoverSavedAttachments("task", id));
+      const [detail, metadataRows, pendingByComment] = await Promise.all([
         timing.measure("detail", async () =>
           loadTaskDetail(supabase, id, {
             ...detailOpts,
@@ -112,10 +115,15 @@ export async function GET(req: Request, { params }: Ctx) {
         timing.measure("metadata", async () =>
           fetchTaskListMetadata([id], supabase),
         ),
+        pendingCommentUploads("task", id).catch(() => new Map()),
       ]);
       const metadata = metadataRows[0];
       return {
         ...detail,
+        comments: detail.comments.map((comment) => ({
+          ...comment,
+          pending_uploads: pendingByComment.get(comment.id) ?? [],
+        })),
         metadata: {
           last_activity_by_email: metadata?.last_activity_by_email ?? null,
           comment_count: metadata?.comment_count ?? 0,

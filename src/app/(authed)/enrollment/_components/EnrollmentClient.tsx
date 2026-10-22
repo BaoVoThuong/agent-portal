@@ -176,6 +176,7 @@ import {
 } from "../../_shared/page-header-styles";
 import { enrollmentTintsPastDue, isEnrollmentPastDue } from "@/lib/enrollment/due-schedule";
 import { buildEnrollmentTimeProgress } from "@/lib/enrollment/time-progress";
+import { uploadAttachment } from "@/lib/tasks/upload-attachment";
 
 type SortKey =
   | "key"
@@ -1770,14 +1771,12 @@ export function EnrollmentClient({
   /** Một file đính kèm của hồ sơ. Key cố định của file làm `client_request_id`: tải lại không trùng. */
   async function uploadEnrollmentFile(recordId: string, pending: PendingFile): Promise<boolean> {
     try {
-      const form = new FormData();
-      form.append("file", pending.file);
-      form.append("client_request_id", pending.key);
-      const response = await fetch(`/api/enrollment/${recordId}/attachments`, {
-        method: "POST",
-        headers: { "x-enrollment-client-source": liveSourceId },
-        body: form,
-      });
+      const response = await uploadAttachment(
+        `/api/enrollment/${recordId}/attachments`,
+        pending.file,
+        { clientRequestId: pending.key },
+        { "x-enrollment-client-source": liveSourceId },
+      );
       return response.ok;
     } catch {
       return false;

@@ -7,9 +7,13 @@ import {
 
 export { removeTaskFile, signTaskFile, uploadTaskFile };
 
-export function buildEnrollmentStoragePath(recordId: string, fileName: string): string {
-  const uuid = globalThis.crypto.randomUUID();
-  return `enrollment/${recordId}/${uuid}-${sanitizeFileName(fileName)}`;
+/** `objectId`: see buildStoragePath in lib/tasks/storage.ts. */
+export function buildEnrollmentStoragePath(
+  recordId: string,
+  fileName: string,
+  objectId: string = globalThis.crypto.randomUUID(),
+): string {
+  return `enrollment/${recordId}/${objectId}-${sanitizeFileName(fileName)}`;
 }
 
 export async function uploadEnrollmentFile(

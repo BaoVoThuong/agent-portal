@@ -24,6 +24,7 @@ export type SignedAttachment = {
 export type CommentWithAttachments = Record<string, unknown> & {
   id: string;
   attachments: SignedAttachment[];
+  pending_uploads?: { file_name: string; size_bytes: number; failure_reason: string | null }[];
   author_name?: string;
   /**
    * Raw rows, not grouped: `reactedByMe` depends on the viewer and this shape

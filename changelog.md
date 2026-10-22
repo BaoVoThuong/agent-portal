@@ -40,6 +40,15 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
   (`configureTaskBucket`). File >4MB đã lên trong lúc chạy bản 50MB vẫn xem/tải bình thường (signed URL).
 - Giữ phần P&C Statement (a8f2852).
 
+## 2026-10-22 — Nhánh dev: xây lại upload 50 MiB, chưa triển khai production
+
+- Đổi upload thẳng lên Supabase từ PUT một lần sang TUS 6 MiB/chunk, có retry/resume, dành cho Task, Lead và Enrollment. File không đi qua giới hạn body 4.5 MB của Vercel.
+- Trước khi cấp token, server lưu `attachment_upload_intents` gồm đúng record, comment, người gửi, đường dẫn và request ID. `finalize` bắt buộc khớp intent; mỗi lần đọc detail có thể tự hoàn tất object đã vào Storage bằng service role, kể cả tab cũ đã tắt hoặc người khác mở trang. Intent và metadata đều idempotent.
+- Không còn cập nhật cấu hình bucket trong request. Bucket phải được cấu hình trong rollout riêng để phiên bản cũ không hạ trần 50 MiB về 4 MiB khi còn chạy song song.
+- Không tự xoá comment chỉ có file sau lỗi upload không chắc chắn. Detail hiển thị upload chưa hoàn tất để người dùng không nhầm ảnh blob tạm với file đã lưu.
+- Preview hiển thị phần trăm bytes đã chuyển; khi đủ bytes nhưng chưa ghi DB, hiện "Confirming the attachment" thay vì báo đang upload mãi.
+- Migration mới chỉ nằm trong nhánh; xem `docs/attachment-50mb-rebuild.md` để chạy staging, kiểm tra thực tế và thứ tự rollout.
+
 ## 2026-10-22 — PUT Storage treo sau khi đã lưu file
 
 - Production ghi nhận file đã vào Storage nhưng promise `uploadToSignedUrl` của trình duyệt không hoàn tất,

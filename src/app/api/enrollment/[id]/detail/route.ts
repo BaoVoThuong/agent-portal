@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { loadEnrollmentActor } from "@/lib/enrollment/access";
 import { loadEnrollmentDetail } from "@/lib/enrollment/detail";
+import { recoverSavedAttachments } from "@/lib/tasks/upload-recovery";
+import { pendingCommentUploads } from "@/lib/tasks/upload-intents";
 import { loadScopedEnrollmentRecord } from "@/lib/enrollment/scope";
 import { RouteTiming } from "@/lib/server-timing";
 import {
@@ -57,8 +59,9 @@ export async function GET(request: Request, { params }: Ctx) {
 
   try {
     const supabase = getSupabaseAdmin();
-    return respond(
-      await timing.measure("detail", () =>
+    await timing.measure("upload_recovery", () => recoverSavedAttachments("enrollment", id));
+    const [detail, pendingByComment] = await Promise.all([
+      timing.measure("detail", () =>
         loadEnrollmentDetail(supabase, id, {
           commentsBefore,
           highlightCommentId,
@@ -67,6 +70,16 @@ export async function GET(request: Request, { params }: Ctx) {
           timing,
         }),
       ),
+      pendingCommentUploads("enrollment", id).catch(() => new Map()),
+    ]);
+    return respond(
+      {
+        ...detail,
+        comments: detail.comments.map((comment) => ({
+          ...comment,
+          pending_uploads: pendingByComment.get(comment.id) ?? [],
+        })),
+      },
     );
   } catch (detailError) {
     return respond(

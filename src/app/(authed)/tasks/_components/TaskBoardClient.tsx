@@ -122,6 +122,7 @@ import {
   optimisticallyAssignOverviewTask,
 } from "@/lib/tasks/overview";
 import type { OverviewSnapshot } from "@/lib/tasks/overview-types";
+import { uploadAttachment } from "@/lib/tasks/upload-attachment";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 
 // Countdown/overdue labels only need to refresh every so often, not on every
@@ -1886,15 +1887,12 @@ export function TaskBoardClient({
       nameOf: (item) => item.name,
       retryHint: "Open the task to attach them again.",
       upload: async (item) => {
-        const body = new FormData();
-        body.append("file", item.file);
-        body.append("silent", "1");
-        body.append("client_request_id", item.key);
-        const response = await fetch(`/api/tasks/${task.id}/attachments`, {
-          method: "POST",
-          headers: { [TASK_MUTATION_SOURCE_HEADER]: boardInvalidationSourceId },
-          body,
-        });
+        const response = await uploadAttachment(
+          `/api/tasks/${task.id}/attachments`,
+          item.file,
+          { silent: true, clientRequestId: item.key },
+          { [TASK_MUTATION_SOURCE_HEADER]: boardInvalidationSourceId },
+        );
         return response.ok;
       },
     }).then((failed) => {

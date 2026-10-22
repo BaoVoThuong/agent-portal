@@ -45,6 +45,7 @@ import {
   type DraftMention,
   type MentionPerson,
 } from "@/lib/tasks/mention-draft";
+import { recoverPendingAttachments, uploadAttachment } from "@/lib/tasks/upload-attachment";
 import { moveEnabledChoiceIndex } from "@/lib/ui/option-search";
 import {
   isNearBottom,
@@ -90,7 +91,6 @@ import {
   fileUploaded,
   fileUploading,
   failSubmission,
-  shouldDiscardEmptyComment,
   finishSubmission,
   reloadFailed,
   type FileState,
@@ -492,6 +492,16 @@ export function CommentThread({
   const optimisticUrlsRef = useRef(new Map<string, string[]>());
   const optimisticFilesRef = useRef(new Map<string, Map<string, File>>());
   const optimisticFileRequestIdsRef = useRef(new Map<string, Map<string, string>>());
+  const recoveredEndpointRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const endpoint = `${apiBase}/${taskId}/attachments`;
+    if (recoveredEndpointRef.current === endpoint) return;
+    recoveredEndpointRef.current = endpoint;
+    void recoverPendingAttachments(endpoint).then((count) => {
+      if (count > 0) void Promise.resolve(onReload()).catch(() => undefined);
+    });
+  }, [apiBase, taskId, onReload]);
 
   const mutationHeaders = useCallback(
     (contentType?: string): Record<string, string> => ({
@@ -983,6 +993,23 @@ export function CommentThread({
     return true;
   }
 
+  function reportFileProgress(tempId: string, fileId: string, uploaded: number, total: number) {
+    if (total <= 0) return;
+    const progress = Math.min(100, Math.max(0, Math.round(uploaded * 100 / total)));
+    setOptimisticComments((current) => current.map((item) =>
+      item.id === tempId && item.fileStates
+        ? {
+            ...item,
+            fileStates: item.fileStates.map((state) =>
+              state.id === fileId && state.progress !== progress
+                ? { ...state, progress }
+                : state,
+            ),
+          }
+        : item,
+    ));
+  }
+
   async function persistComment(
     tempId: string,
     body: string,
@@ -1094,16 +1121,17 @@ export function CommentThread({
         ),
       );
       try {
-        const form = new FormData();
-        form.append("file", file);
-        form.append("comment_id", comment.id);
         const requestIdForFile = optimisticFileRequestIdsRef.current.get(tempId)?.get(fileId);
-        if (requestIdForFile) form.append("client_request_id", requestIdForFile);
-        const upload = await fetch(`${apiBase}/${taskId}/attachments`, {
-          method: "POST",
-          headers: mutationHeaders(),
-          body: form,
-        });
+        const upload = await uploadAttachment(
+          `${apiBase}/${taskId}/attachments`,
+          file,
+          {
+            commentId: comment.id,
+            clientRequestId: requestIdForFile,
+            onProgress: (uploaded, total) => reportFileProgress(tempId, fileId, uploaded, total),
+          },
+          mutationHeaders(),
+        );
         if (!upload.ok) {
           throw new Error(await readResponseError(upload, "Failed to upload attachment."));
         }
@@ -1148,39 +1176,9 @@ export function CommentThread({
     const uploadFailed = outcomes.some((ok) => !ok);
     const uploadedAny = outcomes.some(Boolean);
 
-    // Không tệp nào lên được và người dùng cũng không gõ chữ nào: thứ vừa ghi
-    // vào DB là một dòng rỗng, không phải điều họ định gửi. Xoá nó đi — xem
-    // shouldDiscardEmptyComment để biết vì sao comment chỉ-đính-kèm được giữ.
-    if (shouldDiscardEmptyComment({ body, uploadedAny })) {
-      const discarded = await fetch(
-        `${apiBase}/${taskId}/comments/${comment.id}`,
-        { method: "DELETE", headers: mutationHeaders() },
-      )
-        .then((response) => response.ok)
-        .catch(() => false);
-      if (discarded) {
-        // Số đếm comment đã tăng lúc tạo; báo cho các view khác trả nó về.
-        onCommitted?.();
-        // Bỏ realId cùng với dòng vừa xoá: retryFile dừng sớm khi thiếu nó, nên
-        // không còn đường nào trỏ vào một comment không còn tồn tại.
-        setOptimisticComments((current) =>
-          current.map((item) =>
-            item.id === tempId
-              ? {
-                  ...item,
-                  realId: undefined,
-                  failed: true,
-                  error:
-                    "No attachment could be uploaded. The empty comment was discarded — send it again.",
-                }
-              : item,
-          ),
-        );
-        return;
-      }
-      // Xoá không được thì dòng kia vẫn còn thật: đi tiếp luồng lỗi upload sẵn
-      // có, để người dùng còn nút retry cho từng tệp.
-    }
+    // A timeout cannot prove the Storage object is absent: it can commit after
+    // the browser gives up. Keep attachment-only comments so the saved intent
+    // can reconnect the file on a later detail read or retry.
 
     if (uploadedAny) onCommitted?.();
 
@@ -1232,16 +1230,17 @@ export function CommentThread({
       ),
     );
     try {
-      const form = new FormData();
-      form.append("file", file);
-      form.append("comment_id", realId);
       const requestIdForFile = optimisticFileRequestIdsRef.current.get(tempId)?.get(fileId);
-      if (requestIdForFile) form.append("client_request_id", requestIdForFile);
-      const upload = await fetch(`${apiBase}/${taskId}/attachments`, {
-        method: "POST",
-        headers: mutationHeaders(),
-        body: form,
-      });
+      const upload = await uploadAttachment(
+        `${apiBase}/${taskId}/attachments`,
+        file,
+        {
+          commentId: realId,
+          clientRequestId: requestIdForFile,
+          onProgress: (uploaded, total) => reportFileProgress(tempId, fileId, uploaded, total),
+        },
+        mutationHeaders(),
+      );
       if (!upload.ok) {
         throw new Error(await readResponseError(upload, "Failed to upload attachment."));
       }
@@ -1824,6 +1823,11 @@ function CommentItem({
     );
   }
 
+  const inFlightProgress = c.fileStates
+    ?.filter((state) => state.status === "uploading" && state.progress !== undefined)
+    .map((state) => state.progress!);
+  const lowestProgress = inFlightProgress?.length ? Math.min(...inFlightProgress) : null;
+
   return (
     <article className="group flex gap-2.5">
       <div className="shrink-0 pt-0.5">
@@ -1972,6 +1976,14 @@ function CommentItem({
                 </div>
               )}
 
+              {c.fileStates?.some((file) => file.status === "pending" || file.status === "uploading") ? (
+                <p role="status" className="mt-1.5 rounded border border-[#b3d4ff] bg-[#e9f2ff] px-2 py-1.5 text-xs font-semibold text-[#0c66e4]">
+                  {lowestProgress === 100
+                    ? "Upload complete. Confirming the attachment…"
+                    : `Uploading attachment…${lowestProgress === null ? "" : ` ${lowestProgress}%`}. Keep this tab open until it finishes.`}
+                </p>
+              ) : null}
+
               {c.fileStates?.some((file) => file.status === "failed") ? (
                 <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px]">
                   {c.fileStates.filter((file) => file.status === "failed").map((file) => {
@@ -1999,6 +2011,14 @@ function CommentItem({
                     );
                   })}
                 </div>
+              ) : null}
+
+              {!c.optimistic && c.pending_uploads?.length ? (
+                <p className="mt-1 rounded border border-[#ffe380] bg-[#fffae6] px-2 py-1.5 text-xs font-semibold text-[#7a5d00]">
+                  {c.pending_uploads.some((item) => item.failure_reason)
+                    ? `Attachment upload failed: ${c.pending_uploads.find((item) => item.failure_reason)?.failure_reason}. Please attach the file again.`
+                    : "Attachment is uploading or awaiting confirmation. If it does not appear, attach the file again."}
+                </p>
               ) : null}
 
               {c.reloadFailed ? (

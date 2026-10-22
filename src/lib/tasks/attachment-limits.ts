@@ -15,7 +15,8 @@ import {
  * con số 50 kia thành vô nghĩa.
  *
  * 250MB = 50 tệp × 5MB, tức cỡ ảnh điện thoại thông thường. Trần mỗi tệp là
- * TASK_ATTACHMENT_MAX_BYTES (4MB — giới hạn body của Vercel, xem chú thích ở đó).
+ * TASK_ATTACHMENT_MAX_BYTES (50MB từ 2026-10-21, xem chú thích ở đó), nên tệp
+ * cỡ tối đa thì một bình luận nhận được 5 tệp.
  *
  * Tải lên là MỖI TỆP MỘT REQUEST, và server kiểm lại tổng dung lượng của những
  * tệp đã lưu cho bình luận đó — nâng aggregate không tạo ra request khổng lồ

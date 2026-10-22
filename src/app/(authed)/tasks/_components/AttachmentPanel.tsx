@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { Paperclip, Trash2 } from "lucide-react";
 import type { SignedAttachment } from "@/lib/tasks/detail";
+import { uploadAttachment } from "@/lib/tasks/upload-attachment";
 import {
   attachmentTooLargeMessage,
   TASK_ATTACHMENT_MAX_BYTES,
@@ -30,27 +31,28 @@ export function AttachmentPanel({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteErrors, setDeleteErrors] = useState<Record<string, string>>({});
   const inputRef = useRef<HTMLInputElement>(null);
+  const pendingRetryRef = useRef<{ file: File; requestId: string } | null>(null);
 
-  async function upload(file: File) {
+  async function upload(file: File, requestId = crypto.randomUUID()) {
     setError(null);
     if (file.size > TASK_ATTACHMENT_MAX_BYTES) {
+      pendingRetryRef.current = null;
       setError(attachmentTooLargeMessage());
       if (inputRef.current) inputRef.current.value = "";
       return;
     }
 
+    pendingRetryRef.current = { file, requestId };
     setBusy(true);
     try {
-      const form = new FormData();
-      form.append("file", file);
-      form.append("client_request_id", crypto.randomUUID());
-      const res = await fetch(`${apiBase}/${taskId}/attachments`, {
-        method: "POST",
-        headers: mutationSourceId && mutationSourceHeader
+      const res = await uploadAttachment(
+        `${apiBase}/${taskId}/attachments`,
+        file,
+        { clientRequestId: requestId },
+        mutationSourceId && mutationSourceHeader
           ? { [mutationSourceHeader]: mutationSourceId }
-          : undefined,
-        body: form,
-      });
+          : {},
+      );
       if (!res.ok) {
         const data = (await res.json().catch(() => null)) as
           | { error?: string }
@@ -58,6 +60,7 @@ export function AttachmentPanel({
         setError(data?.error ?? "Could not upload attachment.");
         return;
       }
+      pendingRetryRef.current = null;
       await onReload();
     } catch (uploadError) {
       setError(
@@ -148,6 +151,19 @@ export function AttachmentPanel({
       {error ? (
         <div className="rounded border border-[#ffbdad] bg-[#ffebe6] px-2.5 py-2 text-xs font-semibold text-[#bf2600]">
           {error}
+          {pendingRetryRef.current ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                const pending = pendingRetryRef.current;
+                if (pending) void upload(pending.file, pending.requestId);
+              }}
+              className="ml-2 underline disabled:opacity-40"
+            >
+              Retry upload
+            </button>
+          ) : null}
         </div>
       ) : null}
       {canEdit && (

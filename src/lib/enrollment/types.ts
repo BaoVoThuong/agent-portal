@@ -163,6 +163,7 @@ export type EnrollmentSignedAttachment = {
 export type EnrollmentCommentWithAttachments = Record<string, unknown> & {
   id: string;
   attachments: EnrollmentSignedAttachment[];
+  pending_uploads?: { file_name: string; size_bytes: number; failure_reason: string | null }[];
   author_name?: string;
   /** Initial snapshot from the detail endpoint; refreshed through the reaction endpoint. */
   reactions?: import("@/lib/tasks/reactions").ReactionRow[];
