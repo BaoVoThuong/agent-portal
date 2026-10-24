@@ -108,6 +108,26 @@ describe("readTaskFileInfo", () => {
 });
 
 describe("readTaskFileHead", () => {
+  it("returns even when cancelling the body never settles (Next.js tees fetch bodies)", async () => {
+    bucket.createSignedUrl.mockResolvedValue({ data: { signedUrl: "https://signed" }, error: null });
+    let served = false;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (!served) controller.enqueue(new Uint8Array(512).fill(7));
+        served = true;
+      },
+      // Mirrors a tee branch: cancel stays pending until the other branch is
+      // cancelled, which never happens. Awaiting it hung every finalize.
+      cancel: () => new Promise<void>(() => undefined),
+    });
+    fetchMock.mockResolvedValue(new Response(stream, { status: 206 }));
+    const head = await Promise.race([
+      readTaskFileHead("p", 512).then((buffer) => buffer.byteLength),
+      new Promise<string>((resolve) => setTimeout(() => resolve("hung"), 1_000)),
+    ]);
+    expect(head).toBe(512);
+  });
+
   it("asks for a byte range and stops after it even if the whole file streams back", async () => {
     bucket.createSignedUrl.mockResolvedValue({ data: { signedUrl: "https://signed" }, error: null });
     // Never ends: reading to the end would hang the test.
@@ -130,6 +150,8 @@ describe("readTaskFileHead", () => {
     expect(head[0]).toBe(1);
     expect(head[511]).toBe(2);
     expect(cancelled).toBe(true);
+    const signal = (fetchMock.mock.calls[0][1] as RequestInit).signal;
+    expect(signal?.aborted).toBe(true);
     expect(fetchMock).toHaveBeenCalledWith(
       "https://signed",
       expect.objectContaining({ headers: { Range: "bytes=0-511" } }),

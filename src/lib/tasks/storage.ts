@@ -125,28 +125,39 @@ export async function readTaskFileInfo(path: string): Promise<TaskFileInfo | nul
  */
 export async function readTaskFileHead(path: string, byteCount = 512): Promise<ArrayBuffer> {
   const url = await signTaskFile(path, 60);
-  const response = await fetch(url, {
-    headers: { Range: `bytes=0-${byteCount - 1}` },
-    cache: "no-store",
-  });
-  if (!response.ok || !response.body) {
-    throw new Error(`Could not read the uploaded file (${response.status}).`);
-  }
-  const reader = response.body.getReader();
-  const head = new Uint8Array(byteCount);
-  let length = 0;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
   try {
-    while (length < byteCount) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const part = value.subarray(0, byteCount - length);
-      head.set(part, length);
-      length += part.length;
+    const response = await fetch(url, {
+      headers: { Range: `bytes=0-${byteCount - 1}` },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response.ok || !response.body) {
+      throw new Error(`Could not read the uploaded file (${response.status}).`);
     }
+    const reader = response.body.getReader();
+    const head = new Uint8Array(byteCount);
+    let length = 0;
+    try {
+      while (length < byteCount) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const part = value.subarray(0, byteCount - length);
+        head.set(part, length);
+        length += part.length;
+      }
+    } finally {
+      // Abort the underlying fetch when Storage ignores Range. Never await
+      // reader.cancel(): Next.js tees fetch bodies and one branch can hang.
+      controller.abort();
+      void reader.cancel().catch(() => undefined);
+    }
+    return head.slice(0, length).buffer;
   } finally {
-    await reader.cancel().catch(() => undefined);
+    clearTimeout(timeout);
+    controller.abort();
   }
-  return head.slice(0, length).buffer;
 }
 
 export async function signTaskFile(path: string, expiresIn = 3600): Promise<string> {
