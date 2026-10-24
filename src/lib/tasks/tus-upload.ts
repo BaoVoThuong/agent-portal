@@ -52,6 +52,11 @@ export function uploadFileWithTus(
     void upload.findPreviousUploads().then((previous) => {
       if (previous.length > 0) upload.resumeFromPreviousUpload(previous[0]);
       upload.start();
-    }, reject);
+    }, () => {
+      // Browser URL storage can fail (private mode/quota). Starting a fresh
+      // upload still works; only cross-attempt resume is unavailable.
+      upload.options.storeFingerprintForResuming = false;
+      upload.start();
+    });
   });
 }

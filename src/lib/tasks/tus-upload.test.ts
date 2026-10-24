@@ -3,13 +3,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mock = vi.hoisted(() => ({
   options: null as Record<string, unknown> | null,
   previous: [] as { uploadUrl: string }[],
+  previousError: false,
   resumed: null as { uploadUrl: string } | null,
 }));
 
 vi.mock("tus-js-client", () => ({
   Upload: class {
-    constructor(_file: File, options: Record<string, unknown>) { mock.options = options; }
-    findPreviousUploads() { return Promise.resolve(mock.previous); }
+    options: Record<string, unknown>;
+    constructor(_file: File, options: Record<string, unknown>) {
+      this.options = options;
+      mock.options = options;
+    }
+    findPreviousUploads() {
+      return mock.previousError ? Promise.reject(new Error("URL storage unavailable")) : Promise.resolve(mock.previous);
+    }
     resumeFromPreviousUpload(previous: { uploadUrl: string }) { mock.resumed = previous; }
     start() {
       (mock.options?.onProgress as ((uploaded: number, total: number) => void) | undefined)?.(5, 10);
@@ -23,6 +30,7 @@ import { uploadFileWithTus } from "./tus-upload";
 beforeEach(() => {
   mock.options = null;
   mock.previous = [];
+  mock.previousError = false;
   mock.resumed = null;
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://project.supabase.co");
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "public-anon-key");
@@ -68,6 +76,12 @@ describe("Supabase resumable upload", () => {
     const progress = vi.fn();
     await uploadFileWithTus(file, ticket, progress);
     expect(progress).toHaveBeenCalledWith(5, 10);
+  });
+
+  it("still uploads when browser resume storage is unavailable", async () => {
+    mock.previousError = true;
+    await expect(uploadFileWithTus(file, ticket)).resolves.toBeUndefined();
+    expect(mock.options?.storeFingerprintForResuming).toBe(false);
   });
 
   it("reports missing public gateway key before attempting upload", async () => {
