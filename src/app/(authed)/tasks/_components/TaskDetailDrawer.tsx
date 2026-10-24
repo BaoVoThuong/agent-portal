@@ -578,10 +578,15 @@ export function TaskDetailDrawer({
     label: category.name,
   }));
   const categoryById = new Map(categories.map((category) => [category.id, category]));
-  const agentOptions = agents.map((agent) => ({
-    value: agent.email,
-    label: agent.name?.trim() || formatEmailAsName(agent.email),
-  }));
+  const agentOptions = [
+    // Clearing the Agent is a manager action: a worker who cleared it could
+    // drop the task out of their own Agent-scoped queue (API enforces too).
+    ...(canAssign && !requiredColumnKeys.has("agent") ? [{ value: "", label: "Unassigned" }] : []),
+    ...agents.map((agent) => ({
+      value: agent.email,
+      label: agent.name?.trim() || formatEmailAsName(agent.email),
+    })),
+  ];
   const personLabelByEmail = new Map<string, string>();
   for (const agent of agents) {
     personLabelByEmail.set(
@@ -989,7 +994,7 @@ export function TaskDetailDrawer({
                       personValue
                       disabled={!canEdit}
                       options={agentOptions}
-                      placeholder="Select agent"
+                      placeholder="Unassigned"
                       onChange={(nextAgent) => onPatch({ agent_email: nextAgent })}
                     />
                   </div>

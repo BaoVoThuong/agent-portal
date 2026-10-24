@@ -136,10 +136,13 @@ export function resolveTaskPatch(
     patch.category_id = r.category_id.trim();
   }
   if (r.agent_email !== undefined) {
-    if (typeof r.agent_email !== "string" || r.agent_email.trim() === "") {
-      return { ok: false, error: "Agent is required." };
+    if (r.agent_email !== null && typeof r.agent_email !== "string") {
+      return { ok: false, error: "Invalid agent." };
     }
-    patch.agent_email = r.agent_email.trim();
+    // The route checks whether Agent is Required in the live Table Config.
+    patch.agent_email = typeof r.agent_email === "string"
+      ? r.agent_email.trim() || null
+      : null;
   }
   if (r.position !== undefined) {
     if (typeof r.position !== "number" || !Number.isFinite(r.position))

@@ -14,6 +14,11 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 - Chỉ gia hạn timeout upload khi số byte thực sự tăng; TUS báo lặp cùng offset trong lúc retry sẽ không giữ giao diện `Uploading` vô hạn.
 - Mỗi lượt cấp token kiểm lại giới hạn bucket; một instance đã kiểm thành công không tiếp tục cấp token sai nếu deployment cũ hạ bucket xuống 4 MiB sau đó.
 
+## 2026-10-24 — Task: Agent theo cờ Required trong Table Configuration
+
+- Bỏ điều kiện Agent bắt buộc ghi cứng trong API tạo Task. Form đã bỏ dấu `*` khi cấu hình `required=false`, nhưng API vẫn trả `Agent is required.`; nay API dùng cùng `table_column.required` để quyết định. Manager tạo Task không có Agent được; quyền tạo Task của worker vẫn cần scope Agent như trước.
+- Form tạo/sửa có lựa chọn `Unassigned` khi Agent không Required — **chỉ quản lý thấy**; API sửa Task trả 403 "Only a manager can leave Agent empty." nếu người không phải quản lý xoá Agent (tránh tự rơi khỏi hàng đợi theo Agent của mình). Khi sửa Task, Agent rỗng được lưu `null`; nếu bật Required, bộ kiểm Table Configuration vẫn từ chối trước khi ghi DB.
+
 ## 2026-10-24 — Nhánh dev 50 MiB: rà lại sau rebase, chưa triển khai production
 
 - Rebase `dev/attachment-50mb-rebuild` lên `main` `ef2a302`, giữ phần thông báo Enrollment và nhận diện tab cũ.

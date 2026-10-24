@@ -21,6 +21,25 @@ describe("isRequiredValueFilled", () => {
 });
 
 describe("findMissingRequiredFieldsFromContext", () => {
+  it("allows an empty Agent only when Table Config marks it optional", () => {
+    const agentColumn = {
+      key: "agent", label: "Agent", type: "person", is_system: true, archived_at: null,
+    };
+    const options = { fieldValues: { agent: null }, partial: false };
+    expect(findMissingRequiredFieldsFromContext({
+      columns: [{ ...agentColumn, required: false }] as never,
+    }, options)).toEqual([]);
+    expect(findMissingRequiredFieldsFromContext({
+      columns: [{ ...agentColumn, required: true }] as never,
+    }, options)).toEqual([{ key: "agent", label: "Agent" }]);
+    expect(findMissingRequiredFieldsFromContext({
+      columns: [{ ...agentColumn, required: false }] as never,
+    }, { ...options, partial: true })).toEqual([]);
+    expect(findMissingRequiredFieldsFromContext({
+      columns: [{ ...agentColumn, required: true }] as never,
+    }, { ...options, partial: true })).toEqual([{ key: "agent", label: "Agent" }]);
+  });
+
   it("checks required system and custom values without a database read", () => {
     const missing = findMissingRequiredFieldsFromContext(
       {

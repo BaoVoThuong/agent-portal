@@ -261,7 +261,7 @@ export function TaskSelect({
                   <>
                     {personValue ? (
                       <AvatarStack
-                        emails={[option.value]}
+                        emails={option.value ? [option.value] : []}
                         labelByEmail={personLabelByValue}
                         max={1}
                       />

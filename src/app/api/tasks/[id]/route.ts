@@ -400,6 +400,16 @@ export async function PATCH(req: Request, { params }: Ctx) {
     nowIso,
   });
   if (!resolved.ok) return NextResponse.json({ error: resolved.error }, { status: 400 });
+  // Agent may be optional in Table Config, but only a manager may clear it: a
+  // worker who did could drop the task out of their own Agent-scoped queue.
+  if (
+    "agent_email" in resolved.patch &&
+    resolved.patch.agent_email === null &&
+    r.task.agent_email &&
+    !r.actor.isManager
+  ) {
+    return NextResponse.json({ error: "Only a manager can leave Agent empty." }, { status: 403 });
+  }
   if (
     reassigning &&
     typeof resolved.patch.assignee_email === "string" &&
@@ -525,10 +535,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
   const shouldNotifyQcNeeded =
     (resolved.patch.status === "done" || resolved.patch.status === "cancel") &&
     r.task.status !== resolved.patch.status;
-  const qcAgentEmail =
-    typeof resolved.patch.agent_email === "string"
-      ? resolved.patch.agent_email
-      : r.task.agent_email;
+  const qcAgentEmail = "agent_email" in resolved.patch
+    ? (resolved.patch.agent_email as string | null)
+    : r.task.agent_email;
   let qcRecipients: string[] = [];
   if (shouldNotifyQcNeeded) {
     try {

@@ -175,10 +175,15 @@ export function NewTaskDialog({
       (email) => byEmail.get(email) ?? { email, name: null }
     );
   })();
-  const agentOptions = visibleAgents.map((agent) => ({
-    value: agent.email,
-    label: agent.name?.trim() || formatEmailAsName(agent.email),
-  }));
+  const agentOptions = [
+    // Only a manager may create a task without an Agent (the API needs an
+    // Agent the worker covers otherwise), so only they see "Unassigned".
+    ...(isManager && !requiredColumnKeys.has("agent") ? [{ value: "", label: "Unassigned" }] : []),
+    ...visibleAgents.map((agent) => ({
+      value: agent.email,
+      label: agent.name?.trim() || formatEmailAsName(agent.email),
+    })),
+  ];
   const assigneeOptions = assignees.map((assignee) => ({
     value: assignee.email,
     label: assignee.name?.trim() || formatEmailAsName(assignee.email),

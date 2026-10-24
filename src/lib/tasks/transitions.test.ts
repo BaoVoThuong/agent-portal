@@ -47,14 +47,19 @@ describe("resolveTaskPatch", () => {
     });
   });
 
-  it("accepts changing the customer agent and rejects clearing it", () => {
+  it("normalizes a cleared agent for the route's configurable Required check", () => {
     expect(
       resolveTaskPatch(manager, assigned, { agent_email: "  agent@x.com  " })
     ).toEqual({ ok: true, patch: { agent_email: "agent@x.com" } });
 
     expect(resolveTaskPatch(manager, assigned, { agent_email: "" })).toEqual({
-      ok: false,
-      error: "Agent is required.",
+      ok: true, patch: { agent_email: null },
+    });
+    expect(resolveTaskPatch(manager, assigned, { agent_email: null })).toEqual({
+      ok: true, patch: { agent_email: null },
+    });
+    expect(resolveTaskPatch(manager, assigned, { agent_email: 123 })).toEqual({
+      ok: false, error: "Invalid agent.",
     });
   });
 

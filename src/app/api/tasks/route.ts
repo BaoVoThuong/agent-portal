@@ -127,11 +127,8 @@ export async function POST(request: Request) {
     typeof body?.agent_email === "string" && body.agent_email.trim() !== ""
       ? body.agent_email.trim()
       : null;
-  if (!agentEmail) {
-    return NextResponse.json({ error: "Agent is required." }, { status: 400 });
-  }
   let hasAgentScope = false;
-  if (!actor.isManager) {
+  if (!actor.isManager && agentEmail) {
     hasAgentScope = await isAgentOwnerOrAssistant(agentEmail, email);
     const allowedAgents = await fetchAgentsForCs(email);
     if (!allowedAgents.includes(agentEmail) && !hasAgentScope) {
@@ -234,8 +231,8 @@ export async function POST(request: Request) {
     );
   }
   customValues = customValueValidation.values;
-  // Title/Agent/Category are validated above with field-specific messages;
-  // this additionally covers any OTHER column an admin has marked Required —
+  // Title/Category are validated above with field-specific messages; Agent
+  // and any other configurable Required column are checked here —
   // The write context reads live table_column rows, so WHICH fields get checked
   // is 100% driven by Config, not this file. This
   // object only needs to name every CS system column that has a real
