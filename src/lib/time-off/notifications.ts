@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { fetchEmailsWithPermission } from "@/lib/rbac/permission-holders";
 import { broadcastNotif } from "@/lib/tasks/realtime";
@@ -96,4 +97,101 @@ export async function insertTimeOffNotifications(
   if (error) throw new Error(error.message);
 
   await broadcastNotif(uniqueRows.map((row) => row.recipient_email));
+}
+
+export type TimeOffDecision = "approve" | "reject" | "cancel";
+
+/** Same wording as the "submitted" notice, so the bell reads alike for one request. */
+export function timeOffRequestDetail(request: {
+  total_days: number | string | null;
+  start_date: string;
+  end_date: string;
+}): string {
+  return `${request.total_days ?? "?"} ngày, ${request.start_date} → ${request.end_date}`;
+}
+
+/**
+ * Who hears about a decision (2026-10-24; before this the three types were in
+ * the CHECK constraint but nothing ever wrote them):
+ * - approve / reject → the requester;
+ * - cancel (only the requester can) → whoever was told about the submission:
+ *   the chosen manager and every Time Off Admin.
+ * The actor is never notified about their own action.
+ */
+export function timeOffDecisionRows(input: {
+  decision: TimeOffDecision;
+  requestId: string;
+  actorEmail: string;
+  requesterEmail: string;
+  submissionRecipients: readonly string[];
+  detail: string;
+}): TimeOffNotificationInsertInput[] {
+  const actor = normalizeEmail(input.actorEmail);
+  const type: TimeOffNotificationType =
+    input.decision === "approve" ? "approved" : input.decision === "reject" ? "rejected" : "cancelled";
+  const recipients =
+    input.decision === "cancel" ? input.submissionRecipients : [input.requesterEmail];
+  return uniqueTimeOffNotificationRows(
+    recipients
+      .filter((email) => normalizeEmail(email) && normalizeEmail(email) !== actor)
+      .map((email) => ({
+        recipient_email: email,
+        request_id: input.requestId,
+        type,
+        actor_email: actor,
+        detail: input.detail,
+      })),
+  );
+}
+
+/** Loads the request's people and writes the decision notifications. Callers run it after the response. */
+export async function notifyTimeOffDecision(input: {
+  decision: TimeOffDecision;
+  requestId: string;
+  actorEmail: string;
+}): Promise<void> {
+  const supabase = getSupabaseAdmin();
+  const { data: request, error } = await supabase
+    .from("time_off_requests")
+    .select("id,requester_id,manager_id,start_date,end_date,total_days")
+    .eq("id", input.requestId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!request) return;
+  const row = request as {
+    requester_id: string;
+    manager_id: string | null;
+    start_date: string;
+    end_date: string;
+    total_days: number | string | null;
+  };
+  const accountIds = [row.requester_id, row.manager_id].filter((id): id is string => Boolean(id));
+  const { data: accounts, error: accountError } = await supabase
+    .from(PORTAL_ACCOUNT_TABLE)
+    .select("id,email")
+    .in("id", accountIds);
+  if (accountError) throw new Error(accountError.message);
+  const emailById = new Map(
+    ((accounts ?? []) as { id: string; email: string }[]).map((account) => [account.id, account.email]),
+  );
+  const requesterEmail = emailById.get(row.requester_id);
+  if (!requesterEmail) return;
+
+  const submissionRecipients =
+    input.decision === "cancel"
+      ? await resolveTimeOffRecipients({
+          requesterEmail,
+          managerEmail: row.manager_id ? emailById.get(row.manager_id) ?? null : null,
+        })
+      : [];
+  await insertTimeOffNotifications(
+    timeOffDecisionRows({
+      decision: input.decision,
+      requestId: input.requestId,
+      actorEmail: input.actorEmail,
+      requesterEmail,
+      submissionRecipients,
+      detail: timeOffRequestDetail(row),
+    }),
+  );
 }

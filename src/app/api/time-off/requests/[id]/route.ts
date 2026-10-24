@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { getTimeOffActor } from "@/lib/time-off/access";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { notifyTimeOffDecision, type TimeOffDecision } from "@/lib/time-off/notifications";
 
 function responseError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
@@ -22,6 +23,20 @@ function approvalError(message: string) {
     default:
       return { message: "Approval could not be completed. Please try again or contact an administrator.", status: 400 };
   }
+}
+
+/**
+ * The decision is committed before this runs, so a failure only loses the
+ * notification; it must not turn a done approval into an error the user retries.
+ */
+function notifyAfterResponse(decision: TimeOffDecision, requestId: string, actorEmail: string) {
+  after(async () => {
+    try {
+      await notifyTimeOffDecision({ decision, requestId, actorEmail });
+    } catch (caught) {
+      console.error("Time-off decision notification failed", { requestId, decision, error: caught });
+    }
+  });
 }
 
 function note(value: unknown): string | null {
@@ -71,6 +86,7 @@ export async function PATCH(
       .maybeSingle();
     if (error) return responseError(error.message, 500);
     if (!data) return responseError("This request was changed by someone else. Refresh and try again.", 409);
+    notifyAfterResponse("cancel", id, actor.email);
     return NextResponse.json({ request: data });
   }
 
@@ -96,6 +112,7 @@ export async function PATCH(
       const failure = approvalError(error.message);
       return responseError(failure.message, failure.status);
     }
+    notifyAfterResponse("approve", id, actor.email);
     return NextResponse.json({ request: data });
   }
 
@@ -114,5 +131,6 @@ export async function PATCH(
     .maybeSingle();
   if (error) return responseError(error.message, 500);
   if (!data) return responseError("This request was changed by someone else. Refresh and try again.", 409);
+  notifyAfterResponse("reject", id, actor.email);
   return NextResponse.json({ request: data });
 }

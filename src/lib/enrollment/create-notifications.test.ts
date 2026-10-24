@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAssignmentNotificationRows,
   buildCreateEnrollmentNotificationRows,
+  buildPersonColumnAssignmentRows,
   buildStageNotifications,
 } from "./create-notifications";
 
@@ -165,5 +166,65 @@ describe("new enrollment notification recipients", () => {
       recipient_email: "manager@example.com",
       type: "stage_changed",
     });
+  });
+});
+
+describe("enrollment watchers in notifications", () => {
+  it("names the Person column in an assignment made at record creation", () => {
+    const rows = buildCreateEnrollmentNotificationRows({
+      recordId: "r-1",
+      actorEmail: "creator@x.com",
+      assignees: ["agent@x.com"],
+      personPicks: [{ email: "Follow@x.com", label: "Follow up" }],
+      createdRecipients: ["assistant@x.com"],
+    });
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        recipient_email: "follow@x.com",
+        type: "assigned",
+        detail: "Picked as Follow up",
+      }),
+      expect.objectContaining({ recipient_email: "assistant@x.com", type: "record_created" }),
+    ]));
+  });
+
+  it("tells the Agent's Assistants and Person-column people what the owners hear", () => {
+    const rows = buildStageNotifications({
+      program: "aca",
+      fromStage: null,
+      toStage: { label: "Done", is_terminal: true, triggers_qc: true },
+      reopening: false,
+      recordId: "r-1",
+      actorEmail: "actor@x.com",
+      callerEmail: "caller@x.com",
+      responsibleEmail: null,
+      agentEmail: "agent@x.com",
+      managerEmails: [],
+      watcherEmails: ["assistant@x.com", "monitor@x.com", "actor@x.com"],
+    });
+    const recipients = rows.map((row) => row.recipient_email);
+    expect(recipients).toEqual(expect.arrayContaining(["assistant@x.com", "monitor@x.com", "caller@x.com"]));
+    expect(recipients).not.toContain("actor@x.com");
+  });
+
+  it("assigns the people newly picked in a Person column, naming the column", () => {
+    expect(
+      buildPersonColumnAssignmentRows({
+        recordId: "r-1",
+        actorEmail: "Actor@x.com",
+        picks: [
+          { email: "lead@x.com", label: "Follow up" },
+          { email: "actor@x.com", label: "Monitor" },
+        ],
+      }),
+    ).toEqual([
+      {
+        recipient_email: "lead@x.com",
+        record_id: "r-1",
+        type: "assigned",
+        actor_email: "Actor@x.com",
+        detail: "Picked as Follow up",
+      },
+    ]);
   });
 });

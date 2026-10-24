@@ -104,4 +104,17 @@ describe("enrollment due schedule", () => {
   it("keeps the end of a business date in the configured timezone", () => {
     expect(businessDate(businessEndOfDay("2026-11-01"))).toBe("2026-11-01");
   });
+
+  it("tells the watchers like the owners, and managers only once overdue", () => {
+    const watched = { caller_email: "caller@x.com", responsible_enroll_email: null, agent_email: null };
+    expect(dueRecipients("due_soon", watched, ["manager@x.com"], ["Assistant@x.com"])).toEqual([
+      "caller@x.com",
+      "assistant@x.com",
+    ]);
+    expect(dueRecipients("overdue", watched, ["manager@x.com"], ["assistant@x.com"])).toEqual([
+      "caller@x.com",
+      "assistant@x.com",
+      "manager@x.com",
+    ]);
+  });
 });

@@ -21,6 +21,9 @@ const DIRECT_TYPES: ReadonlySet<NotificationCopyType> = new Set<NotificationCopy
   "assigned",
   "unassigned",
   "reopened",
+  // Kết quả đơn nghỉ chỉ gửi cho đúng người nộp.
+  "approved",
+  "rejected",
 ]);
 
 export function isDirectNotification(type: NotificationCopyType): boolean {

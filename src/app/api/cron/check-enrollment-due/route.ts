@@ -19,12 +19,19 @@ import {
 } from "@/lib/enrollment/due-schedule";
 import { resolveReminderSettings } from "@/lib/tasks/reminder-settings";
 import { checkCronAuthorization } from "@/lib/cron-auth";
+import {
+  enrollmentWatcherEmails,
+  loadEnrollmentWatcherContext,
+  type EnrollmentWatcherContext,
+} from "@/lib/enrollment/watchers";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 type DueRecord = DueRecordSchedule & {
   id: string;
+  program: string | null;
+  custom_values: Record<string, unknown> | null;
   client_name: string | null;
   qc_stale_notified_at: string | null;
   qc_checked_at: string | null;
@@ -34,7 +41,7 @@ type DueRecord = DueRecordSchedule & {
 const PAGE_SIZE = 1000;
 const BATCH_SIZE = 10;
 const DUE_SELECT =
-  "id,client_name,due_date,stage_id,caller_email,responsible_enroll_email,agent_email,due_soon_notified_at,overdue_notified_at,overdue_reminded_at,qc_stale_notified_at,qc_checked_at,closed_at";
+  "id,program,custom_values,client_name,due_date,stage_id,caller_email,responsible_enroll_email,agent_email,due_soon_notified_at,overdue_notified_at,overdue_reminded_at,qc_stale_notified_at,qc_checked_at,closed_at";
 
 async function fetchEnrollmentRows(closed: boolean): Promise<DueRecord[]> {
   const rows: DueRecord[] = [];
@@ -82,15 +89,14 @@ async function claimMarker(
   return Boolean(data);
 }
 
+// `scopedRows` already holds everyone told (owners, watchers, managers) after
+// the scope check; nothing left means nobody can be told.
 async function notifyDueRecord(
   record: DueRecord,
   action: DueAction,
-  managerEmails: readonly string[],
   nowIso: string,
   scopedRows: EnrollmentNotificationInsertInput[],
 ): Promise<boolean> {
-  const recipients = dueRecipients(action, record, managerEmails);
-  if (recipients.length === 0) return false;
   if (scopedRows.length === 0) return false;
   const marker = action === "due_soon"
     ? "due_soon_notified_at"
@@ -119,15 +125,9 @@ async function notifyDueRecord(
 
 async function notifyQcStale(
   record: DueRecord,
-  managerEmails: readonly string[],
   nowIso: string,
   scopedRows: EnrollmentNotificationInsertInput[],
 ): Promise<boolean> {
-  const recipients = uniqueEnrollmentNotificationRecipients([
-    ...enrollmentRecordOwnerEmails(record),
-    ...managerEmails,
-  ]);
-  if (recipients.length === 0) return false;
   if (scopedRows.length === 0) return false;
   if (!(await claimMarker(record, "qc_stale_notified_at", record.qc_stale_notified_at, nowIso))) {
     return false;
@@ -179,6 +179,17 @@ export async function GET(request: Request) {
     );
   }
 
+  // Assistants of the Agent and Person-column people hear what the owners hear.
+  let watchers: EnrollmentWatcherContext;
+  try {
+    watchers = await loadEnrollmentWatcherContext();
+  } catch (error) {
+    return NextResponse.json(
+      { error: `Could not resolve Enrollment watchers: ${error instanceof Error ? error.message : "unknown error"}` },
+      { status: 500 },
+    );
+  }
+
   let records: DueRecord[];
   try {
     records = await fetchEnrollmentRows(false);
@@ -210,7 +221,12 @@ export async function GET(request: Request) {
   );
 
   const dueCandidates = dueActions.flatMap(({ record, action }) =>
-    dueRecipients(action, record, managersFor(record.agent_email)).map((recipient) => ({
+    dueRecipients(
+      action,
+      record,
+      managersFor(record.agent_email),
+      enrollmentWatcherEmails(record, watchers),
+    ).map((recipient) => ({
       recipient_email: recipient,
       record_id: record.id,
       type: action,
@@ -232,6 +248,7 @@ export async function GET(request: Request) {
   const qcCandidates = qcStale.flatMap((record) =>
     uniqueEnrollmentNotificationRecipients([
       ...enrollmentRecordOwnerEmails(record),
+      ...enrollmentWatcherEmails(record, watchers),
       ...managersFor(record.agent_email),
     ]).map((recipient) => ({
       recipient_email: recipient,
@@ -261,7 +278,6 @@ export async function GET(request: Request) {
       sent = await notifyDueRecord(
         record,
         action,
-        managersFor(record.agent_email),
         nowIso,
         dueRowsByKey.get(`${record.id}\0${action}`) ?? [],
       );
@@ -276,7 +292,7 @@ export async function GET(request: Request) {
   });
   await inBatches(qcStale, async (record) => {
     try {
-      if (await notifyQcStale(record, managersFor(record.agent_email), nowIso, qcRowsById.get(record.id) ?? [])) sentQcStale += 1;
+      if (await notifyQcStale(record, nowIso, qcRowsById.get(record.id) ?? [])) sentQcStale += 1;
     } catch (error) {
       failed += 1;
       console.error("Enrollment QC stale notification failed", { id: record.id, error });

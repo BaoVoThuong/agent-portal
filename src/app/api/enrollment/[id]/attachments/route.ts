@@ -22,6 +22,7 @@ import {
   uniqueEnrollmentNotificationRecipients,
 } from "@/lib/enrollment/notifications";
 import { attachmentTouchesRecord } from "@/lib/enrollment/attachment-touch";
+import { enrollmentWatcherEmails, loadEnrollmentWatcherContext } from "@/lib/enrollment/watchers";
 import {
   broadcastEnrollmentChanged,
   broadcastEnrollmentRoom,
@@ -298,8 +299,14 @@ export async function POST(request: Request, { params }: Ctx) {
         meta: { file_name: file.name },
       });
       if (activityError) sideEffectWarnings.push(`Attachment activity failed: ${activityError.message}`);
+      // Assistants of the Agent and Person-column people follow the record
+      // like its owners (watchers.ts); a failed read only drops them.
+      const watchers = await loadEnrollmentWatcherContext().catch(() => null);
       const recipients = uniqueEnrollmentNotificationRecipients(
-        enrollmentRecordOwnerEmails(context.record),
+        [
+          ...enrollmentRecordOwnerEmails(context.record),
+          ...(watchers ? enrollmentWatcherEmails(context.record, watchers) : []),
+        ],
         [context.actor.email],
       );
       try {

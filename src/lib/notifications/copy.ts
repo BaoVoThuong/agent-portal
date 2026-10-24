@@ -43,8 +43,11 @@ export const NOTIFICATION_COPY_TYPES = [
   "task_created",
   "record_created",
   "stage_changed",
-  // Time Off: đơn xin nghỉ vừa được nộp.
+  // Time Off: đơn xin nghỉ vừa được nộp, rồi kết quả của nó (2026-10-24).
+  // "cancelled" dùng chung chữ với task, tách câu theo entity.
   "submitted",
+  "approved",
+  "rejected",
 ] as const;
 
 export type NotificationCopyType = (typeof NOTIFICATION_COPY_TYPES)[number];
@@ -97,15 +100,23 @@ export function notificationEntityLabel(notification: NotificationCopySource): s
   }
 }
 
-/** Đường dẫn mở đúng bản ghi. Service worker dùng nguyên chuỗi này khi người dùng bấm. */
+/** Đường dẫn mở đúng bản ghi, hoặc đúng mục Time Off. Service worker dùng nguyên chuỗi này khi người dùng bấm. */
 export function notificationHref(notification: NotificationCopySource): string {
   switch (notificationEntityKind(notification)) {
     case "enrollment":
       return `/enrollment?record=${notificationEntityId(notification)}`;
     // Đơn nghỉ chờ duyệt nằm ở tab Approvals; đưa thẳng người duyệt tới đó
     // thay vì thả họ xuống màn hình "My leave" rồi tự đi tìm.
-    case "time_off":
-      return `/time-off?tab=approvals&request=${notificationEntityId(notification)}`;
+    case "time_off": {
+      // Người nộp xem kết quả ở "My leave"; đơn bị huỷ không còn ở hàng chờ
+      // duyệt nên người duyệt xem ở History; đơn mới thì tới hàng chờ duyệt.
+      // Time Off chưa hỗ trợ chọn một đơn bằng URL; đừng tạo ?request= giả.
+      if (notification.type === "approved" || notification.type === "rejected") {
+        return "/time-off";
+      }
+      if (notification.type === "cancelled") return "/time-off?tab=history";
+      return "/time-off?tab=approvals";
+    }
     default:
       return `/tasks?task=${notificationEntityId(notification)}`;
   }
@@ -118,6 +129,10 @@ export function notificationActionText(notification: NotificationCopySource): st
       return kind === "enrollment" ? "created a new enrollment record" : "created a new record";
     case "submitted":
       return "gửi một đơn xin nghỉ";
+    case "approved":
+      return "duyệt đơn xin nghỉ của bạn";
+    case "rejected":
+      return "từ chối đơn xin nghỉ của bạn";
     case "assigned":
       return kind === "enrollment"
         ? "assigned you to an enrollment record"
@@ -145,7 +160,7 @@ export function notificationActionText(notification: NotificationCopySource): st
     case "qc_reviewed":
       return kind === "enrollment" ? "QC checked this enrollment record" : "QC checked this task";
     case "cancelled":
-      return "cancelled this task";
+      return kind === "time_off" ? "huỷ đơn xin nghỉ" : "cancelled this task";
     case "attachment_added":
       return "added an attachment";
     case "backlog_attention":

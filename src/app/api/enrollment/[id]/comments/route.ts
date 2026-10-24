@@ -13,6 +13,7 @@ import {
 } from "@/lib/enrollment/realtime";
 import { loadScopedEnrollmentRecord } from "@/lib/enrollment/scope";
 import { parseMentions } from "@/lib/tasks/mentions";
+import { enrollmentWatcherEmails, loadEnrollmentWatcherContext } from "@/lib/enrollment/watchers";
 import type { EnrollmentRecord } from "@/lib/enrollment/types";
 
 export const dynamic = "force-dynamic";
@@ -121,13 +122,16 @@ export async function POST(request: Request, { params }: Ctx) {
         warnings.push(`Enrollment comment activity failed: ${activityError.message}`);
       }
 
-      const [peopleRes, authorsRes] = await Promise.all([
+      const [peopleRes, authorsRes, watchers] = await Promise.all([
         loaded.supabase.from("portal_account").select("email").eq("is_active", true),
         loaded.supabase
           .from("enrollment_comments")
           .select("author_email")
           .eq("record_id", id)
           .is("deleted_at", null),
+        // Assistants of the Agent and Person-column people follow the record
+        // like its owners (watchers.ts); a failed read only drops them.
+        loadEnrollmentWatcherContext().catch(() => null),
       ]);
       const activeEmails = new Set(
         ((peopleRes.data ?? []) as { email: string }[]).map((person) => person.email)
@@ -140,6 +144,7 @@ export async function POST(request: Request, { params }: Ctx) {
       const baseRecipients = uniqueEnrollmentNotificationRecipients(
         [
           ...enrollmentRecordOwnerEmails(loaded.record),
+          ...(watchers ? enrollmentWatcherEmails(loaded.record, watchers) : []),
           ...threadWatchers,
         ],
         [loaded.actor.email, ...mentions]

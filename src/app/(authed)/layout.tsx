@@ -4,6 +4,7 @@ import Sidebar from "./_components/Sidebar";
 import TopBar from "./_components/TopBar";
 import { fetchAvatarDirectory } from "@/lib/people/avatar-directory";
 import { AvatarProvider } from "@/lib/people/AvatarProvider";
+import { NewVersionBanner } from "./_components/NewVersionBanner";
 
 export default async function AuthedLayout({
   children,
@@ -46,6 +47,7 @@ export default async function AuthedLayout({
         </main>
       </div>
     </div>
+    <NewVersionBanner />
     </AvatarProvider>
   );
 }

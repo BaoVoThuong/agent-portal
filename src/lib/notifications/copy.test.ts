@@ -132,3 +132,23 @@ describe("câu chữ không nói sai hoàn cảnh", () => {
     );
   });
 });
+
+describe("time-off decision copy", () => {
+  const timeOff = (type: string) =>
+    ({ type, entity_type: "time_off", entity_id: "req-1" }) as unknown as Parameters<typeof notificationHref>[0];
+
+  it("words and links each decision for the person who receives it", () => {
+    expect(notificationActionText(timeOff("approved"))).toBe("duyệt đơn xin nghỉ của bạn");
+    expect(notificationActionText(timeOff("rejected"))).toBe("từ chối đơn xin nghỉ của bạn");
+    expect(notificationActionText(timeOff("cancelled"))).toBe("huỷ đơn xin nghỉ");
+    expect(notificationHref(timeOff("approved"))).toBe("/time-off");
+    expect(notificationHref(timeOff("cancelled"))).toBe("/time-off?tab=history");
+    expect(notificationHref(timeOff("submitted"))).toBe("/time-off?tab=approvals");
+  });
+
+  it("keeps the task wording for a cancelled task", () => {
+    expect(
+      notificationActionText({ type: "cancelled", entity_type: "task", entity_id: "t-1" } as unknown as Parameters<typeof notificationHref>[0]),
+    ).toBe("cancelled this task");
+  });
+});

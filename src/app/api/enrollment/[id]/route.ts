@@ -23,8 +23,15 @@ import {
 } from "@/lib/enrollment/notifications";
 import {
   buildAssignmentNotificationRows,
+  buildPersonColumnAssignmentRows,
   buildStageNotifications,
 } from "@/lib/enrollment/create-notifications";
+import {
+  enrollmentWatcherEmails,
+  loadEnrollmentWatcherContext,
+  newPersonColumnPicks,
+  type EnrollmentWatcherContext,
+} from "@/lib/enrollment/watchers";
 import { isKeyStage } from "@/lib/enrollment/key-stages";
 import {
   broadcastEnrollmentChanged,
@@ -567,6 +574,21 @@ export async function PATCH(request: Request, { params }: Ctx) {
   const mutationWarnings: string[] = [];
   const notifications: EnrollmentNotificationInsertInput[] = [];
 
+  // Assistants of the Agent and Person-column people follow the record like
+  // its owners (watchers.ts). Read only when this edit notifies anyone.
+  const personColumnsEdited = "custom_values" in patch;
+  let watchers: EnrollmentWatcherContext | null = null;
+  if (stageChanged || qcChecked === true || personColumnsEdited) {
+    try {
+      watchers = await loadEnrollmentWatcherContext();
+    } catch (error) {
+      mutationWarnings.push(
+        `Enrollment watcher lookup failed: ${error instanceof Error ? error.message : "unknown error"}`
+      );
+    }
+  }
+  const watcherEmails = watchers ? enrollmentWatcherEmails(updated, watchers) : [];
+
   if (stageChanged) {
     let managerEmails: string[] = [];
     if (toStage && (toStage.triggers_qc || isKeyStage(updated.program, toStage))) {
@@ -591,6 +613,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
         responsibleEmail: updated.responsible_enroll_email,
         agentEmail: updated.agent_email,
         managerEmails,
+        watcherEmails,
         reopenReason,
       }),
     );
@@ -616,10 +639,20 @@ export async function PATCH(request: Request, { params }: Ctx) {
     );
   }
 
+  if (personColumnsEdited && watchers) {
+    notifications.push(
+      ...buildPersonColumnAssignmentRows({
+        recordId: id,
+        actorEmail: actorResult.actor.email,
+        picks: newPersonColumnPicks(current, updated, watchers),
+      }),
+    );
+  }
+
   if (qcChecked !== null) {
     if (qcChecked) {
       for (const recipient of uniqueEnrollmentNotificationRecipients(
-        enrollmentRecordOwnerEmails(updated),
+        [...enrollmentRecordOwnerEmails(updated), ...watcherEmails],
         [actorResult.actor.email]
       )) {
         notifications.push({

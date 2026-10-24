@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  timeOffDecisionRows,
   uniqueTimeOffNotificationRows,
   type TimeOffNotificationInsertInput,
 } from "@/lib/time-off/notifications";
@@ -66,5 +67,41 @@ describe("uniqueTimeOffNotificationRows", () => {
 
   it("returns nothing for an empty batch so callers can skip the insert", () => {
     expect(uniqueTimeOffNotificationRows([])).toEqual([]);
+  });
+});
+
+describe("timeOffDecisionRows", () => {
+  const base = {
+    requestId: "req-1",
+    requesterEmail: "Agent@X.com",
+    submissionRecipients: ["manager@x.com", "admin@x.com", "agent@x.com"],
+    detail: "2 ngày, 2026-11-02 → 2026-11-03",
+  };
+
+  it("tells the requester the request was approved or rejected", () => {
+    expect(timeOffDecisionRows({ ...base, decision: "approve", actorEmail: "admin@x.com" })).toEqual([
+      {
+        recipient_email: "agent@x.com",
+        request_id: "req-1",
+        type: "approved",
+        actor_email: "admin@x.com",
+        detail: "2 ngày, 2026-11-02 → 2026-11-03",
+      },
+    ]);
+    expect(
+      timeOffDecisionRows({ ...base, decision: "reject", actorEmail: "admin@x.com" }).map((r) => r.type),
+    ).toEqual(["rejected"]);
+  });
+
+  it("tells the manager and approvers when the requester cancels, never the requester", () => {
+    const rows = timeOffDecisionRows({ ...base, decision: "cancel", actorEmail: "agent@x.com" });
+    expect(rows.map((r) => [r.recipient_email, r.type])).toEqual([
+      ["manager@x.com", "cancelled"],
+      ["admin@x.com", "cancelled"],
+    ]);
+  });
+
+  it("does not notify the person who acted", () => {
+    expect(timeOffDecisionRows({ ...base, decision: "approve", actorEmail: "agent@x.com" })).toEqual([]);
   });
 });

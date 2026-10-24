@@ -16,9 +16,16 @@ export function buildCreateEnrollmentNotificationRows(input: {
   recordId: string;
   actorEmail: string;
   assignees: string[];
+  personPicks?: ReadonlyArray<{ email: string; label: string }>;
   createdRecipients: string[];
 }): EnrollmentNotificationInsertInput[] {
-  const assigned = uniqueEnrollmentNotificationRecipients(input.assignees, [input.actorEmail]);
+  const personDetails = new Map(
+    (input.personPicks ?? []).map((pick) => [pick.email.trim().toLowerCase(), `Picked as ${pick.label}`]),
+  );
+  const assigned = uniqueEnrollmentNotificationRecipients(
+    [...personDetails.keys(), ...input.assignees],
+    [input.actorEmail],
+  );
   const created = uniqueEnrollmentNotificationRecipients(input.createdRecipients, [
     input.actorEmail,
     ...assigned,
@@ -30,6 +37,7 @@ export function buildCreateEnrollmentNotificationRows(input: {
       record_id: input.recordId,
       type: "assigned" as const,
       actor_email: input.actorEmail,
+      ...(personDetails.has(recipient) ? { detail: personDetails.get(recipient) } : {}),
     })),
     ...created.map((recipient) => ({
       recipient_email: recipient,
@@ -82,13 +90,18 @@ export function buildStageNotifications(input: {
   responsibleEmail?: string | null;
   agentEmail?: string | null;
   managerEmails: string[];
+  /** The Agent's Assistants and the Person-column people (watchers.ts): told whatever the owners are told. */
+  watcherEmails?: readonly string[];
   reopenReason?: string | null;
 }): EnrollmentNotificationInsertInput[] {
-  const owners = enrollmentRecordOwnerEmails({
-    caller_email: input.callerEmail ?? null,
-    responsible_enroll_email: input.responsibleEmail ?? null,
-    agent_email: input.agentEmail ?? null,
-  });
+  const owners = [
+    ...enrollmentRecordOwnerEmails({
+      caller_email: input.callerEmail ?? null,
+      responsible_enroll_email: input.responsibleEmail ?? null,
+      agent_email: input.agentEmail ?? null,
+    }),
+    ...(input.watcherEmails ?? []),
+  ];
   const excluded = [input.actorEmail];
   if (input.reopening) {
     return uniqueEnrollmentNotificationRows(
@@ -134,4 +147,24 @@ export function buildStageNotifications(input: {
       detail: input.toStage!.label,
     })),
   ]);
+}
+
+/** "Assigned" for the people an edit newly picked in a custom Person column (watchers.ts). */
+export function buildPersonColumnAssignmentRows(input: {
+  recordId: string;
+  actorEmail: string;
+  picks: ReadonlyArray<{ email: string; label: string }>;
+}): EnrollmentNotificationInsertInput[] {
+  const actor = input.actorEmail.trim().toLowerCase();
+  return uniqueEnrollmentNotificationRows(
+    input.picks
+      .filter((pick) => pick.email && pick.email !== actor)
+      .map((pick) => ({
+        recipient_email: pick.email,
+        record_id: input.recordId,
+        type: "assigned" as const,
+        actor_email: input.actorEmail,
+        detail: `Picked as ${pick.label}`,
+      })),
+  );
 }

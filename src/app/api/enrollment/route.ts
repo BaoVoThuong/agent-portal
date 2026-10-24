@@ -29,6 +29,11 @@ import {
   fetchEnrollmentManagerAudience,
 } from "@/lib/enrollment/recipients";
 import { enrollmentRecordOwnerEmails } from "@/lib/enrollment/notifications";
+import {
+  agentAssistantEmails,
+  loadEnrollmentWatcherContext,
+  personColumnPicks,
+} from "@/lib/enrollment/watchers";
 import { buildCreateEnrollmentNotificationRows } from "@/lib/enrollment/create-notifications";
 import {
   parseEnrollmentProgram,
@@ -359,13 +364,31 @@ export async function POST(request: Request) {
       `Enrollment task.manage recipient lookup failed: ${error instanceof Error ? error.message : "unknown error"}`
     );
   }
+  // People picked in a Person column at creation are assigned like the owners;
+  // the Agent's Assistants hear "record created", as for a new task.
+  let pickedPeople: string[] = [];
+  let personPicks: Array<{ email: string; label: string }> = [];
+  let assistants: string[] = [];
+  try {
+    const watchers = await loadEnrollmentWatcherContext();
+    personPicks = personColumnPicks(record, watchers).flatMap((pick) =>
+      pick.emails.map((email) => ({ email, label: pick.column.label ?? pick.column.key })),
+    );
+    pickedPeople = personPicks.map((pick) => pick.email);
+    assistants = agentAssistantEmails(record, watchers);
+  } catch (error) {
+    mutationWarnings.push(
+      `Enrollment watcher lookup failed: ${error instanceof Error ? error.message : "unknown error"}`
+    );
+  }
   const notificationRows = buildCreateEnrollmentNotificationRows({
     recordId: record.id,
     actorEmail: actorResult.actor.email,
-    assignees: enrollmentRecordOwnerEmails(record).filter(
-      (value): value is string => Boolean(value),
-    ),
-    createdRecipients: taskManagerEmails,
+    assignees: [
+      ...enrollmentRecordOwnerEmails(record).filter((value): value is string => Boolean(value)),
+    ],
+    personPicks,
+    createdRecipients: [...taskManagerEmails, ...assistants],
   });
   // Ghi dòng thông báo trong request (dữ liệu, phải bền); realtime + push của
   // chúng chạy sau response — xem lib/after-response.ts.
@@ -377,6 +400,8 @@ export async function POST(request: Request) {
     const qcRecipients = uniqueEnrollmentNotificationRecipients(
       [
         ...enrollmentRecordOwnerEmails(record),
+        ...pickedPeople,
+        ...assistants,
         ...taskManagerEmails,
       ],
       [actorResult.actor.email],

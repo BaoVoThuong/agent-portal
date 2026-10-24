@@ -6,9 +6,30 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-24 — Tab cũ tự biết có bản mới + 3 lỗ hổng thông báo
+
+- **Tab cũ sau deploy** (nguyên nhân sự cố upload 22/10: tab mở trước rollback vẫn chạy code cũ):
+  `next.config.ts` lấy `VERCEL_DEPLOYMENT_ID` (dự phòng commit SHA) làm `deploymentId` → lần chuyển trang kế
+  tiếp của tab cũ thành tải lại cả trang; đồng thời nướng vào `NEXT_PUBLIC_APP_VERSION`. `GET /api/app-version`
+  trả id của bản đang chạy; `NewVersionBanner` (layout authed) hỏi mỗi 5 phút và mỗi khi tab được mở lại, khác
+  id thì hiện thanh "A new version… Reload". Không tự reload (giữ comment đang gõ). Local không có id → tắt.
+- **Enrollment: Assistant của Agent** nhận mọi thông báo mà Owner (Agent/Caller/Responsible) nhận — đổi stage,
+  QC, reopen, đã duyệt QC, comment, file đính kèm, sắp/quá hạn, QC treo — như Task CS. Lúc tạo hồ sơ Assistant
+  nhận "Hồ sơ mới" (không phải "Được giao").
+- **Enrollment: người trong cột Person tự tạo** (Follow up, Monitor, Caller của Medicare…, cột chưa archive
+  của đúng chương trình) cũng nhận như Owner; được chọn vào cột (lúc tạo hoặc lúc sửa) → "Được giao", detail
+  "Picked as <tên cột>". Module `lib/enrollment/watchers.ts`; mọi dòng vẫn qua kiểm quyền xem hồ sơ.
+  Cron Due/QC treo: thêm `program,custom_values` vào select; bỏ bước tự kiểm Owner/Quản lý trùng lặp (để hồ sơ
+  chỉ có người Follow up vẫn được báo).
+- **Time off**: duyệt / từ chối → báo người nộp ("duyệt/từ chối đơn xin nghỉ của bạn", có tiếng như thông báo
+  trực tiếp); người nộp huỷ → báo những người đã nhận đơn (manager được chọn + Time Off Admin). Trước đây ba
+  loại này có trong CHECK constraint nhưng không chỗ nào ghi. Link: người nộp → My leave, đơn huỷ → History.
+- Dọn: xoá 10 thông báo `TEST #` của bao.vo (19/10) trên production.
+
 ## 2026-10-22 — ROLLBACK: bỏ upload đính kèm 50MB, về luồng multipart 4MB như trước
 
-- User yêu cầu ("lỗi quá"). Gỡ code của ee8065e, 9bcabcf, c0c2d52, 6485325 — ba entry đính kèm ngay dưới
+- User yêu cầu ("lỗi quá"). Gỡ code của ee8065e, 9bcabcf, c0c2d52, 6485325 và 2676326 (push lúc 00:19, giữa
+  lúc đang rollback) — ba entry đính kèm ngay dưới
   (50MB, PUT treo, khôi phục ảnh) KHÔNG còn hiệu lực. Các file đính kèm của Task/Enrollment/Leads về đúng bản
   d833990: upload multipart qua route, tối đa 4MB/tệp (giới hạn body 4.5MB của Vercel).
 - **Giữ nguyên DB**: rollout `2026-10-21-attachment-limits-atomic.sql` đã chạy production nên `schema.sql`,

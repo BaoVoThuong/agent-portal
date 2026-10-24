@@ -15,7 +15,7 @@ import {
  * record, the way Caller and Responsible do (user decision 2026-10-21: any
  * active custom Person column, so a new column works without a code change).
  */
-export type ViewerPersonColumn = { program: EnrollmentProgram; key: string };
+export type ViewerPersonColumn = { program: EnrollmentProgram; key: string; label?: string };
 
 export type EnrollmentScope =
   | { seeAll: true }
@@ -55,7 +55,7 @@ type ScopedRecord = {
 };
 
 /** Emails picked in a Person column: one email, or a list of them. */
-function personFieldEmails(value: unknown): string[] {
+export function personFieldEmails(value: unknown): string[] {
   if (typeof value === "string") return [value];
   if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string");
   return [];
@@ -80,15 +80,15 @@ export async function fetchViewerPersonColumns(
 ): Promise<ViewerPersonColumn[]> {
   const { data, error } = await supabase
     .from("table_column")
-    .select("scope,key")
+    .select("scope,key,label")
     .in("scope", [...ENROLLMENT_PROGRAMS])
     .eq("type", "person")
     .eq("is_system", false)
     .is("archived_at", null);
   if (error) throw new Error(error.message);
-  return ((data ?? []) as { scope: string; key: string }[]).flatMap((row) =>
+  return ((data ?? []) as { scope: string; key: string; label?: string | null }[]).flatMap((row) =>
     isEnrollmentProgram(row.scope) && SAFE_COLUMN_KEY.test(row.key)
-      ? [{ program: row.scope, key: row.key }]
+      ? [{ program: row.scope, key: row.key, label: row.label ?? undefined }]
       : []
   );
 }

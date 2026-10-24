@@ -141,9 +141,12 @@ export function dueRecipients(
   action: DueAction,
   record: Pick<DueRecordSchedule, "caller_email" | "responsible_enroll_email" | "agent_email">,
   managerEmails: readonly string[],
+  /** The Agent's Assistants and the Person-column people (watchers.ts), told like the owners. */
+  watcherEmails: readonly string[] = [],
 ): string[] {
+  const owners = [...ownerEmails(record), ...watcherEmails.map((email) => email.trim().toLowerCase())];
   const recipients = action === "due_soon"
-    ? ownerEmails(record)
-    : [...ownerEmails(record), ...managerEmails.map((email) => email.trim().toLowerCase())];
+    ? owners
+    : [...owners, ...managerEmails.map((email) => email.trim().toLowerCase())];
   return [...new Set(recipients.filter(Boolean))];
 }
