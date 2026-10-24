@@ -27,6 +27,7 @@ const PENDING_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const PREPARE_TIMEOUT_MS = 30_000;
 const FINALIZE_TIMEOUT_MS = 20_000;
 const UPLOAD_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+const UPLOAD_STALL_PROBE_MS = 30_000;
 const LATE_STORAGE_COMMIT_GRACE_MS = 30_000;
 
 function pendingUploads(): PendingUpload[] {
@@ -159,11 +160,18 @@ async function confirmWhileUploading(
   post: () => Promise<Response>,
   signal: AbortSignal,
   lastProgressAt: () => number,
+  shouldProbe: () => boolean,
 ): Promise<Response> {
   let delay = 2_000;
   while (!signal.aborted && Date.now() - lastProgressAt() < UPLOAD_IDLE_TIMEOUT_MS) {
     await waitForPoll(delay, signal);
     if (signal.aborted) break;
+    // Do not read Storage and run file validation every 10 seconds while a
+    // healthy 50 MiB transfer is still making progress.
+    if (!shouldProbe()) {
+      delay = 5_000;
+      continue;
+    }
     try {
       const response = await post();
       if (response.ok) return response;
@@ -263,6 +271,9 @@ export async function uploadAttachment(
 
   const confirmation = new AbortController();
   let progressAt = Date.now();
+  let maxUploaded = 0;
+  let allBytesSent = false;
+  let uploadSettled = false;
   const uploadAndFinalize = async (): Promise<Response> => {
     let storageError: StorageUploadError | null = null;
     try {
@@ -272,7 +283,13 @@ export async function uploadAttachment(
         token: uploadToken,
         contentType: uploadContentType,
       }, (uploaded, total) => {
-        progressAt = Date.now();
+        // tus may repeat the same offset while retrying a stuck chunk. Only
+        // actual byte progress extends the idle window.
+        if (uploaded > maxUploaded) {
+          maxUploaded = uploaded;
+          progressAt = Date.now();
+        }
+        if (total > 0 && uploaded >= total) allBytesSent = true;
         fields.onProgress?.(uploaded, total);
       });
     } catch (error) {
@@ -282,6 +299,8 @@ export async function uploadAttachment(
         status: response?.getStatus?.(),
       };
       if (isAlreadyUploaded(storageError)) storageError = null;
+    } finally {
+      uploadSettled = true;
     }
 
     // Storage can commit the PUT and still make the browser reject its response.
@@ -309,7 +328,12 @@ export async function uploadAttachment(
   try {
     const response = await Promise.race([
       uploadAndFinalize(),
-      confirmWhileUploading(() => post("finalize"), confirmation.signal, () => progressAt),
+      confirmWhileUploading(
+        () => post("finalize"),
+        confirmation.signal,
+        () => progressAt,
+        () => uploadSettled || allBytesSent || Date.now() - progressAt >= UPLOAD_STALL_PROBE_MS,
+      ),
     ]);
     if (response.ok || response.status === 413) forgetPending(clientRequestId);
     return response;

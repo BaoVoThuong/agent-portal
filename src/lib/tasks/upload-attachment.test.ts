@@ -202,11 +202,32 @@ describe("uploadAttachment", () => {
     storage.upload.mockReturnValue(new Promise(() => undefined));
 
     const result = uploadAttachment(ENDPOINT, file, { clientRequestId: REQUEST_ID });
+    await vi.advanceTimersByTimeAsync(0);
+    const reportProgress = storage.upload.mock.calls[0][2] as (uploaded: number, total: number) => void;
+    reportProgress(file.size, file.size);
     await vi.advanceTimersByTimeAsync(2_100);
     await vi.advanceTimersByTimeAsync(5_100);
 
     expect((await result).ok).toBe(true);
     expect(sentBodies().map((body) => body.action)).toEqual(["prepare", "finalize", "finalize"]);
+  });
+
+  it("does not repeatedly finalize while a large upload is making progress", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValueOnce(json(TICKET)).mockResolvedValue(json({ attachment: { id: "a-1" } }));
+    storage.upload.mockReturnValue(new Promise(() => undefined));
+
+    const result = uploadAttachment(ENDPOINT, file, { clientRequestId: REQUEST_ID });
+    await vi.advanceTimersByTimeAsync(0);
+    const reportProgress = storage.upload.mock.calls[0][2] as (uploaded: number, total: number) => void;
+    reportProgress(1, file.size);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(sentBodies().map((body) => body.action)).toEqual(["prepare"]);
+
+    reportProgress(file.size, file.size);
+    await vi.advanceTimersByTimeAsync(5_100);
+    expect((await result).ok).toBe(true);
+    expect(sentBodies().map((body) => body.action)).toEqual(["prepare", "finalize"]);
   });
 
   it("keeps confirming a large upload that is still making progress after 15 minutes", async () => {
@@ -225,6 +246,26 @@ describe("uploadAttachment", () => {
     await vi.advanceTimersByTimeAsync(11_000);
 
     expect((await result).ok).toBe(true);
+  });
+
+  it("times out when tus repeats the same byte offset for 15 minutes", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValueOnce(json(TICKET)).mockResolvedValue(
+      json({ error: "The upload did not finish. Please try again." }, 400),
+    );
+    storage.upload.mockReturnValue(new Promise(() => undefined));
+
+    const result = uploadAttachment(ENDPOINT, file, { clientRequestId: REQUEST_ID });
+    await vi.advanceTimersByTimeAsync(0);
+    const reportProgress = storage.upload.mock.calls[0][2] as (uploaded: number, total: number) => void;
+    reportProgress(1, file.size);
+    await vi.advanceTimersByTimeAsync(31_000);
+    vi.setSystemTime(Date.now() + 14 * 60_000);
+    reportProgress(1, file.size);
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    const response = await result;
+    expect(response.status).toBe(504);
   });
 
   it("passes the route's refusal straight through", async () => {
