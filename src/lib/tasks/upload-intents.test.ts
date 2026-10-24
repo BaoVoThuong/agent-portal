@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sameUploadIntent, type UploadIntent } from "./upload-intents";
+import { sameUploadIntent, savedAttachmentMatchesIntent, type UploadIntent } from "./upload-intents";
 
 const intent: UploadIntent = {
   kind: "task",
@@ -23,5 +23,14 @@ describe("durable upload intent", () => {
     expect(sameUploadIntent(intent, { ...intent, file_name: "other.png" })).toBe(false);
     expect(sameUploadIntent(intent, { ...intent, storage_path: "other/path" })).toBe(false);
     expect(sameUploadIntent(intent, { ...intent, size_bytes: 50 })).toBe(false);
+  });
+
+  it("does not return an attachment from another request as a successful retry", () => {
+    expect(savedAttachmentMatchesIntent({
+      storage_path: intent.storage_path, file_name: intent.file_name, size_bytes: 42,
+    }, intent)).toBe(true);
+    expect(savedAttachmentMatchesIntent({
+      storage_path: "tasks/task-1/another-file.png", file_name: intent.file_name, size_bytes: 42,
+    }, intent)).toBe(false);
   });
 });

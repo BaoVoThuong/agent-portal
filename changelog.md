@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-24 — Nhánh dev 50 MiB: rà lại sau rebase, chưa triển khai production
+
+- Rebase `dev/attachment-50mb-rebuild` lên `main` `ef2a302`, giữ phần thông báo Enrollment và nhận diện tab cũ.
+- Storage từ chối upload chắc chắn (ví dụ 413) thì đánh dấu intent thất bại, tránh comment cứ hiện đang upload sau reload. Không đánh dấu lỗi mạng chưa rõ đã commit hay chưa.
+- Retry cùng request ID kiểm tra intent và file/path/kích thước của attachment đã lưu; không trả nhầm file hoặc phục hồi attachment đã xoá. Khi metadata đã có nhưng intent còn treo, đánh dấu hoàn tất.
+- Luồng khôi phục attachment Enrollment gửi thông báo cho Assistant và người ở cột Person theo luật watcher mới trên `main`.
+- Chờ xác nhận TUS theo 15 phút không có tiến độ, để upload 50 MiB chậm nhưng vẫn chạy không bị timeout theo tổng thời gian.
+
 ## 2026-10-24 — Tab cũ tự biết có bản mới + 3 lỗ hổng thông báo
 
 - **Tab cũ sau deploy** (nguyên nhân sự cố upload 22/10: tab mở trước rollback vẫn chạy code cũ):

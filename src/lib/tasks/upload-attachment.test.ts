@@ -72,7 +72,7 @@ describe("uploadAttachment", () => {
       path: TICKET.upload.path,
       token: "one-time",
       contentType: "application/pdf",
-    }, undefined);
+    }, expect.any(Function));
   });
 
   it("skips the upload when the route already recorded this request id", async () => {
@@ -102,15 +102,15 @@ describe("uploadAttachment", () => {
     expect(sentBodies().map((body) => body.action)).toEqual(["prepare", "finalize"]);
   });
 
-  it("returns the Storage error without finalizing", async () => {
-    fetchMock.mockResolvedValueOnce(json(TICKET));
+  it("marks a definite Storage refusal as failed instead of leaving a pending intent", async () => {
+    fetchMock.mockResolvedValueOnce(json(TICKET)).mockResolvedValueOnce(json({ ok: true }));
     storage.upload.mockRejectedValue(Object.assign(new Error("Payload too large"), {
       originalResponse: { getStatus: () => 413 },
     }));
     const response = await uploadAttachment(ENDPOINT, file, { clientRequestId: REQUEST_ID });
     expect(response.status).toBe(502);
     expect((await response.json()).error).toContain("max 50MB");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(sentBodies().map((body) => body.action)).toEqual(["prepare", "fail"]);
   });
 
   it("finalizes an object that Storage committed despite reporting a network error", async () => {
@@ -207,6 +207,24 @@ describe("uploadAttachment", () => {
 
     expect((await result).ok).toBe(true);
     expect(sentBodies().map((body) => body.action)).toEqual(["prepare", "finalize", "finalize"]);
+  });
+
+  it("keeps confirming a large upload that is still making progress after 15 minutes", async () => {
+    vi.useFakeTimers();
+    fetchMock
+      .mockResolvedValueOnce(json(TICKET))
+      .mockResolvedValue(json({ error: "The upload did not finish. Please try again." }, 400));
+    storage.upload.mockReturnValue(new Promise(() => undefined));
+
+    const result = uploadAttachment(ENDPOINT, file, { clientRequestId: REQUEST_ID });
+    await vi.advanceTimersByTimeAsync(14 * 60_000);
+    const reportProgress = storage.upload.mock.calls[0][2] as (uploaded: number, total: number) => void;
+    reportProgress(6 * 1024 * 1024, 50 * 1024 * 1024);
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    fetchMock.mockResolvedValueOnce(json({ attachment: { id: "a-1" } }));
+    await vi.advanceTimersByTimeAsync(11_000);
+
+    expect((await result).ok).toBe(true);
   });
 
   it("passes the route's refusal straight through", async () => {

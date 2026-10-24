@@ -77,6 +77,11 @@ describe("parseDirectUploadRequest", () => {
       silent: true,
     });
   });
+
+  it("accepts an explicit failure report for a Storage rejection", () => {
+    const parsed = parseDirectUploadRequest(body({ action: "fail" }));
+    expect(parsed.ok && parsed.upload.action).toBe("fail");
+  });
 });
 
 describe("verifyDirectUpload", () => {

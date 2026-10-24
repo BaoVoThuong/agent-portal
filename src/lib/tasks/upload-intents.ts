@@ -3,6 +3,8 @@ import { readTaskFileInfo } from "./storage";
 
 export type UploadIntentKind = "task" | "enrollment" | "lead";
 
+export class UploadIntentConflictError extends Error {}
+
 export type UploadIntent = {
   kind: UploadIntentKind;
   record_id: string;
@@ -31,6 +33,15 @@ export function sameUploadIntent(a: UploadIntent, b: UploadIntent): boolean {
     a.silent === b.silent;
 }
 
+/** A replay may return a saved row only when it belongs to this exact upload. */
+export function savedAttachmentMatchesIntent(
+  row: { storage_path: string; file_name: string; size_bytes: number | string | null },
+  intent: UploadIntent,
+): boolean {
+  return row.storage_path === intent.storage_path && row.file_name === intent.file_name &&
+    Number(row.size_bytes) === intent.size_bytes;
+}
+
 function lookup(intent: UploadIntent) {
   return getSupabaseAdmin()
     .from("attachment_upload_intents")
@@ -50,7 +61,12 @@ export async function reserveUploadIntent(intent: UploadIntent): Promise<void> {
     .insert(intent);
   if (error && error.code !== "23505") throw new Error(error.message);
   if (error) {
-    await requireUploadIntent(intent);
+    const existing = await requireUploadIntent(intent);
+    // A metadata row may have since been deleted. Never let an old request ID
+    // upload the same object again and silently resurrect that attachment.
+    if (existing.completed_at) {
+      throw new UploadIntentConflictError("This upload was already completed. Choose the file again.");
+    }
     const { error: resetError } = await getSupabaseAdmin()
       .from("attachment_upload_intents")
       .update({ failed_at: null, failure_reason: null, next_check_at: new Date().toISOString() })
@@ -64,12 +80,13 @@ export async function reserveUploadIntent(intent: UploadIntent): Promise<void> {
   }
 }
 
-export async function requireUploadIntent(intent: UploadIntent): Promise<void> {
+export async function requireUploadIntent(intent: UploadIntent): Promise<UploadIntent> {
   const { data, error } = await lookup(intent);
   if (error) throw new Error(error.message);
   if (!data || !sameUploadIntent(data as UploadIntent, intent)) {
-    throw new Error("This upload request belongs to another file or comment.");
+    throw new UploadIntentConflictError("This upload request belongs to another file or comment.");
   }
+  return data as UploadIntent;
 }
 
 export async function completeUploadIntent(intent: UploadIntent): Promise<void> {

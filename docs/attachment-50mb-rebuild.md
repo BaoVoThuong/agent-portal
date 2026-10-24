@@ -1,6 +1,6 @@
 # Upload 50 MiB: bản xây lại trên nhánh dev
 
-**Trạng thái 2026-10-22:** mã và migration chỉ ở `dev/attachment-50mb-rebuild`. Chưa áp dụng migration này, chưa đổi bucket, chưa triển khai production. `main` đang ở commit rollback `c82a07d`, giới hạn 4 MiB. Đọc production cho thấy bucket `task-attachments` hiện giới hạn 4,194,304 byte.
+**Trạng thái 2026-10-24:** nhánh `dev/attachment-50mb-rebuild` đã rebase lên `main` tại `ef2a302`. Migration và mã 50 MiB chưa triển khai production; `main` vẫn dùng luồng multipart tối đa 4 MiB. Lần đọc production gần nhất cho thấy bucket `task-attachments` giới hạn 4,194,304 byte; cần kiểm lại trước khi rollout.
 
 ## Sự cố và bài học
 
@@ -14,11 +14,11 @@
 
 `prepare` kiểm quyền và giới hạn, rồi ghi `attachment_upload_intents` trước khi cấp token signed cho một path duy nhất. Intent chứa loại record, record ID, comment ID, người gửi, tên file, kích thước, request ID và path. Bảng chỉ service role đọc/ghi. Retry cùng request ID phải khớp nguyên intent; không thể chuyển file sang comment khác.
 
-Browser dùng Supabase TUS endpoint trực tiếp, chunk đúng 6 MiB, không `x-upsert`, có retry và resume theo fingerprint chứa cả path. Token chỉ cấp quyền upload path đã định, không lộ service key. Server đọc kích thước thực tế và 512 byte đầu từ Storage, so kích thước thực tế với File đã chọn, rồi mới ghi metadata. Task và Lead dùng RPC có khóa/giới hạn; Enrollment dùng khóa unique hiện có. `finalize` vẫn idempotent.
+Browser dùng Supabase TUS endpoint trực tiếp, chunk đúng 6 MiB, không `x-upsert`, có retry và resume theo fingerprint chứa cả path. Token chỉ cấp quyền upload path đã định, không lộ service key. Server đọc kích thước thực tế và 512 byte đầu từ Storage, so kích thước thực tế với File đã chọn, rồi mới ghi metadata. Task và Lead dùng RPC có khóa/giới hạn; Enrollment dùng khóa unique hiện có. `finalize` vẫn idempotent. Retry cùng request ID còn đối chiếu file/path/kích thước của attachment đã ghi; một request ID cũ không thể trả về file khác.
 
 Trong lúc gửi, comment hiển thị phần trăm byte đã chuyển. Khi Storage báo đủ bytes nhưng metadata chưa xong, trạng thái đổi sang xác nhận attachment. Điều này tách hai công đoạn mà lần trước bị gộp thành một chữ "Uploading" vô thời hạn.
 
-Mỗi detail read đã qua kiểm quyền sẽ kiểm tra tối đa 12 intent chưa hoàn tất. Nếu object đã tồn tại, server tự xác minh và ghi metadata theo người gửi/comment từ intent, không phụ thuộc tab/browser hiện tại. Nếu object chưa có, dời lần kiểm tiếp theo 15 giây. Từ chối chắc chắn được ghi thành trạng thái lỗi và ngừng retry tự động; nút retry trong tab còn giữ File có thể mở lại cùng intent. Sau reload, trình duyệt không còn bytes của File nên người dùng phải chọn và gửi lại tệp chưa lên xong. Comment hiển thị trạng thái chờ/lỗi và không bị tự xóa.
+Mỗi detail read đã qua kiểm quyền sẽ kiểm tra tối đa 12 intent chưa hoàn tất. Nếu object đã tồn tại, server tự xác minh và ghi metadata theo người gửi/comment từ intent, không phụ thuộc tab/browser hiện tại. Nếu object chưa có, dời lần kiểm tiếp theo 15 giây. Storage từ chối chắc chắn được ghi thành trạng thái lỗi và ngừng retry tự động; nút retry trong tab còn giữ File có thể mở lại cùng intent. Cửa sổ chờ xác nhận là 15 phút không có tiến độ upload, không cắt ngang một file lớn đang tiếp tục truyền. Sau reload, trình duyệt không còn bytes của File nên người dùng phải chọn và gửi lại tệp chưa lên xong. Comment hiển thị trạng thái chờ/lỗi và không bị tự xóa.
 
 Bucket chỉ được **đọc để xác nhận cấu hình** trong request. Nếu giới hạn hoặc MIME chưa đúng, prepare trả lỗi rõ ràng. Thay đổi cấu hình Storage là bước rollout có kiểm soát, không phải side effect của traffic.
 
@@ -36,7 +36,7 @@ Không dùng Supabase production làm nơi thử file 50 MiB. Dựng Vercel prev
 | Hai file 50 MiB đồng thời và chạm trần tổng/số file | RPC từ chối lượt vượt trần, không vượt giới hạn DB |
 | Task, Lead, Enrollment, cả file top-level và file trong comment | Cùng một kết quả sau reload; download link dùng được |
 
-Đã chạy unit tests, TypeScript, ESLint và production build trên nhánh. Chưa thể khẳng định tương thích TUS với Storage thật hoặc kiểm tra 50 MiB end-to-end trước khi có staging cách ly.
+Sau rebase đã chạy 1.869 unit tests (đều qua), TypeScript (qua), ESLint (0 lỗi, 2 cảnh báo có sẵn ngoài luồng upload) và production build (qua). Chưa thể khẳng định tương thích TUS với Storage thật hoặc kiểm tra 50 MiB end-to-end trước khi có staging cách ly.
 
 ## Thứ tự triển khai sau khi staging đạt
 

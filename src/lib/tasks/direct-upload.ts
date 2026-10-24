@@ -39,7 +39,7 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MAX_FILE_NAME_LENGTH = 255;
 
-export type DirectUploadAction = "prepare" | "finalize";
+export type DirectUploadAction = "prepare" | "finalize" | "fail";
 
 export type DirectUploadRequest = {
   action: DirectUploadAction;
@@ -62,7 +62,7 @@ export function parseDirectUploadRequest(
   const raw = body as Record<string, unknown>;
 
   const action = raw.action;
-  if (action !== "prepare" && action !== "finalize") {
+  if (action !== "prepare" && action !== "finalize" && action !== "fail") {
     return { ok: false, error: "Invalid upload request." };
   }
   const fileName = typeof raw.file_name === "string" ? raw.file_name : "";

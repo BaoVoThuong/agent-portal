@@ -26,7 +26,7 @@ const PENDING_KEY = "eps.pending-attachment-finalizations.v1";
 const PENDING_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const PREPARE_TIMEOUT_MS = 30_000;
 const FINALIZE_TIMEOUT_MS = 20_000;
-const UPLOAD_CONFIRMATION_TIMEOUT_MS = 15 * 60 * 1000;
+const UPLOAD_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 const LATE_STORAGE_COMMIT_GRACE_MS = 30_000;
 
 function pendingUploads(): PendingUpload[] {
@@ -115,8 +115,9 @@ function storageErrorMessage(error: StorageUploadError): string {
   return error.message || "Could not upload attachment.";
 }
 
-function isDefiniteSizeRefusal(error: StorageUploadError): boolean {
-  return error.status === 413 || error.statusCode === "413";
+function isDefiniteStorageRefusal(error: StorageUploadError): boolean {
+  const status = error.status ?? Number(error.statusCode);
+  return [400, 401, 403, 404, 413, 415, 422].includes(status);
 }
 
 async function finalizeWithRetry(post: () => Promise<Response>): Promise<Response> {
@@ -157,10 +158,10 @@ async function uploadNotFinished(response: Response): Promise<boolean> {
 async function confirmWhileUploading(
   post: () => Promise<Response>,
   signal: AbortSignal,
+  lastProgressAt: () => number,
 ): Promise<Response> {
-  const deadline = Date.now() + UPLOAD_CONFIRMATION_TIMEOUT_MS;
   let delay = 2_000;
-  while (!signal.aborted && Date.now() < deadline) {
+  while (!signal.aborted && Date.now() - lastProgressAt() < UPLOAD_IDLE_TIMEOUT_MS) {
     await waitForPoll(delay, signal);
     if (signal.aborted) break;
     try {
@@ -190,11 +191,11 @@ export async function uploadAttachment(
   headers: Record<string, string> = {},
 ): Promise<Response> {
   const clientRequestId = fields.clientRequestId || globalThis.crypto.randomUUID();
-  const post = async (action: "prepare" | "finalize") => {
+  const post = async (action: "prepare" | "finalize" | "fail") => {
     const controller = new AbortController();
     const timeout = setTimeout(
       () => controller.abort(),
-      action === "finalize" ? FINALIZE_TIMEOUT_MS : PREPARE_TIMEOUT_MS,
+      action === "prepare" ? PREPARE_TIMEOUT_MS : FINALIZE_TIMEOUT_MS,
     );
     try {
       return await fetch(endpoint, {
@@ -261,6 +262,7 @@ export async function uploadAttachment(
   const uploadContentType = upload.content_type;
 
   const confirmation = new AbortController();
+  let progressAt = Date.now();
   const uploadAndFinalize = async (): Promise<Response> => {
     let storageError: StorageUploadError | null = null;
     try {
@@ -269,7 +271,10 @@ export async function uploadAttachment(
         path: uploadPath,
         token: uploadToken,
         contentType: uploadContentType,
-      }, fields.onProgress);
+      }, (uploaded, total) => {
+        progressAt = Date.now();
+        fields.onProgress?.(uploaded, total);
+      });
     } catch (error) {
       const response = (error as { originalResponse?: { getStatus?: () => number } })?.originalResponse;
       storageError = {
@@ -280,8 +285,11 @@ export async function uploadAttachment(
     }
 
     // Storage can commit the PUT and still make the browser reject its response.
-    if (storageError && isDefiniteSizeRefusal(storageError)) {
-      forgetPending(clientRequestId);
+    if (storageError && isDefiniteStorageRefusal(storageError)) {
+      // A definite Storage refusal cannot produce an object. Tell the server
+      // to stop showing this intent as an upload waiting to be confirmed.
+      const failed = await post("fail").catch(() => null);
+      if (failed?.ok) forgetPending(clientRequestId);
       return jsonResponse({ error: storageErrorMessage(storageError) }, 502);
     }
     const finalized = await finalizeWithRetry(() => post("finalize"));
@@ -301,7 +309,7 @@ export async function uploadAttachment(
   try {
     const response = await Promise.race([
       uploadAndFinalize(),
-      confirmWhileUploading(() => post("finalize"), confirmation.signal),
+      confirmWhileUploading(() => post("finalize"), confirmation.signal, () => progressAt),
     ]);
     if (response.ok || response.status === 413) forgetPending(clientRequestId);
     return response;

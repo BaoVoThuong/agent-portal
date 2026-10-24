@@ -47,6 +47,8 @@ import {
   failUploadIntent,
   requireUploadIntent,
   reserveUploadIntent,
+  savedAttachmentMatchesIntent,
+  UploadIntentConflictError,
   type UploadIntent,
 } from "@/lib/tasks/upload-intents";
 import { recoverSavedAttachments } from "@/lib/tasks/upload-recovery";
@@ -224,11 +226,19 @@ export async function POST(req: Request, { params }: Ctx) {
     silent,
   } : null;
 
-  if (intent && direct?.action === "finalize") {
+  if (intent && direct?.action !== "prepare") {
     try {
       await requireUploadIntent(intent);
     } catch (error) {
-      return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown upload." }, { status: 400 });
+      return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown upload." }, { status: error instanceof UploadIntentConflictError ? 409 : 500 });
+    }
+  }
+  if (intent && direct?.action === "fail") {
+    try {
+      await failUploadIntent(intent, "Storage rejected this upload. Attach the file again.");
+      return NextResponse.json({ ok: true });
+    } catch {
+      return NextResponse.json({ error: "Could not record the upload failure." }, { status: 500 });
     }
   }
 
@@ -238,11 +248,10 @@ export async function POST(req: Request, { params }: Ctx) {
   if (direct?.action === "prepare") {
     const { data: existing, error: existingError } = await r.supabase
       .from("task_attachments")
-      .select("id,file_name,mime_type,size_bytes,storage_path,created_at")
+      .select("id,file_name,mime_type,size_bytes,storage_path,created_at,deleted_at")
       .eq("task_id", id)
       .eq("uploaded_by", r.actor.email)
       .eq("client_request_id", direct.clientRequestId)
-      .is("deleted_at", null)
       .maybeSingle();
     if (existingError) {
       return NextResponse.json({ error: existingError.message }, { status: 500 });
@@ -255,7 +264,22 @@ export async function POST(req: Request, { params }: Ctx) {
         size_bytes: number | null;
         storage_path: string;
         created_at: string;
+        deleted_at: string | null;
       };
+      if (row.deleted_at) {
+        return NextResponse.json({ error: "This attachment was deleted. Choose the file again." }, { status: 409 });
+      }
+      try {
+        await requireUploadIntent(intent!);
+      } catch (error) {
+        return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown upload." }, { status: error instanceof UploadIntentConflictError ? 409 : 500 });
+      }
+      if (!savedAttachmentMatchesIntent(row, intent!)) {
+        return NextResponse.json({ error: "This upload request belongs to another file." }, { status: 409 });
+      }
+      await completeUploadIntent(intent!).catch((reason) =>
+        console.warn("[attachment] could not mark replayed upload intent complete", reason),
+      );
       let url: string | null = null;
       try {
         url = await signTaskFile(row.storage_path);
@@ -326,16 +350,22 @@ export async function POST(req: Request, { params }: Ctx) {
   }
 
   if (direct?.action === "prepare") {
+    let reserved = false;
     try {
       await reserveUploadIntent(intent!);
+      reserved = true;
       const ticket = await createTaskUploadTicket(
         buildStoragePath(id, fileName, direct.clientRequestId),
       );
       return NextResponse.json(directUploadTicketBody(ticket, fileName));
     } catch (error) {
+      if (reserved) {
+        await failUploadIntent(intent!, "Could not prepare the upload. Attach the file again.")
+          .catch(() => undefined);
+      }
       return NextResponse.json(
         { error: error instanceof Error ? error.message : "Could not prepare the upload." },
-        { status: 500 },
+        { status: error instanceof UploadIntentConflictError ? 409 : 500 },
       );
     }
   }

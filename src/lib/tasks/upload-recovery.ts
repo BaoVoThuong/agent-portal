@@ -167,9 +167,10 @@ async function emitRecoverySideEffects(intent: UploadIntent): Promise<void> {
       detail: intent.file_name,
     })));
   } else if (intent.kind === "enrollment") {
-    const [realtime, notifications] = await Promise.all([
+    const [realtime, notifications, watchers] = await Promise.all([
       import("@/lib/enrollment/realtime"),
       import("@/lib/enrollment/notifications"),
+      import("@/lib/enrollment/watchers"),
     ]);
     const supabase = getSupabaseAdmin();
     const { data: record, error } = await supabase.from("enrollment_records")
@@ -188,8 +189,15 @@ async function emitRecoverySideEffects(intent: UploadIntent): Promise<void> {
       type: "attachment_added",
       meta: { file_name: intent.file_name },
     });
+    const watcherContext = await watchers.loadEnrollmentWatcherContext().catch((reason) => {
+      console.warn("[attachment recovery] enrollment watcher lookup failed", reason);
+      return null;
+    });
     const recipients = notifications.uniqueEnrollmentNotificationRecipients(
-      notifications.enrollmentRecordOwnerEmails(record),
+      [
+        ...notifications.enrollmentRecordOwnerEmails(record),
+        ...(watcherContext ? watchers.enrollmentWatcherEmails(record, watcherContext) : []),
+      ],
       [intent.uploaded_by],
     );
     await notifications.insertEnrollmentNotifications(recipients.map((recipient) => ({
