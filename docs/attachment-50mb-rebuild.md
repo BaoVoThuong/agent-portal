@@ -1,6 +1,6 @@
 # Upload 50 MiB: bản xây lại trên nhánh dev
 
-**Trạng thái 2026-10-24:** nhánh `dev/attachment-50mb-rebuild` đã rebase lên `main` tại `ef2a302`; mã 50 MiB chưa triển khai production, `main` vẫn dùng luồng multipart tối đa 4 MiB. Khi thử local, migration `2026-10-22-attachment-upload-intents.sql` đã được áp dụng lên DB production dùng chung và bucket `task-attachments` đã được đặt 52,428,800 byte (xem `supabase/APPLIED.md`). Cần kiểm lại cả hai trước rollout vì instance `main` cũ có thể hạ bucket về 4 MiB khi xử lý upload.
+**Trạng thái 2026-10-24:** đã merge `dev/attachment-50mb-rebuild` vào `main` và deploy production (trước đó rebase lên `ef2a302`). Khi thử local, migration `2026-10-22-attachment-upload-intents.sql` đã được áp dụng lên DB production dùng chung và bucket `task-attachments` đã được đặt 52,428,800 byte (xem `supabase/APPLIED.md`). Cần kiểm lại cả hai trước rollout vì instance `main` cũ có thể hạ bucket về 4 MiB khi xử lý upload.
 
 ## Sự cố và bài học
 

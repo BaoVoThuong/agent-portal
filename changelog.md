@@ -6,6 +6,16 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-24 — Đưa upload đính kèm 50 MiB lên production (merge `dev/attachment-50mb-rebuild` vào `main`)
+
+- Gộp 10 commit của nhánh: luồng upload thẳng lên Supabase Storage (TUS `/upload/resumable/sign`, intent +
+  recovery khi mở task/hồ sơ, xác nhận không treo trong Next.js), Agent theo cờ Required, chọn Stage khi tạo
+  Enrollment. Các entry "chưa triển khai production" bên dưới nay đã lên production.
+- Trước deploy: bảng `attachment_upload_intents` đã có, bucket `task-attachments` 52,428,800 byte, không còn intent
+  treo; typecheck, 1.876 test, lint (0 lỗi), build đều qua. Route vẫn nhận multipart cũ cho tab mở trước deploy.
+- **Sau deploy phải kiểm lại bucket 50 MiB**: code mới không tự sửa bucket, còn instance `main` cũ có thể đã hạ về
+  4 MiB — khi đó mọi upload (kể cả multipart) báo "not configured for 50MB" cho tới khi đặt lại.
+
 ## 2026-10-24 — Rà soát upload 50 MiB trước khi test
 
 - Signed TUS gửi thêm public Supabase API key đúng ví dụ chính thức; token `x-signature` vẫn giới hạn quyền theo object. Nếu trình duyệt không đọc được bộ nhớ URL resume, upload mới vẫn chạy thay vì dừng ngay.
