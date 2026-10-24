@@ -14,6 +14,11 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 - Chỉ gia hạn timeout upload khi số byte thực sự tăng; TUS báo lặp cùng offset trong lúc retry sẽ không giữ giao diện `Uploading` vô hạn.
 - Mỗi lượt cấp token kiểm lại giới hạn bucket; một instance đã kiểm thành công không tiếp tục cấp token sai nếu deployment cũ hạ bucket xuống 4 MiB sau đó.
 
+## 2026-10-24 — Enrollment: chọn Stage ngay khi tạo hồ sơ
+
+- Stage đầu tiên theo thứ tự cấu hình vẫn được điền sẵn, nhưng form tạo cho chọn bất kỳ Stage đang hoạt động của đúng chương trình. Gửi Stage đã chọn vào API; API sẵn có kiểm đúng option/program và xử lý `closed_at`/QC theo Stage đó.
+- Nếu Stage được chọn bị archive lúc form đang mở, form bắt chọn lại thay vì âm thầm trở về Stage đầu tiên khi gửi.
+
 ## 2026-10-24 — Task: Agent theo cờ Required trong Table Configuration
 
 - Bỏ điều kiện Agent bắt buộc ghi cứng trong API tạo Task. Form đã bỏ dấu `*` khi cấu hình `required=false`, nhưng API vẫn trả `Agent is required.`; nay API dùng cùng `table_column.required` để quyết định. Manager tạo Task không có Agent được; quyền tạo Task của worker vẫn cần scope Agent như trước.

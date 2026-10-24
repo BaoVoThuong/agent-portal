@@ -5075,8 +5075,6 @@ function NewEnrollmentDialog({
   const showResponsible = showField("responsible");
   const showPcp2025 = showField("pcp2025");
   const showPcp2026 = showField("pcp2026");
-  const initialStage = optionsBySet.stage[0] ?? null;
-  const initialStageStyle = enrollmentStateBadgeStyle(initialStage);
   const showPipelineSection = showStage || showDue;
   const showPlanSection =
     showPayment || showCarrier || showAca || showConsent || showPlatform;
@@ -5089,7 +5087,7 @@ function NewEnrollmentDialog({
   }
   /** Giá trị đang nhập cho một khoá cột — cho kiểm tra Required. */
   function valueForKey(key: string): unknown {
-    if (key === "stage") return form.stage_id || initialStage?.id || "";
+    if (key === "stage") return form.stage_id;
     if (key === "carrier") return carrierIds;
     const formField = ENROLLMENT_FORM_FIELD_BY_KEY[key];
     return formField ? form[formField] : customValues[key];
@@ -5118,6 +5116,13 @@ function NewEnrollmentDialog({
   }
 
   async function submit() {
+    // An archived stage is cleared while the form is open. Require a fresh
+    // choice instead of silently falling back to the first stage on submit.
+    if (showStage && optionsBySet.stage.length > 0 && !form.stage_id) {
+      setInvalidKeys(new Set(["stage"]));
+      setError("Please choose a stage.");
+      return;
+    }
     const missing = [...requiredColumnKeys].filter((key) => !isFilled(valueForKey(key)));
     if (missing.length > 0) {
       setInvalidKeys(new Set(missing));
@@ -5147,13 +5152,7 @@ function NewEnrollmentDialog({
         payload[field] = "";
       }
       if (!isEnrollmentFieldApplicable(program, "carrier_id")) payload.carrier_ids = [];
-      await onCreate(
-        {
-          ...payload,
-          stage_id: form.stage_id || initialStage?.id || "",
-        },
-        pendingFiles,
-      );
+      await onCreate(payload, pendingFiles);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Could not create record.");
     } finally {
@@ -5314,22 +5313,13 @@ function NewEnrollmentDialog({
                       required={requiredColumnKeys.has("stage")}
                       invalid={isInvalid("stage")}
                     >
-                      <div
-                        className="flex h-9 w-full min-w-0 items-center gap-2 px-0 py-1 text-left text-sm font-semibold text-[#172b4d]"
-                        title="New records always start at the first stage. Change it from the record after creating."
-                      >
-                        <span
-                          className="inline-flex max-w-full min-w-0 items-center rounded px-2 py-1 text-[11px] font-bold uppercase leading-none tracking-wide"
-                          style={{
-                            backgroundColor: initialStageStyle.bg,
-                            color: initialStageStyle.fg,
-                          }}
-                        >
-                          <span className="truncate">
-                            {initialStage?.label ?? "No stage"}
-                          </span>
-                        </span>
-                      </div>
+                      <EnrollmentStagePill
+                        stageId={form.stage_id || null}
+                        stages={optionsBySet.stage}
+                        field
+                        canEdit={optionsBySet.stage.length > 0}
+                        onChange={async (stageId) => update("stage_id", stageId)}
+                      />
                     </CreatePropertyField>
                   ) : null}
 
