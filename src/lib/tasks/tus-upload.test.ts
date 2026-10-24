@@ -25,6 +25,7 @@ beforeEach(() => {
   mock.previous = [];
   mock.resumed = null;
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://project.supabase.co");
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "public-anon-key");
 });
 afterEach(() => vi.unstubAllEnvs());
 
@@ -37,11 +38,11 @@ const ticket = {
 const file = new File(["image"], "photo.png", { type: "" });
 
 describe("Supabase resumable upload", () => {
-  it("sends 6 MiB chunks directly to Storage with only the signed token", async () => {
+  it("sends 6 MiB chunks directly to Storage with the public key and signed token", async () => {
     await uploadFileWithTus(file, ticket);
     expect(mock.options).toMatchObject({
-      endpoint: "https://project.storage.supabase.co/storage/v1/upload/resumable",
-      headers: { "x-signature": "signed-token" },
+      endpoint: "https://project.storage.supabase.co/storage/v1/upload/resumable/sign",
+      headers: { apikey: "public-anon-key", "x-signature": "signed-token" },
       metadata: {
         bucketName: "task-attachments",
         objectName: ticket.path,
@@ -67,5 +68,11 @@ describe("Supabase resumable upload", () => {
     const progress = vi.fn();
     await uploadFileWithTus(file, ticket, progress);
     expect(progress).toHaveBeenCalledWith(5, 10);
+  });
+
+  it("reports missing public gateway key before attempting upload", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "");
+    await expect(uploadFileWithTus(file, ticket)).rejects.toThrow("not configured");
+    expect(mock.options).toBeNull();
   });
 });

@@ -15,17 +15,23 @@ export function uploadFileWithTus(
   onProgress?: (uploaded: number, total: number) => void,
 ): Promise<void> {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!base) return Promise.reject(new Error("File uploads are not configured."));
+  const apiKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!base || !apiKey) return Promise.reject(new Error("File uploads are not configured."));
   const url = new URL(base);
   if (url.hostname.endsWith(".supabase.co") && !url.hostname.endsWith(".storage.supabase.co")) {
     url.hostname = url.hostname.replace(/\.supabase\.co$/, ".storage.supabase.co");
   }
-  const endpoint = new URL("/storage/v1/upload/resumable", url).toString();
+  // `/sign` is the TUS endpoint that accepts a signed upload token in
+  // `x-signature`; plain `/upload/resumable` wants a user JWT and answers
+  // "Invalid Compact JWS" (403) — every upload failed that way on 2026-10-24.
+  const endpoint = new URL("/storage/v1/upload/resumable/sign", url).toString();
 
   return new Promise<void>((resolve, reject) => {
     const upload = new Upload(file, {
       endpoint,
-      headers: { "x-signature": ticket.token },
+      // The public API key passes Supabase's gateway; x-signature authorizes
+      // the particular object. This matches Supabase's signed TUS example.
+      headers: { apikey: apiKey, "x-signature": ticket.token },
       metadata: {
         bucketName: ticket.bucket,
         objectName: ticket.path,
