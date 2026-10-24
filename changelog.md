@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-24 — Rà soát upload 50 MiB trước khi test
+
+- Signed TUS gửi thêm public Supabase API key đúng ví dụ chính thức; token `x-signature` vẫn giới hạn quyền theo object. Nếu trình duyệt không đọc được bộ nhớ URL resume, upload mới vẫn chạy thay vì dừng ngay.
+- Khi xác minh 512 byte đầu của file, dừng fetch ngay sau khi đủ dữ liệu; không chờ `reader.cancel()` trên stream đã được Next.js tee vì có thể treo finalize. Cập nhật tài liệu rollout theo trạng thái migration/bucket đã ghi trong `supabase/APPLIED.md`.
+- Trong lúc file vẫn truyền đều, không gọi finalize kiểm Storage mỗi 10 giây; chỉ kiểm khi đã gửi hết bytes, TUS kết thúc, hoặc tiến độ đứng 30 giây. Vẫn giữ phục hồi khi promise TUS bị treo.
+- Chỉ gia hạn timeout upload khi số byte thực sự tăng; TUS báo lặp cùng offset trong lúc retry sẽ không giữ giao diện `Uploading` vô hạn.
+- Mỗi lượt cấp token kiểm lại giới hạn bucket; một instance đã kiểm thành công không tiếp tục cấp token sai nếu deployment cũ hạ bucket xuống 4 MiB sau đó.
+
 ## 2026-10-24 — Nhánh dev 50 MiB: rà lại sau rebase, chưa triển khai production
 
 - Rebase `dev/attachment-50mb-rebuild` lên `main` `ef2a302`, giữ phần thông báo Enrollment và nhận diện tab cũ.

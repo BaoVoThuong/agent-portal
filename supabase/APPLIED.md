@@ -13,6 +13,14 @@ Ba thư mục, ba vai trò khác nhau:
 
 ---
 
+## 2026-10-24 — Bảng upload intent cho luồng đính kèm 50 MB
+
+Đã chạy `rollouts/2026-10-22-attachment-upload-intents.sql` trên Portal production (local dùng chung DB) khi test nhánh `dev/attachment-50mb-rebuild`: thiếu bảng làm mọi lượt xin link upload trả 500 ("Could not find the table 'public.attachment_upload_intents'"). Chạy thử trong transaction rollback trước, rồi chạy thật và `notify pgrst, 'reload schema'`. Kiểm sau khi chạy: bảng có 3 index, RLS bật, chỉ `service_role` đọc/ghi (`authenticated`/`anon` không có quyền). Code `main` không dùng bảng này.
+
+Cùng lúc, bucket `task-attachments` đang 4 MiB nên mọi lượt xin link vẫn lỗi "Attachment storage is not configured for 50MB uploads" (code 50 MB cố ý không tự sửa bucket). Đã đặt qua Storage API `updateBucket`: `fileSizeLimit` 52428800, giữ nguyên danh sách MIME (đã đủ). **Lưu ý khi deploy:** code `main` (4 MiB) tự hạ bucket về 4 MiB ở lượt upload đầu của mỗi instance mới, nên phải đặt lại 50 MiB ngay sau khi bản 50 MB lên production và các instance cũ đã thay hết.
+
+---
+
 ## 2026-10-21 — Giới hạn đính kèm nguyên tử cho Task và Lead
 
 Đã chạy `rollouts/2026-10-21-attachment-limits-atomic.sql` trên EPS Portal production trước khi deploy luồng upload 50 MB. RPC Task khóa task rồi kiểm 50 file / 250 MB ngay trước insert; RPC Lead mới khóa lead rồi kiểm 50 file. Đã thử hai giới hạn trong một transaction rollback trên production: file Task thứ sáu 50 MB và file Lead thứ 51 đều bị từ chối. Không còn dòng thử sau rollback; chỉ `service_role` gọi được RPC Lead.

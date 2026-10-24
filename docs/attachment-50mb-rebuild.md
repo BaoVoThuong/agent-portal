@@ -1,6 +1,6 @@
 # Upload 50 MiB: bản xây lại trên nhánh dev
 
-**Trạng thái 2026-10-24:** nhánh `dev/attachment-50mb-rebuild` đã rebase lên `main` tại `ef2a302`. Migration và mã 50 MiB chưa triển khai production; `main` vẫn dùng luồng multipart tối đa 4 MiB. Lần đọc production gần nhất cho thấy bucket `task-attachments` giới hạn 4,194,304 byte; cần kiểm lại trước khi rollout.
+**Trạng thái 2026-10-24:** nhánh `dev/attachment-50mb-rebuild` đã rebase lên `main` tại `ef2a302`; mã 50 MiB chưa triển khai production, `main` vẫn dùng luồng multipart tối đa 4 MiB. Khi thử local, migration `2026-10-22-attachment-upload-intents.sql` đã được áp dụng lên DB production dùng chung và bucket `task-attachments` đã được đặt 52,428,800 byte (xem `supabase/APPLIED.md`). Cần kiểm lại cả hai trước rollout vì instance `main` cũ có thể hạ bucket về 4 MiB khi xử lý upload.
 
 ## Sự cố và bài học
 
@@ -36,13 +36,13 @@ Không dùng Supabase production làm nơi thử file 50 MiB. Dựng Vercel prev
 | Hai file 50 MiB đồng thời và chạm trần tổng/số file | RPC từ chối lượt vượt trần, không vượt giới hạn DB |
 | Task, Lead, Enrollment, cả file top-level và file trong comment | Cùng một kết quả sau reload; download link dùng được |
 
-Sau rebase đã chạy 1.869 unit tests (đều qua), TypeScript (qua), ESLint (0 lỗi, 2 cảnh báo có sẵn ngoài luồng upload) và production build (qua). Chưa thể khẳng định tương thích TUS với Storage thật hoặc kiểm tra 50 MiB end-to-end trước khi có staging cách ly.
+Sau lượt rà soát 2026-10-24 đã chạy 1.876 unit tests (đều qua), TypeScript (qua), ESLint (0 lỗi, 2 cảnh báo có sẵn ngoài luồng upload) và production build (qua). Endpoint signed TUS `/upload/resumable/sign`, `apikey` public và `x-signature` đã đối chiếu với ví dụ chính thức của Supabase. Chưa thể khẳng định luồng 50 MiB end-to-end chạy đúng với Storage thật trước khi thử trên staging cách ly.
 
 ## Thứ tự triển khai sau khi staging đạt
 
 1. Đưa một thay đổi nhỏ lên `main` để bản 4 MiB ngừng sửa bucket trong request. Chờ log không còn request từ deployment cũ có hành vi hạ bucket. Đây là điều kiện bắt buộc để tránh hai bản giành cấu hình.
-2. Áp dụng migration intent trên production. Không chạy nguyên `supabase/schema.sql`.
-3. Tăng Storage global limit nếu cần, sau đó đặt bucket 50 MiB và kiểm lại bằng `getBucket`/SQL đọc. Giữ bucket private và MIME như hiện tại.
+2. Xác minh migration intent đã áp dụng trên production theo `supabase/APPLIED.md`; không chạy nguyên `supabase/schema.sql`.
+3. Tăng Storage global limit nếu cần, sau đó kiểm bucket 50 MiB bằng `getBucket`/SQL đọc và đặt lại nếu bị code cũ hạ. Giữ bucket private và MIME như hiện tại.
 4. Triển khai nhánh 50 MiB. Kiểm thử canary một Task/Lead/Enrollment, xác nhận đủ ba nơi: Storage object, intent `completed_at`, attachment row; reload từ trình duyệt khác. Theo dõi lỗi `prepare`, TUS, `finalize`, và intent chưa hoàn tất.
 5. Nếu cần rollback, ngừng nhận upload mới trước; hoàn tất các intent đã có object bằng bản mới, rồi rollback mã. Chỉ hạ bucket sau khi các upload đang chạy kết thúc. Giữ bảng intent để điều tra, không xóa object/row hàng loạt.
 
