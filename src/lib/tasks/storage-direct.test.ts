@@ -29,6 +29,18 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockReset();
   for (const fn of [...Object.values(bucket), ...Object.values(storageApi)]) fn.mockClear();
+  storageApi.getBucket.mockReset();
+  storageApi.getBucket.mockResolvedValue({
+    data: {
+      file_size_limit: TASK_ATTACHMENT_MAX_BYTES,
+      allowed_mime_types: [
+        "text/csv", "image/gif", "image/heic", "image/jpeg", "application/pdf",
+        "image/png", "text/plain", "image/webp", "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      ],
+    },
+    error: null,
+  });
 });
 
 describe("buildStoragePath", () => {
@@ -82,6 +94,19 @@ describe("createTaskUploadTicket", () => {
       error: { message: "Bucket not found", statusCode: "404" },
     });
     await expect(createTaskUploadTicket("tasks/t-1/abc-a.pdf")).rejects.toThrow("Bucket not found");
+  });
+
+  it("rechecks a bucket downgraded after a successful ticket", async () => {
+    bucket.createSignedUploadUrl.mockResolvedValue({
+      data: { path: "tasks/t-1/abc-a.pdf", token: "tok" }, error: null,
+    });
+    await createTaskUploadTicket("tasks/t-1/abc-a.pdf");
+    storageApi.getBucket.mockResolvedValue({
+      data: { file_size_limit: 4 * 1024 * 1024, allowed_mime_types: ["application/pdf"] },
+      error: null,
+    });
+    await expect(createTaskUploadTicket("tasks/t-1/next.pdf")).rejects.toThrow("not configured for 50MB");
+    expect(bucket.createSignedUploadUrl).toHaveBeenCalledTimes(1);
   });
 });
 

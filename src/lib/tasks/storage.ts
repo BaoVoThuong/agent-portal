@@ -6,8 +6,6 @@ import {
 
 export const TASK_BUCKET = "task-attachments";
 
-let bucketSetupPromise: Promise<void> | null = null;
-
 export function sanitizeFileName(name: string): string {
   const cleaned = name.trim().replace(/[^\w.\-]+/g, "_");
   return cleaned.length > 0 ? cleaned : "file";
@@ -49,11 +47,10 @@ async function verifyTaskBucket(): Promise<void> {
 }
 
 async function ensureTaskBucket(): Promise<void> {
-  bucketSetupPromise ??= verifyTaskBucket().catch((error: unknown) => {
-    bucketSetupPromise = null;
-    throw error;
-  });
-  await bucketSetupPromise;
+  // A different deployment can still change this shared bucket after an
+  // earlier request verified it. Check at each prepare so the client gets a
+  // configuration error before sending 50 MiB to Storage.
+  await verifyTaskBucket();
 }
 
 export async function uploadTaskFile(
