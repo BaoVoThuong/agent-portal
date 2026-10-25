@@ -19,7 +19,6 @@ import {
   readTaskMutationSourceId,
 } from "@/lib/tasks/realtime";
 import {
-  fetchSupervisionRecipientEmails,
   fetchAgentAssistantEmails,
   fetchAgentsForCs,
   isAgentOwnerOrAssistant,
@@ -30,7 +29,7 @@ import { buildCreateTaskNotificationRows } from "@/lib/tasks/create-notification
 import { isPriorityEnabledForCategory } from "@/lib/tasks/priority-availability";
 import { resolveSlaMinutes } from "@/lib/tasks/sla";
 import { bumpAssignmentRotation } from "@/lib/tasks/rotation";
-import { settleSideEffects } from "@/lib/tasks/mutation-result";
+import { settleSideEffects, type Warning } from "@/lib/tasks/mutation-result";
 import {
   findMissingRequiredFieldsFromContext,
   missingRequiredFieldsMessage,
@@ -55,6 +54,16 @@ import { safeErrorFields } from "@/lib/server-error-log";
 export const dynamic = "force-dynamic";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+// Bắt đầu một lượt đọc ngay (query của Supabase chỉ chạy khi có người `then`) để
+// nó đi song song với các bước kiểm phía trước. Catch rỗng gắn kèm chỉ để một
+// nhánh trả lỗi sớm không bỏ lại promise bị từ chối mà không ai nghe
+// (unhandledRejection); chỗ `await` về sau vẫn nhận đúng lỗi đó.
+function startEarly<T>(operation: PromiseLike<T>): Promise<T> {
+  const pending = new Promise<T>((resolve, reject) => operation.then(resolve, reject));
+  pending.catch(() => {});
+  return pending;
+}
 
 export async function GET() {
   const timing = new RouteTiming("tasks-list");
@@ -118,6 +127,37 @@ export async function POST(request: Request) {
   const title = typeof body?.title === "string" ? body.title.trim() : "";
   if (!title) return NextResponse.json({ error: "Title is required." }, { status: 400 });
 
+  // Mỗi lượt đọc dưới đây là một chuyến đi về Supabase. Lượt nào không cần kết
+  // quả của bước trước thì bắt đầu ngay; chỗ dùng vẫn `await` đúng vị trí cũ, nên
+  // lỗi nào được trả trước lỗi nào không đổi.
+  const checksStartedAt = performance.now();
+  const supabase = getSupabaseAdmin();
+  const submittedCustomValues =
+    body?.custom_values === undefined
+      ? {}
+      : isCustomValueRecord(body.custom_values)
+        ? body.custom_values
+        : null;
+  const writeContextPending = submittedCustomValues
+    ? startEarly(
+        fetchWriteValidationContext({
+          scope: "cs",
+          mode: "create",
+          touchedSystemKeys: ["summary", "description", "fub", "priority", "category", "agent"],
+          touchedCustomKeys: Object.keys(submittedCustomValues),
+          submittedCustomValues,
+        }, supabase)
+      )
+    : null;
+  // Luôn nạp, không còn phụ thuộc `shouldLoadSlaRules`: bảng này nay mang cả nút
+  // bật/tắt của từng tổ hợp category × priority, và việc kiểm phải chạy cho MỌI
+  // task được tạo, kể cả task chưa vào In Progress.
+  const rulesPending = startEarly(
+    supabase
+      .from("task_sla_rules")
+      .select("priority,category_id,duration_minutes,is_enabled")
+  );
+
   const priority: (typeof TASK_PRIORITIES)[number] =
     typeof body?.priority === "string" &&
     (TASK_PRIORITIES as readonly string[]).includes(body.priority)
@@ -129,8 +169,11 @@ export async function POST(request: Request) {
       : null;
   let hasAgentScope = false;
   if (!actor.isManager && agentEmail) {
-    hasAgentScope = await isAgentOwnerOrAssistant(agentEmail, email);
-    const allowedAgents = await fetchAgentsForCs(email);
+    const [ownsOrAssists, allowedAgents] = await Promise.all([
+      isAgentOwnerOrAssistant(agentEmail, email),
+      fetchAgentsForCs(email),
+    ]);
+    hasAgentScope = ownsOrAssists;
     if (!allowedAgents.includes(agentEmail) && !hasAgentScope) {
       return NextResponse.json(
         { error: "You cannot create tasks for this agent." },
@@ -170,6 +213,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: assignment.error }, { status: 400 });
   const elevated = actor.isManager || hasAgentScope;
   const assignedEmails = elevated ? requestedAssignees : [email];
+  // Place new card at the bottom of its column — cần status đích nên bắt đầu
+  // ngay khi có `assignment`.
+  const lastPositionPending = startEarly(
+    supabase
+      .from("tasks")
+      .select("position")
+      .eq("status", assignment.status)
+      .is("archived_at", null)
+      .order("position", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+  );
   const ineligibleAssignee = await findIneligibleTaskAssigneeEmail(assignedEmails);
   if (ineligibleAssignee) {
     return NextResponse.json(
@@ -195,26 +250,16 @@ export async function POST(request: Request) {
   if (!isTaskCategoryId(categoryId)) {
     return NextResponse.json(invalidTaskCategoryResponse(), { status: 400 });
   }
-  const supabase = getSupabaseAdmin();
-  let customValues: Record<string, unknown> = {};
-  if (body?.custom_values !== undefined) {
-    if (!isCustomValueRecord(body.custom_values)) {
-      return NextResponse.json(
-        { error: "Invalid custom values." },
-        { status: 400 }
-      );
-    }
-    customValues = body.custom_values;
+  if (!submittedCustomValues || !writeContextPending) {
+    return NextResponse.json(
+      { error: "Invalid custom values." },
+      { status: 400 }
+    );
   }
+  let customValues: Record<string, unknown> = submittedCustomValues;
   let writeContext;
   try {
-    writeContext = await fetchWriteValidationContext({
-      scope: "cs",
-      mode: "create",
-      touchedSystemKeys: ["summary", "description", "fub", "priority", "category", "agent"],
-      touchedCustomKeys: Object.keys(customValues),
-      submittedCustomValues: customValues,
-    }, supabase);
+    writeContext = await writeContextPending;
   } catch (error) {
     if (error instanceof TableConfigUnavailableError) {
       return NextResponse.json({ error: error.message, code: error.code }, { status: 503 });
@@ -261,15 +306,7 @@ export async function POST(request: Request) {
     );
   }
 
-  // Place new card at the bottom of its column.
-  const { data: last } = await supabase
-    .from("tasks")
-    .select("position")
-    .eq("status", assignment.status)
-    .is("archived_at", null)
-    .order("position", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const { data: last } = await lastPositionPending;
   const position = midpoint((last as { position: number } | null)?.position ?? null, null);
   const nowIso = new Date().toISOString();
   const startingTodo = assignment.status === "todo";
@@ -277,12 +314,7 @@ export async function POST(request: Request) {
   const startingWaiting = assignment.status === "waiting";
   const startingBilling = assignment.status === "billing";
   const startingClosed = assignment.status === "done" || assignment.status === "cancel";
-  // Luôn nạp, không còn phụ thuộc `shouldLoadSlaRules`: bảng này nay mang cả nút
-  // bật/tắt của từng tổ hợp category × priority, và việc kiểm phải chạy cho MỌI
-  // task được tạo, kể cả task chưa vào In Progress.
-  const { data: rulesData, error: rulesError } = await supabase
-    .from("task_sla_rules")
-    .select("priority,category_id,duration_minutes,is_enabled");
+  const { data: rulesData, error: rulesError } = await rulesPending;
   if (rulesError) return NextResponse.json({ error: rulesError.message }, { status: 500 });
 
   // Chặn ở server chứ không chỉ ẩn trên giao diện: ẩn một lựa chọn không phải là
@@ -321,6 +353,7 @@ export async function POST(request: Request) {
     ...(startingBilling ? { billing_started_at: nowIso } : {}),
     ...(startingClosed ? { closed_at: nowIso } : {}),
   };
+  timing.record("checks", performance.now() - checksStartedAt);
   const { data: created, error: createError } = await timing.measure("write", async () =>
     supabase
       .rpc("create_task_atomic", {
@@ -351,8 +384,8 @@ export async function POST(request: Request) {
   // Rotation và dòng thông báo là dữ liệu nghiệp vụ nên vẫn ghi trong request:
   // rotation quyết định ai được gán kế tiếp, còn `after()` không bền. Chỉ phần
   // phát đi (realtime, push) chạy sau response.
-  const warnings = result.was_created
-    ? await timing.measure("side_effects", async () => settleSideEffects([
+  const sideEffectsPending: Promise<Warning[]> = result.was_created
+    ? timing.measure("side_effects", async () => settleSideEffects([
         ...(assignedEmails.length > 0
           ? [
               {
@@ -381,13 +414,6 @@ export async function POST(request: Request) {
               assignedEmails.length === 0 &&
               assignment.status === "backlog" &&
               (priority === "urgent" || priority === "high");
-            const backlogAttentionRecipients = backlogNeedsAttention
-              ? [
-                  // Phụ tá, không gồm agent: agent thôi nhận thông báo tự động.
-                  ...(await fetchAgentAssistantEmails(agentEmail)),
-                  ...(await fetchSupervisionRecipientEmails(agentEmail)),
-                ]
-              : [];
             // `task_created` goes to:
             // - the task managers (task.manage through RBAC, never the legacy
             //   portal_account.role). A manager who is also an Agent only hears
@@ -401,6 +427,13 @@ export async function POST(request: Request) {
               fetchAgentAssistantEmails(agentEmail),
             ]);
             const createdRecipients = [...managerRecipients, ...assistantRecipients];
+            // Cùng hai danh sách trên, không đọc lại: phụ tá (không gồm agent —
+            // agent thôi nhận thông báo tự động) và quản lý giám sát
+            // (fetchSupervisionRecipientEmails chính là fetchTaskManagerRecipients;
+            // nếu lượt đó lỗi thì Promise.all trên đã ném và không dòng nào được ghi).
+            const backlogAttentionRecipients = backlogNeedsAttention
+              ? [...assistantRecipients, ...managerRecipients]
+              : [];
             // Một người chỉ nhận MỘT dòng, loại cụ thể hơn thắng: ai đã nhận
             // backlog_attention thì không nhận thêm task_created.
             const notificationRows = buildCreateTaskNotificationRows({
@@ -416,7 +449,21 @@ export async function POST(request: Request) {
           },
         },
       ]))
-    : [];
+    : Promise.resolve([]);
+  // Đọc lại assignee để trả về không đụng tới rotation hay thông báo, nên chạy
+  // song song với chúng thay vì đợi chúng xong.
+  const reloadPending = timing
+    .measure("assignees", async () =>
+      attachAssigneesToTasks([data], supabase, { currentEmail: email })
+    )
+    .then(
+      ([reloaded]) => reloaded,
+      (error: unknown) => {
+        console.warn("Task create reconciliation failed", error);
+        return null;
+      }
+    );
+  const [warnings, reloaded] = await Promise.all([sideEffectsPending, reloadPending]);
   if (result.was_created) {
     // Đọc header trước after(): xem api/tasks/[id]/comments/route.ts.
     const sourceId = readTaskMutationSourceId(request);
@@ -427,17 +474,12 @@ export async function POST(request: Request) {
     });
   }
 
-  let task = data;
-  try {
-    [task] = await timing.measure("assignees", async () =>
-      attachAssigneesToTasks([data], supabase, { currentEmail: email })
-    );
-  } catch (error) {
+  const task = reloaded ?? data;
+  if (!reloaded) {
     warnings.push({
       code: "task_reload_failed",
       message: "The task was saved but its assignee display needs a refresh.",
     });
-    console.warn("Task create reconciliation failed", error);
   }
   const status = result.was_created ? 201 : 200;
   const response = NextResponse.json({ task, warnings }, { status });

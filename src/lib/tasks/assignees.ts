@@ -118,6 +118,28 @@ export async function isEligibleTaskAssigneeEmail(email: string): Promise<boolea
   return assignees.some((assignee) => assignee.email.trim().toLowerCase() === normalized);
 }
 
+// Cùng tập người với fetchTaskAssignees nhưng chỉ lấy email: bên kia còn dựng
+// nhãn vai trò cho ô chọn người, thêm 2–3 lượt đọc nối đuôi mà việc kiểm "có
+// được gán không" không cần. Join thẳng user_roles trong một lượt thay cho
+// user_roles → portal_account. Đã so trên dữ liệu thật 2026-10-25: cùng 47 email.
+async function fetchEligibleTaskAssigneeEmails(): Promise<Set<string>> {
+  const roleIds = await fetchActiveRoleIdsWithAnyPermission([
+    PERMISSIONS.TASK_WORK,
+    PERMISSIONS.TASK_MANAGE,
+  ]);
+  if (roleIds.length === 0) return new Set();
+
+  const { data, error } = await getSupabaseAdmin()
+    .from("portal_account")
+    .select("email,user_roles!inner(role_id)")
+    .in("user_roles.role_id", roleIds)
+    .eq("is_active", true);
+  if (error) throw new Error(error.message);
+  return new Set(
+    (data ?? []).map((row) => (row as { email: string }).email.trim().toLowerCase())
+  );
+}
+
 export async function findIneligibleTaskAssigneeEmail(
   emails: readonly string[]
 ): Promise<string | null> {
@@ -126,10 +148,7 @@ export async function findIneligibleTaskAssigneeEmail(
     .filter(Boolean);
   if (normalized.length === 0) return null;
 
-  const assignees = await fetchTaskAssignees();
-  const eligible = new Set(
-    assignees.map((assignee) => assignee.email.trim().toLowerCase())
-  );
+  const eligible = await fetchEligibleTaskAssigneeEmails();
   return normalized.find((email) => !eligible.has(email)) ?? null;
 }
 

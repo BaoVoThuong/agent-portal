@@ -6,6 +6,22 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-25 — Tạo Task nhanh hơn: các lượt đọc DB độc lập chạy song song (chưa deploy)
+
+- **Vấn đề**: `POST /api/tasks` gọi khoảng 15–20 lượt đọc/ghi Supabase nối đuôi nhau; ở local (VN → Sydney, mỗi
+  lượt 0,3 giây tới vài giây) tạo một task mất ~6,6 giây (`checks` ~3,8 s, `side_effects` 1,8 s, `assignees` 0,46 s).
+- **Đổi** (không đổi kết quả, thông báo hay thứ tự lỗi trả về):
+  - Context kiểm cột Config và bảng SLA rules bắt đầu đọc ngay sau khi có body; vị trí cuối cột bắt đầu ngay khi
+    biết status; hai lượt kiểm phạm vi Agent chạy cùng lúc. Chỗ dùng vẫn `await` đúng vị trí cũ (`startEarly`).
+  - Kiểm "assignee có được gán không" chỉ lấy email (join `user_roles` trong một lượt), bỏ phần dựng nhãn vai trò
+    vốn chỉ cho ô chọn người — `findIneligibleTaskAssigneeEmail`, `fetchEligibleTaskAssigneeEmails`. So trên dữ liệu
+    thật: cùng 47 email.
+  - Thông báo `backlog_attention` dùng lại danh sách phụ tá + quản lý đã đọc cho `task_created` thay vì đọc lại lần
+    hai, lần lượt.
+  - Đọc lại assignee để trả về chạy song song với rotation/thông báo. Rotation và dòng thông báo vẫn ghi trong
+    request như trước.
+  - Thêm số đo `checks` (từ sau body tới trước lượt ghi) vào dòng `[perf:tasks-create]`.
+
 ## 2026-10-25 — Form tạo Task: Agent/Assistant tự điền ô Agent, Assignee để trống (chưa deploy)
 
 - **Lỗi**: với người không phải quản lý, danh sách Agent của form chỉ gồm các Agent mà họ làm Assistant — KHÔNG
