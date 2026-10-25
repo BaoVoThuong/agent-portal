@@ -16,6 +16,7 @@ import {
 } from "@/lib/tasks/priority-availability";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import { formatEmailAsName } from "@/lib/tasks/people";
+import { newTaskAgentScope } from "@/lib/tasks/new-task-agent";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { TaskSelect } from "./TaskSelect";
 import { TaskCategoryBadge } from "./TaskCategoryBadge";
@@ -119,7 +120,17 @@ export function NewTaskDialog({
   const [description, setDescription] = useState("");
   const [fubLink, setFubLink] = useState("");
   const [priority, setPriority] = useState<TaskPriority>(DEFAULT_NEW_TASK_PRIORITY);
-  const [agentEmail, setAgentEmail] = useState("");
+  const {
+    agentEmails: scopedAgentEmails,
+    defaultAgentEmail,
+    locked: agentLocked,
+  } = newTaskAgentScope({
+    isManager,
+    currentEmail,
+    agentEmails: agents.map((agent) => agent.email),
+    assistedAgentEmails: myAgents,
+  });
+  const [agentEmail, setAgentEmail] = useState(defaultAgentEmail);
   const [selectedAssignees, setSelectedAssignees] = useState<string[]>([]);
   const [status, setStatus] = useState<TaskStatus>("todo");
   const [categoryId, setCategoryId] = useState("");
@@ -171,7 +182,7 @@ export function NewTaskDialog({
     for (const agent of [...agents, ...agentCandidates]) {
       byEmail.set(agent.email, agent);
     }
-    return myAgents.map(
+    return scopedAgentEmails.map(
       (email) => byEmail.get(email) ?? { email, name: null }
     );
   })();
@@ -210,11 +221,9 @@ export function NewTaskDialog({
   );
   const canPickAssignee = isManager || hasAgentScope;
   // Mirrors resolveCreateAssignment()'s server-side rule exactly: unassigned
-  // tasks are always Backlog, assigned tasks are never Backlog. Non-elevated
-  // users (canPickAssignee false) always end up self-assigned server-side —
-  // see the "Assigned to you" fallback below — so they're always "assigned"
-  // for this purpose.
-  const isAssigned = canPickAssignee ? selectedAssignees.length > 0 : true;
+  // tasks are always Backlog, assigned tasks are never Backlog. Assignee
+  // starts empty and may be anyone who works tasks (user decision 2026-10-25).
+  const isAssigned = selectedAssignees.length > 0;
   const effectiveStatus: TaskStatus = isAssigned ? status : "backlog";
 
   function fieldValue(key: string): unknown {
@@ -257,6 +266,9 @@ export function NewTaskDialog({
 
   async function submit() {
     const missing = [...requiredColumnKeys].filter((key) => !isFilled(fieldValue(key)));
+    // The API refuses a worker's task without an Agent they cover, whatever
+    // Table Config says; an Assistant of several Agents must pick one.
+    if (!isManager && !agentEmail && !missing.includes("agent")) missing.push("agent");
     if (missing.length > 0) {
       setInvalidKeys(new Set(missing));
       return;
@@ -289,7 +301,7 @@ export function NewTaskDialog({
       setDescription("");
       setFubLink("");
       setPriority(DEFAULT_NEW_TASK_PRIORITY);
-      setAgentEmail("");
+      setAgentEmail(defaultAgentEmail);
       setSelectedAssignees([]);
       setStatus("todo");
       setCategoryId("");
@@ -480,8 +492,9 @@ export function NewTaskDialog({
                     value={agentEmail}
                     searchable
                     personValue
+                    disabled={agentLocked}
                     options={agentOptions}
-                    placeholder="Unassigned"
+                    placeholder={isManager ? "Unassigned" : "Choose an agent"}
                     onChange={changeAgent}
                     buttonClassName={isInvalid("agent") ? INVALID_RING_CLASS : ""}
                     menuClassName="min-w-full"
@@ -502,8 +515,8 @@ export function NewTaskDialog({
                       onToggle={toggleAssignee}
                     />
                   ) : (
-                    <div className="flex h-10 items-center rounded border-2 border-[#dfe1e6] bg-white px-3 text-sm font-medium text-[#172b4d]">
-                      Assigned to you
+                    <div className="flex h-10 items-center rounded border-2 border-[#dfe1e6] bg-[#f7f8f9] px-3 text-sm font-medium text-[#6b778c]">
+                      Choose an agent first
                     </div>
                   )}
                 </MetaField>

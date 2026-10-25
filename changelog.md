@@ -6,6 +6,16 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-25 — Form tạo Task: Agent/Assistant tự điền ô Agent, Assignee để trống (chưa deploy)
+
+- **Lỗi**: với người không phải quản lý, danh sách Agent của form chỉ gồm các Agent mà họ làm Assistant — KHÔNG
+  gồm chính họ — nên một Agent không chọn được mình (ô Agent trống, API từ chối vì thiếu Agent trong phạm vi); còn ô
+  Assignee khoá ở "Assigned to you", một nhánh tự-giao mà API không còn dùng. Người dùng thấy như bị ngược.
+- **Luật mới** (user chốt 25/10, `lib/tasks/new-task-agent.ts`): Agent → ô Agent tự là chính mình (khoá; nếu họ
+  cũng là Assistant của Agent khác thì chọn thêm được các Agent đó). Assistant của 1 Agent → tự điền Agent đó và
+  khoá; của nhiều Agent → phải chọn (Create báo thiếu Agent). Assignee mặc định trống, chọn được bất kỳ ai làm
+  task; để trống thì task vào Backlog như trước. Quản lý giữ nguyên. API không đổi (vốn đã đúng luật này).
+
 ## 2026-10-24 — Đưa upload đính kèm 50 MiB lên production (merge `dev/attachment-50mb-rebuild` vào `main`)
 
 - Gộp 10 commit của nhánh: luồng upload thẳng lên Supabase Storage (TUS `/upload/resumable/sign`, intent +
