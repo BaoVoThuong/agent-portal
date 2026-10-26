@@ -6,6 +6,12 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-26 — Enrollment ACA: tiêu đề cột Apply number kèm tổng (chưa deploy)
+
+- Tiêu đề hiện "APPLY NUMBER (597)": tổng các dòng ĐANG HIỆN — theo bộ lọc, năm, ô tìm kiếm — như tổng có lọc trong
+  Excel (user chốt 26/10). Chỉ cột tự tạo key `apply_number` (`HEADER_TOTAL_COLUMN_KEYS`,
+  `lib/enrollment/column-totals.ts`); ô trống hoặc không phải số bị bỏ qua. Cột tự rộng thêm để số không bị cắt.
+
 ## 2026-10-25 — Provider: Verified by / Verified date thôi là ô gõ tay (chưa deploy)
 
 - **Luật** (user chốt 25/10): người soát là một người thật, không phải chữ ai cũng gõ được. Form Thêm/Sửa chỉ HIỆN

@@ -176,6 +176,11 @@ import {
 } from "../../_shared/page-header-styles";
 import { enrollmentTintsPastDue, isEnrollmentPastDue } from "@/lib/enrollment/due-schedule";
 import { buildEnrollmentTimeProgress } from "@/lib/enrollment/time-progress";
+import {
+  HEADER_TOTAL_COLUMN_KEYS,
+  labelWithTotal,
+  sumColumnValues,
+} from "@/lib/enrollment/column-totals";
 import { uploadAttachment } from "@/lib/tasks/upload-attachment";
 
 type SortKey =
@@ -630,8 +635,18 @@ function headerFitWidth(label: string, sortable: boolean | undefined): number {
   return Math.ceil(label.trim().length * 7.6) + 24 + (sortable ? 16 : 0);
 }
 
+/** Cột tự tạo hiện tổng các dòng đang hiện ngay trên tiêu đề (lib/enrollment/column-totals). */
+function hasHeaderTotal(column: EnrollmentColumn): boolean {
+  const config = column.configColumn;
+  return Boolean(config && !config.is_system && HEADER_TOTAL_COLUMN_KEYS.has(config.key));
+}
+
 function withHeaderFitWidth(column: EnrollmentColumn): EnrollmentColumn {
-  const fit = headerFitWidth(column.label, column.sortable);
+  // Cột có tổng: chừa chỗ cho " (12,345)" để con số không bị cắt thành "…".
+  const fit = headerFitWidth(
+    hasHeaderTotal(column) ? labelWithTotal(column.label, 12345) : column.label,
+    column.sortable
+  );
   return fit > column.width ? { ...column, width: fit } : column;
 }
 
@@ -2687,6 +2702,19 @@ function EnrollmentTable({
     () => columns.reduce((sum, column) => sum + column.width, 0),
     [columns]
   );
+  // Tổng của các dòng đang hiện — đổi theo bộ lọc, năm, ô tìm kiếm.
+  const headerTotals = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const column of columns) {
+      const key = column.configColumn?.key;
+      if (!key || !hasHeaderTotal(column)) continue;
+      totals.set(
+        column.key,
+        sumColumnValues(records.map((record) => record.custom_values?.[key]))
+      );
+    }
+    return totals;
+  }, [columns, records]);
   const tableFrameStyle: CSSProperties = {
     maxHeight: "1008px",
   };
@@ -2707,30 +2735,34 @@ function EnrollmentTable({
       <div className="min-h-0 flex-1 overflow-auto">
         <div style={{ minWidth }}>
           <div className="sticky top-0 z-20 flex items-stretch whitespace-nowrap border-b border-[#dfe1e6] bg-[#fafbfc] text-[11px] font-bold uppercase tracking-wide text-[#6b778c] shadow-[0_1px_0_#dfe1e6]">
-            {columns.map((column) => (
-              <div
-                key={column.key}
-                style={{
-                  width: column.width,
-                  left: column.sticky ? stickyOffset(columns, column.key) : undefined,
-                }}
-                className={`flex shrink-0 items-center px-3 py-2 ${
-                  column.align === "center" ? "justify-center" : ""
-                } ${column.sticky ? "sticky z-[30] border-r border-[#dfe1e6] bg-[#fafbfc]" : ""}`}
-              >
-                {column.sortable ? (
-                  <EnrollmentSortTh
-                    label={column.label}
-                    col={column.key as SortKey}
-                    sortKey={sort.key}
-                    sortDir={sort.dir}
-                    onSort={onSort}
-                  />
-                ) : (
-                  <span className="truncate" title={column.label}>{column.label}</span>
-                )}
-              </div>
-            ))}
+            {columns.map((column) => {
+              const total = headerTotals.get(column.key);
+              const label = total === undefined ? column.label : labelWithTotal(column.label, total);
+              return (
+                <div
+                  key={column.key}
+                  style={{
+                    width: column.width,
+                    left: column.sticky ? stickyOffset(columns, column.key) : undefined,
+                  }}
+                  className={`flex shrink-0 items-center px-3 py-2 ${
+                    column.align === "center" ? "justify-center" : ""
+                  } ${column.sticky ? "sticky z-[30] border-r border-[#dfe1e6] bg-[#fafbfc]" : ""}`}
+                >
+                  {column.sortable ? (
+                    <EnrollmentSortTh
+                      label={label}
+                      col={column.key as SortKey}
+                      sortKey={sort.key}
+                      sortDir={sort.dir}
+                      onSort={onSort}
+                    />
+                  ) : (
+                    <span className="truncate" title={label}>{label}</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <ul>
             {records.map((record) => (
