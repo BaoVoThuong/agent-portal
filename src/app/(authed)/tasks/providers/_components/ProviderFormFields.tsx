@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Check, ChevronDown, ExternalLink, MapPin, Search } from "lucide-react";
+import { useAnchoredMenu } from "../../_components/use-anchored-menu";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { parseMultiselectValue } from "@/lib/table-config/multiselect";
 import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
@@ -545,9 +547,14 @@ function MultiSelectField({
   options: readonly TableColumnOption[];
   onChange: (value: string[]) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const rootRef = useRef<HTMLDivElement | null>(null);
+  // Menu vẽ ra document.body với toạ độ fixed (portal). Để `absolute` trong vùng
+  // cuộn của dialog thì ô nằm sát đáy — ACA/Medicare Plans — bị footer cắt mất
+  // nửa danh sách. Hook tự lật menu lên trên khi bên dưới không đủ chỗ, và lo
+  // luôn bấm ra ngoài / Escape / cuộn trang.
+  const { isOpen: open, toggle, triggerRef, menuRef, menuStyle } = useAnchoredMenu({
+    estimatedHeight: 330,
+  });
   const selectedSet = new Set(selected.map((item) => item.toLowerCase()));
 
   const filteredOptions = useMemo(() => {
@@ -555,26 +562,6 @@ function MultiSelectField({
     if (!normalizedQuery) return options;
     return options.filter((option) => option.label.toLowerCase().includes(normalizedQuery));
   }, [options, query]);
-
-  useEffect(() => {
-    if (!open) return;
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open]);
 
   function toggleOption(option: TableColumnOption) {
     const normalizedLabel = option.label.toLowerCase();
@@ -593,13 +580,14 @@ function MultiSelectField({
   }
 
   return (
-    <div ref={rootRef} className="relative min-w-0">
+    <div className="relative min-w-0">
       {label}
       <button
+        ref={triggerRef}
         type="button"
         aria-haspopup="listbox"
         aria-expanded={open}
-        onClick={() => setOpen((current) => !current)}
+        onClick={toggle}
         className={`flex min-h-9 w-full items-center justify-between gap-3 rounded-lg border-2 bg-white px-2 py-1.5 text-left outline-none transition ${
           open ? "border-[#0c66e4]" : "border-[#dfe1e6] hover:border-[#c1c7d0]"
         }`}
@@ -637,8 +625,13 @@ function MultiSelectField({
         ) : null}
       </div>
 
-      {open ? (
-        <div className="absolute left-0 right-0 top-[calc(100%+28px)] z-50 overflow-hidden rounded-xl border border-[#dfe1e6] bg-white shadow-[0_14px_36px_rgba(9,30,66,0.18)]">
+      {open ? createPortal(
+        // z trên dialog Provider (z-[180]); rộng đúng bằng ô như bản cũ.
+        <div
+          ref={menuRef}
+          style={{ ...menuStyle, width: menuStyle.minWidth }}
+          className="z-[200] flex flex-col overflow-hidden rounded-xl border border-[#dfe1e6] bg-white shadow-[0_14px_36px_rgba(9,30,66,0.18)]"
+        >
           <div className="border-b border-[#edf0f4] p-2">
             <div className="flex h-9 items-center gap-2 rounded-lg bg-[#f7f9fc] px-2.5">
               <Search className="h-4 w-4 text-[#98a2b3]" />
@@ -691,7 +684,8 @@ function MultiSelectField({
           <div className="border-t border-[#edf0f4] bg-[#fbfcfe] px-3 py-2 text-[11px] text-[#667085]">
             Select one or more values
           </div>
-        </div>
+        </div>,
+        document.body
       ) : null}
     </div>
   );
