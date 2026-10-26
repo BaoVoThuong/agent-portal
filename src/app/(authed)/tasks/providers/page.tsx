@@ -57,6 +57,7 @@ export default async function ProviderListPage() {
       canImport={canImportProviders(session.user.permissions)}
       // Thêm / xoá address.
       canManage={canManageProviders(session.user.permissions)}
+      currentEmail={(session.user.email ?? "").trim().toLowerCase()}
       viewerName={personLabel(
         session.user.email ?? "",
         session.user.name ? new Map([[session.user.email ?? "", session.user.name]]) : undefined,

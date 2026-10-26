@@ -13,6 +13,7 @@ import {
   fetchWriteValidationContext,
 } from "@/lib/table-config/write-context";
 import { RouteTiming } from "@/lib/server-timing";
+import { insertProviderActivity } from "@/lib/providers/collaboration";
 
 export const dynamic = "force-dynamic";
 
@@ -153,6 +154,15 @@ export async function POST(request: Request) {
     if (insertError) {
       return respond({ error: insertError.message }, 500);
     }
+    await timing.measure("activity", () =>
+      insertProviderActivity(supabase, [
+        {
+          provider_id: (provider as unknown as { id: string }).id,
+          actor_email: actor.email.trim().toLowerCase(),
+          type: "created",
+        },
+      ])
+    );
 
     return respond({ provider });
   } catch (error) {

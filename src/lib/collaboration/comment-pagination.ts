@@ -21,3 +21,11 @@ export function commentCursorFromRow(
     ? { created_at: row.created_at, id: row.id }
     : null;
 }
+
+/** Capture the query page boundary before adding older parent comments for replies. */
+export function nextCommentPageCursor(
+  pageRows: readonly { created_at: string; id: string }[],
+  hasMore: boolean,
+): CommentCursor | null {
+  return hasMore ? commentCursorFromRow(pageRows.at(-1)) : null;
+}

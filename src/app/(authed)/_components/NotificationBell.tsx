@@ -45,7 +45,7 @@ import {
 type Notif = {
   id: string;
   task_id: string;
-  entity_type?: "task" | "enrollment" | "time_off";
+  entity_type?: "task" | "enrollment" | "time_off" | "provider";
   entity_id?: string;
   type: NotificationCopyType;
   actor_email: string;
@@ -121,6 +121,7 @@ function notificationHref(n: Notif): string {
 }
 
 function entityKey(n: Notif): string {
+  if (entityKind(n) === "provider") return "Provider";
   return entityKind(n) === "enrollment"
     ? enrollmentDisplayKey(n.entity_display_number, n.entity_program)
     : taskDisplayKey(n.entity_display_number);

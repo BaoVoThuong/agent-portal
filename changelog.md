@@ -6,6 +6,32 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-25 — Provider List: Comments + Activity trong dialog provider, @mention báo lên chuông (chưa deploy)
+
+- **Review 25/10**: Comments, Activity và danh sách @mention tải độc lập; Activity nạp nền khi mở dialog.
+  Snapshot reaction chỉ đọc các comment của trang hiện tại. "Load older" lấy cursor từ trang truy vấn trước khi
+  kéo comment gốc của reply vào, tránh bỏ qua các comment nằm giữa. Link từ chuông bỏ tham số bằng History API để
+  không tải lại cả Provider List. Đổi tab giữ nguyên bản nháp comment đang gõ. Import dừng trước khi ghi nếu không
+  đọc được snapshot phục vụ Activity.
+  Chuông chỉ bỏ qua lỗi *thiếu bảng* của module phụ; lỗi truy vấn thật được báo ra.
+- **Luật** (user chốt 25/10): comment như Enrollment (trả lời, sửa/xoá, lịch sử sửa, reaction, @mention) nhưng
+  **không có đính kèm**. Ai xem được Provider List (`automation.provider_finder`) thì đọc được; **chỉ tầng Manage**
+  (`canManageProviders`) được viết, trả lời, reaction; sửa/xoá chỉ comment của chính mình. Kiểm ở API
+  (`loadProviderCollabContext`, `write: true`) và lại trong RPC.
+- **Activity** ghi chi tiết từng ô: thêm provider (`created`, cả dòng nhập từ import), sửa (`field_changed`, meta
+  `changes: [{key, from, to}]` — so bản đã lưu trước/sau, không so thân request), xoá address (`archived`), và
+  comment thêm/sửa/xoá. Sửa tay, sửa ô trên bảng và import đều ghi; import ghi `source: "import"`. Lịch sử bắt đầu
+  từ lúc deploy. Nhãn cột tra lúc hiển thị (`lib/providers/activity.ts`).
+- **@mention → chuông**: bảng mới `provider_notifications` (chỉ loại `mentioned`) là nguồn thứ tư của chuông: đếm
+  chưa đọc, trang danh sách, "đã đọc tất cả", phân trang `provider:<id>`, push. Chỉ báo người xem được Provider List,
+  không báo chính người viết; sửa comment chỉ báo người được tag mới. Bấm thông báo mở
+  `/tasks/providers?provider=<id>`. Reaction không gửi thông báo.
+- **UI**: dialog provider chia hai cột như drawer Enrollment (form | Comments · Activity). `CommentThread` thêm
+  `attachmentsEnabled` và `canComment` (mặc định như cũ, Task/Enrollment không đổi). Realtime qua kênh
+  `provider-<id>`.
+- **Rollout** `supabase/rollouts/2026-10-25-provider-comments-activity.sql` (5 bảng + 5 RPC) **đã chạy production
+  25/10** (xem `supabase/APPLIED.md`); đã thử đủ 5 RPC trong transaction rollback, không để lại dòng nào.
+
 ## 2026-10-25 — Tạo Task nhanh hơn: các lượt đọc DB độc lập chạy song song (chưa deploy)
 
 - **Vấn đề**: `POST /api/tasks` gọi khoảng 15–20 lượt đọc/ghi Supabase nối đuôi nhau; ở local (VN → Sydney, mỗi

@@ -12,12 +12,14 @@ import {
   providerFormValues,
 } from "@/lib/providers/form";
 import { ProviderFormBody } from "./ProviderFormFields";
+import { ProviderCollabPanel } from "./ProviderCollabPanel";
 
 export function ProviderEditDialog({
   provider,
   columns,
   columnOptions,
   viewerName,
+  currentEmail,
   onClose,
   onSave,
   onArchive,
@@ -27,6 +29,8 @@ export function ProviderEditDialog({
   columnOptions: readonly TableColumnOption[];
   /** Tên người đang đăng nhập — điền vào Verified by khi bật ô Reviewed. */
   viewerName: string;
+  /** Email người đang đăng nhập (chữ thường) — CommentThread nhận ra comment của chính mình. */
+  currentEmail: string;
   onClose: () => void;
   onSave: (patch: Record<string, unknown>) => Promise<void>;
   /** Chỉ truyền cho người có quyền Manage; không truyền thì không có nút xoá. */
@@ -94,7 +98,7 @@ export function ProviderEditDialog({
         role="dialog"
         aria-modal="true"
         aria-label={`Edit provider ${provider.doctors || provider.facility || provider.id}`}
-        className="flex h-[calc(100dvh-5rem)] max-h-[760px] w-full max-w-[1160px] flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
+        className="flex h-[calc(100dvh-5rem)] max-h-[820px] w-full max-w-[1400px] flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
       >
         <header className="flex min-h-14 items-center justify-between gap-3 border-b border-[#dfe1e6] px-4 py-2.5 sm:px-5">
           <div className="flex min-w-0 items-center gap-2">
@@ -120,20 +124,30 @@ export function ProviderEditDialog({
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto bg-white px-4 py-4 sm:px-5">
-          <ProviderFormBody
+        {/* Hai cột như drawer Enrollment: form bên trái, Comments | Activity bên
+            phải, mỗi cột tự cuộn. Màn hẹp thì xếp chồng và cuộn chung. */}
+        <div className="min-h-0 flex-1 overflow-y-auto lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(360px,420px)] lg:grid-rows-[minmax(0,1fr)] lg:overflow-hidden">
+          <div className="bg-white px-4 py-4 sm:px-5 lg:min-h-0 lg:overflow-y-auto">
+            <ProviderFormBody
+              columns={columns}
+              columnOptions={columnOptions}
+              values={values}
+              viewerName={viewerName}
+              showSystemInfo
+              onChange={(patch) => setValues((current) => ({ ...current, ...patch }))}
+            />
+            {error ? (
+              <p className="mx-auto mt-3 max-w-[1120px] rounded-xl border border-[#ffbdad] bg-[#ffebe6] px-4 py-3 text-sm font-semibold text-[#bf2600]">
+                {error}
+              </p>
+            ) : null}
+          </div>
+          <ProviderCollabPanel
+            providerId={provider.id}
+            currentEmail={currentEmail}
             columns={columns}
             columnOptions={columnOptions}
-            values={values}
-            viewerName={viewerName}
-            showSystemInfo
-            onChange={(patch) => setValues((current) => ({ ...current, ...patch }))}
           />
-          {error ? (
-            <p className="mx-auto mt-3 max-w-[1120px] rounded-xl border border-[#ffbdad] bg-[#ffebe6] px-4 py-3 text-sm font-semibold text-[#bf2600]">
-              {error}
-            </p>
-          ) : null}
         </div>
 
         <footer className="flex items-center justify-between gap-3 border-t border-[#dfe1e6] bg-white px-4 py-2.5 sm:px-5">

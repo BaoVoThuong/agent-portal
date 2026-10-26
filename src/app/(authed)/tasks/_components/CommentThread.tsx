@@ -422,6 +422,8 @@ export function CommentThread({
   realtimeManagedExternally = false,
   reactionsEnabled = false,
   reactionCache = "task",
+  attachmentsEnabled = true,
+  canComment = true,
   mutationSourceId,
   mutationSourceHeader = "x-task-client-source",
   onCommitted,
@@ -449,6 +451,10 @@ export function CommentThread({
   reactionsEnabled?: boolean;
   /** Enrollment shares this UI but has a separate detail cache namespace. */
   reactionCache?: "task" | "enrollment" | "none";
+  /** Provider List không có đính kèm: tắt thì ẩn nút kẹp giấy và bỏ qua ảnh dán. */
+  attachmentsEnabled?: boolean;
+  /** Chỉ đọc: ẩn ô viết, trả lời, reaction, sửa/xoá. Server vẫn tự chặn. */
+  canComment?: boolean;
   onCommitted?: () => void;
   currentEmail: string;
   members: TaskAssignee[];
@@ -1550,15 +1556,16 @@ export function CommentThread({
                   nameOf={nameOf}
                   onDelete={c.optimistic ? releaseOptimistic : remove}
                   onEdit={edit}
-                  onReply={c.optimistic ? undefined : () => setReplyTo(c.id)}
+                  onReply={c.optimistic || !canComment ? undefined : () => setReplyTo(c.id)}
                   onRetryFile={c.optimistic ? (fileId) => void retryFile(c.id, fileId) : undefined}
                   onPreviewAttachment={setImagePreview}
                   reactions={reactionsOf(c)}
                   onToggleReaction={
-                    reactionsEnabled && !c.optimistic
+                    reactionsEnabled && canComment && !c.optimistic
                       ? (emoji, add) => void toggleReaction(c.id, emoji, add)
                       : undefined
                   }
+                  readOnly={!canComment}
                 />
                 <div className="ml-3 space-y-2 border-l-2 border-[#dfe1e6] pl-3 sm:ml-5 sm:pl-4">
                   {repliesOf(c.id).map((rc) => (
@@ -1577,10 +1584,11 @@ export function CommentThread({
                         onPreviewAttachment={setImagePreview}
                         reactions={reactionsOf(rc)}
                         onToggleReaction={
-                          reactionsEnabled && !rc.optimistic
+                          reactionsEnabled && canComment && !rc.optimistic
                             ? (emoji, add) => void toggleReaction(rc.id, emoji, add)
                             : undefined
                         }
+                        readOnly={!canComment}
                       />
                     </div>
                   ))}
@@ -1593,7 +1601,8 @@ export function CommentThread({
                       onCancel={() => setReplyTo(null)}
               onSubmit={(body, files) => post(body, files, c.id)}
               submitting={submissionBusy}
-              placeholder="Reply… or paste a screenshot"
+              allowFiles={attachmentsEnabled}
+              placeholder={attachmentsEnabled ? "Reply… or paste a screenshot" : "Reply…"}
                     />
                   )}
                 </div>
@@ -1636,17 +1645,22 @@ export function CommentThread({
           </button>
         ) : null}
 
-        <div className="shrink-0 border-t border-[#dfe1e6] bg-white pt-3">
-          <Composer
-            alwaysOpen
-            currentEmail={currentEmail}
-            members={members}
-            nameOf={nameOf}
-            onSubmit={(body, files) => post(body, files, null)}
-            submitting={submissionBusy}
-            placeholder="Add a comment… or paste a screenshot"
-          />
-        </div>
+        {canComment ? (
+          <div className="shrink-0 border-t border-[#dfe1e6] bg-white pt-3">
+            <Composer
+              alwaysOpen
+              currentEmail={currentEmail}
+              members={members}
+              nameOf={nameOf}
+              onSubmit={(body, files) => post(body, files, null)}
+              submitting={submissionBusy}
+              allowFiles={attachmentsEnabled}
+              placeholder={
+                attachmentsEnabled ? "Add a comment… or paste a screenshot" : "Add a comment…"
+              }
+            />
+          </div>
+        ) : null}
       </section>
 
       {/* Dùng CHUNG khung xem trước với đính kèm cấp task và Enrollment.
@@ -1701,6 +1715,7 @@ function CommentItem({
   onPreviewAttachment,
   reactions,
   onToggleReaction,
+  readOnly = false,
 }: {
   c: Comment;
   taskId: string;
@@ -1718,6 +1733,8 @@ function CommentItem({
   /** Absent when reactions are off for this module, or for optimistic rows
    *  that have no server id yet. */
   onToggleReaction?: (emoji: string, add: boolean) => void;
+  /** Người chỉ xem: không sửa/xoá được kể cả comment cũ của chính mình. */
+  readOnly?: boolean;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   // Lượt sửa bị server từ chối sau khi form đã đóng: mở lại với đúng chữ vừa gõ.
@@ -1741,9 +1758,9 @@ function CommentItem({
     menuStyle: reactMenuStyle,
   } = useAnchoredMenu({ estimatedHeight: 360, placement: "above-right" });
   const canReply = Boolean(onReply && !c.optimistic);
-  const canEdit = c.author_email === currentEmail && !c.optimistic && !c.failed;
+  const canEdit = !readOnly && c.author_email === currentEmail && !c.optimistic && !c.failed;
   const canDelete =
-    c.author_email === currentEmail && (!c.optimistic || c.failed);
+    !readOnly && c.author_email === currentEmail && (!c.optimistic || c.failed);
   const hasMenu = canEdit || canDelete;
   const mentionNames = new Map(
     members.map((member) => [member.email.trim().toLowerCase(), mentionLabel(member)]),
@@ -2480,6 +2497,7 @@ function Composer({
   onCancel,
   onSubmit,
   submitting = false,
+  allowFiles = true,
   placeholder,
 }: {
   initiallyExpanded?: boolean;
@@ -2491,6 +2509,7 @@ function Composer({
   onCancel?: () => void;
   onSubmit: (body: string, files: File[]) => boolean;
   submitting?: boolean;
+  allowFiles?: boolean;
   placeholder: string;
 }) {
   const [text, setText] = useState("");
@@ -2807,6 +2826,7 @@ function Composer({
           }
           onKeyDown={onKeyDown}
           onPaste={(event) => {
+            if (!allowFiles) return;
             const pasted = filesFromClipboard(event.clipboardData);
             // Mảng rỗng = clipboard chỉ có chữ. KHÔNG chặn sự kiện, để việc dán
             // chữ hoạt động y như cũ — đó là thứ người ta dùng nhiều nhất.
@@ -2866,29 +2886,33 @@ function Composer({
         )}
 
         <div className="flex items-center justify-between gap-2 border-t border-[#ebecf0] bg-[#fafbfc] px-2 py-1">
-          <input
-            ref={fileRef}
-            type="file"
-            multiple
-            accept={ATTACHMENT_ALLOWED_MIME_TYPES.join(",")}
-            className="hidden"
-            onChange={(e) => {
-              addFiles(e.target.files);
-              if (fileRef.current) fileRef.current.value = "";
-            }}
-          />
+          {allowFiles ? (
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              accept={ATTACHMENT_ALLOWED_MIME_TYPES.join(",")}
+              className="hidden"
+              onChange={(e) => {
+                addFiles(e.target.files);
+                if (fileRef.current) fileRef.current.value = "";
+              }}
+            />
+          ) : null}
           {/* Icon-only: the bar is tight and these read on their own. Grouped
               so the row keeps its two-child justify-between layout. */}
           <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              aria-label="Attach files"
-              title="Attach files"
-              className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-semibold text-[#44546f] transition hover:bg-[#ebecf0] hover:text-[#172b4d]"
-            >
-              <Paperclip className="h-4 w-4" />
-            </button>
+            {allowFiles ? (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                aria-label="Attach files"
+                title="Attach files"
+                className="inline-flex h-7 items-center gap-1.5 rounded px-2 text-xs font-semibold text-[#44546f] transition hover:bg-[#ebecf0] hover:text-[#172b4d]"
+              >
+                <Paperclip className="h-4 w-4" />
+              </button>
+            ) : null}
             <button
               ref={emojiTriggerRef}
               type="button"

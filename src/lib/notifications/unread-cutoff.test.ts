@@ -25,19 +25,19 @@ describe("parseNotificationPageCursor", () => {
     const cursor = parseNotificationPageCursor(
       new URLSearchParams({
         before: "2026-10-19T14:55:19.8876+00:00",
-        skip: `task:${id},enrollment:${id},timeoff:${id}`,
+        skip: `task:${id},enrollment:${id},timeoff:${id},provider:${id}`,
       }),
     );
     expect(cursor).toEqual({
       before: "2026-10-19T14:55:19.8876+00:00",
-      skip: { task: [id], enrollment: [id], timeoff: [id] },
+      skip: { task: [id], enrollment: [id], timeoff: [id], provider: [id] },
     });
   });
 
   it("drops malformed ids and needs a valid time", () => {
     expect(
       parseNotificationPageCursor(new URLSearchParams({ before: "2026-10-19T00:00:00Z", skip: "task:x),or(id.eq.1" })),
-    ).toEqual({ before: "2026-10-19T00:00:00Z", skip: { task: [], enrollment: [], timeoff: [] } });
+    ).toEqual({ before: "2026-10-19T00:00:00Z", skip: { task: [], enrollment: [], timeoff: [], provider: [] } });
     expect(parseNotificationPageCursor(new URLSearchParams({ before: "yesterday" }))).toBeNull();
     expect(parseNotificationPageCursor(new URLSearchParams())).toBeNull();
   });

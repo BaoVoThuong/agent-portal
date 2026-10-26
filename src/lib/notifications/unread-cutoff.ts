@@ -14,13 +14,13 @@ export function countsAsUnread(notification: { is_read: boolean; created_at: str
   return Number.isFinite(createdAt) && createdAt >= Date.parse(UNREAD_SINCE);
 }
 
-const NOTIFICATION_ID = /^(task|enrollment|timeoff):([0-9a-f-]{36})$/i;
+const NOTIFICATION_ID = /^(task|enrollment|timeoff|provider):([0-9a-f-]{36})$/i;
 
 export type NotificationPageCursor = {
   /** created_at of the last notification already shown. */
   before: string;
   /** Row ids per table already shown at exactly `before` (same-instant batches). */
-  skip: { task: string[]; enrollment: string[]; timeoff: string[] };
+  skip: { task: string[]; enrollment: string[]; timeoff: string[]; provider: string[] };
 };
 
 /**
@@ -31,7 +31,7 @@ export type NotificationPageCursor = {
 export function parseNotificationPageCursor(params: URLSearchParams): NotificationPageCursor | null {
   const before = params.get("before");
   if (!before || !Number.isFinite(Date.parse(before))) return null;
-  const skip: NotificationPageCursor["skip"] = { task: [], enrollment: [], timeoff: [] };
+  const skip: NotificationPageCursor["skip"] = { task: [], enrollment: [], timeoff: [], provider: [] };
   for (const value of (params.get("skip") ?? "").split(",")) {
     const match = value.trim().match(NOTIFICATION_ID);
     if (!match) continue;

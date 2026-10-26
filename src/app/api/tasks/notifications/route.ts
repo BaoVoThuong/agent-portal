@@ -7,6 +7,8 @@ import type { EnrollmentProgram } from "@/lib/enrollment/types";
 import { RouteTiming } from "@/lib/server-timing";
 import { buildTaskActor } from "@/lib/tasks/access";
 import { getUserAccessByEmail } from "@/lib/rbac/access";
+import { PROVIDER_TABLE } from "@/lib/providers/types";
+import { canViewProviderNotification } from "@/lib/providers/notification-access";
 import { canViewTimeOffNotification } from "@/lib/time-off/notification-access";
 import { redactNotification } from "@/lib/notifications/redaction";
 import {
@@ -32,6 +34,14 @@ export const dynamic = "force-dynamic";
 
 /** Notifications per bell page. */
 const PAGE_SIZE = 30;
+
+/** Mọi bảng mà chuông đọc. Chỉ `task_notifications` là bắt buộc — xem isMissingOptionalTableError. */
+const NOTIFICATION_TABLES = [
+  "task_notifications",
+  "enrollment_notifications",
+  "time_off_notifications",
+  "provider_notifications",
+] as const;
 
 export async function GET(req: Request) {
   const timing = new RouteTiming("task-notifications");
@@ -64,6 +74,7 @@ export async function GET(req: Request) {
       unreadRes,
       enrollmentUnreadRes,
       timeOffUnreadRes,
+      providerUnreadRes,
       unreadAssignedRes,
       ...latestRes
     ] = await Promise.all([
@@ -86,6 +97,12 @@ export async function GET(req: Request) {
         .eq("is_read", false)
         .gte("created_at", UNREAD_SINCE),
       supabase
+        .from("provider_notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("recipient_email", email)
+        .eq("is_read", false)
+        .gte("created_at", UNREAD_SINCE),
+      supabase
         .from("task_notifications")
         .select("task_id")
         .eq("recipient_email", email)
@@ -101,7 +118,7 @@ export async function GET(req: Request) {
       //
       // Mỗi truy vấn chỉ lấy MỘT dòng mới nhất, không đếm, nên đường polling
       // vẫn rẻ.
-      ...["task_notifications", "enrollment_notifications", "time_off_notifications"].map(
+      ...NOTIFICATION_TABLES.map(
         (table) =>
           supabase
             .from(table)
@@ -133,6 +150,12 @@ export async function GET(req: Request) {
         { error: timeOffUnreadRes.error.message },
         500,
       );
+    }
+    if (
+      providerUnreadRes.error &&
+      !isMissingOptionalTableError(providerUnreadRes.error)
+    ) {
+      return respond({ error: providerUnreadRes.error.message }, 500);
     }
     if (unreadAssignedRes.error) {
       return respond(
@@ -172,7 +195,8 @@ export async function GET(req: Request) {
       unread:
         (unreadRes.count ?? 0) +
         (enrollmentUnreadRes.count ?? 0) +
-        (timeOffUnreadRes.count ?? 0),
+        (timeOffUnreadRes.count ?? 0) +
+        (providerUnreadRes.count ?? 0),
       unreadAssignedTaskIds,
       latestAt,
       topic: notifTopic(email),
@@ -202,7 +226,7 @@ export async function GET(req: Request) {
   const latestPromise = cursor
     ? Promise.resolve([] as { data: { created_at?: string | null }[] | null }[])
     : Promise.all(
-        ["task_notifications", "enrollment_notifications", "time_off_notifications"].map((table) =>
+        NOTIFICATION_TABLES.map((table) =>
           supabase
             .from(table)
             .select("created_at")
@@ -217,9 +241,11 @@ export async function GET(req: Request) {
     { data, error },
     enrollmentRes,
     timeOffRes,
+    providerRes,
     unreadRes,
     enrollmentUnreadRes,
     timeOffUnreadRes,
+    providerUnreadRes,
     unreadAssignedRes,
     notificationPreferencesRes,
   ] = await Promise.all([
@@ -238,6 +264,11 @@ export async function GET(req: Request) {
       "id,request_id,type,actor_email,detail,is_read,created_at",
       cursor?.skip.timeoff ?? [],
     ),
+    pageOf(
+      "provider_notifications",
+      "id,provider_id,type,actor_email,comment_id,detail,is_read,created_at",
+      cursor?.skip.provider ?? [],
+    ),
     supabase
       .from("task_notifications")
       .select("id", { count: "exact", head: true })
@@ -252,6 +283,12 @@ export async function GET(req: Request) {
       .gte("created_at", UNREAD_SINCE),
     supabase
       .from("time_off_notifications")
+      .select("id", { count: "exact", head: true })
+      .eq("recipient_email", email)
+      .eq("is_read", false)
+      .gte("created_at", UNREAD_SINCE),
+    supabase
+      .from("provider_notifications")
       .select("id", { count: "exact", head: true })
       .eq("recipient_email", email)
       .eq("is_read", false)
@@ -297,6 +334,12 @@ export async function GET(req: Request) {
       { error: timeOffUnreadRes.error.message },
       500
     );
+  }
+  if (providerRes.error && !isMissingOptionalTableError(providerRes.error)) {
+    return respond({ error: providerRes.error.message }, 500);
+  }
+  if (providerUnreadRes.error && !isMissingOptionalTableError(providerUnreadRes.error)) {
+    return respond({ error: providerUnreadRes.error.message }, 500);
   }
   if (unreadAssignedRes.error) {
     return respond({ error: unreadAssignedRes.error.message }, 500);
@@ -354,7 +397,24 @@ export async function GET(req: Request) {
     entity_type: "time_off" as const,
     entity_id: n.request_id,
   }));
-  const merged = [...taskBase, ...enrollmentBase, ...timeOffBase].sort((a, b) =>
+  const providerBase = ((providerRes.data ?? []) as unknown as {
+    id: string;
+    provider_id: string;
+    type: string;
+    actor_email: string;
+    comment_id: string | null;
+    detail: string | null;
+    is_read: boolean;
+    created_at: string;
+  }[]).map((n) => ({
+    ...n,
+    is_read: !countsAsUnread(n),
+    id: `provider:${n.id}`,
+    task_id: n.provider_id,
+    entity_type: "provider" as const,
+    entity_id: n.provider_id,
+  }));
+  const merged = [...taskBase, ...enrollmentBase, ...timeOffBase, ...providerBase].sort((a, b) =>
     b.created_at.localeCompare(a.created_at),
   );
   // Each table returned up to PAGE_SIZE + 1 rows, so anything past PAGE_SIZE
@@ -375,6 +435,17 @@ export async function GET(req: Request) {
   const timeOffIds = [
     ...new Set(
       base.filter((n) => n.entity_type === "time_off").map((n) => n.entity_id)
+    ),
+  ];
+  const providerIds = [
+    ...new Set(base.filter((n) => n.entity_type === "provider").map((n) => n.entity_id)),
+  ];
+  const providerCommentIds = [
+    ...new Set(
+      base
+        .filter((n) => n.entity_type === "provider")
+        .map((n) => n.comment_id)
+        .filter((id): id is string => Boolean(id))
     ),
   ];
   const actorEmails = [...new Set(base.map((n) => n.actor_email))];
@@ -402,6 +473,8 @@ export async function GET(req: Request) {
     actorsRes,
     commentsRes,
     enrollmentCommentsRes,
+    providerTitlesRes,
+    providerCommentsRes,
   ] = await Promise.all([
     taskIds.length
       ? supabase.from("tasks").select("id,title,display_number,agent_email,assignee_email,reporter_email").in("id", taskIds)
@@ -450,6 +523,23 @@ export async function GET(req: Request) {
           .select("id,body")
           .in("id", enrollmentCommentIds)
       : Promise.resolve({ data: [] as { id: string; body: string }[], error: null }),
+    providerIds.length
+      ? supabase
+          .from(PROVIDER_TABLE)
+          .select("id,doctors,facility,archived_at")
+          .in("id", providerIds)
+      : Promise.resolve({
+          data: [] as {
+            id: string;
+            doctors: string | null;
+            facility: string | null;
+            archived_at: string | null;
+          }[],
+          error: null,
+        }),
+    providerCommentIds.length
+      ? supabase.from("provider_comments").select("id,body").in("id", providerCommentIds)
+      : Promise.resolve({ data: [] as { id: string; body: string }[], error: null }),
   ]);
   timing.record("enrich", performance.now() - tEnrich);
   reportOptionalEnrichmentFailures([
@@ -459,6 +549,8 @@ export async function GET(req: Request) {
     ["actor_names", actorsRes],
     ["task_comment_bodies", commentsRes],
     ["enrollment_comment_bodies", enrollmentCommentsRes],
+    ["provider_titles", providerTitlesRes],
+    ["provider_comment_bodies", providerCommentsRes],
   ]);
   const titleById = new Map(
     ((titlesRes.data ?? []) as { id: string; title: string }[]).map((t) => [t.id, t.title])
@@ -505,7 +597,23 @@ export async function GET(req: Request) {
     [
       ...((commentsRes.data ?? []) as { id: string; body: string }[]),
       ...((enrollmentCommentsRes.data ?? []) as { id: string; body: string }[]),
+      ...((providerCommentsRes.data ?? []) as { id: string; body: string }[]),
     ].map((c) => [c.id, c.body] as const)
+  );
+  const providerRows = (providerTitlesRes.data ?? []) as {
+    id: string;
+    doctors: string | null;
+    facility: string | null;
+    archived_at: string | null;
+  }[];
+  const providerTitleById = new Map(
+    providerRows.map((row) => [row.id, row.doctors?.trim() || row.facility?.trim() || "Provider"])
+  );
+  // Provider List không chia phạm vi theo người: xem được bảng là xem được mọi
+  // dòng còn hoạt động. Mất quyền hoặc dòng đã xoá thì thông báo bị che nội dung.
+  const canViewProviders = canViewProviderNotification(access.permissions);
+  const providerAccessById = new Map(
+    providerRows.map((row) => [row.id, canViewProviders && !row.archived_at])
   );
 
   let visibleTaskIds = new Set<string>();
@@ -571,7 +679,7 @@ export async function GET(req: Request) {
     entity_display_number:
       n.entity_type === "enrollment"
         ? enrollmentDisplayNumberById.get(n.entity_id) ?? null
-        : n.entity_type === "time_off"
+        : n.entity_type === "time_off" || n.entity_type === "provider"
           ? null
           : taskDisplayNumberById.get(n.entity_id) ?? null,
     entity_program:
@@ -583,7 +691,9 @@ export async function GET(req: Request) {
         ? enrollmentTitleById.get(n.entity_id) ?? null
         : n.entity_type === "time_off"
           ? timeOffTitleById.get(n.entity_id) ?? "Đơn xin nghỉ"
-          : titleById.get(n.entity_id) ?? null,
+          : n.entity_type === "provider"
+            ? providerTitleById.get(n.entity_id) ?? null
+            : titleById.get(n.entity_id) ?? null,
     actor_name: nameByEmail.get(n.actor_email) ?? null,
     comment_body: n.comment_id ? commentById.get(n.comment_id) ?? null : null,
   })).map((notification) => redactNotification(
@@ -592,15 +702,19 @@ export async function GET(req: Request) {
       ? enrollmentAccessById.get(notification.entity_id) === true
       : notification.entity_type === "time_off"
         ? timeOffAccessById.get(notification.entity_id) === true
-        : visibleTaskIds.has(notification.entity_id),
+        : notification.entity_type === "provider"
+          ? providerAccessById.get(notification.entity_id) === true
+          : visibleTaskIds.has(notification.entity_id),
   ));
   const unread =
     typeof unreadRes.count === "number" ||
     typeof enrollmentUnreadRes.count === "number" ||
-    typeof timeOffUnreadRes.count === "number"
+    typeof timeOffUnreadRes.count === "number" ||
+    typeof providerUnreadRes.count === "number"
       ? (unreadRes.count ?? 0) +
         (enrollmentUnreadRes.count ?? 0) +
-        (timeOffUnreadRes.count ?? 0)
+        (timeOffUnreadRes.count ?? 0) +
+        (providerUnreadRes.count ?? 0)
       : notifications.filter((n) => !n.is_read).length;
   const unreadAssignedTaskIds = [
     ...new Set(
@@ -631,7 +745,7 @@ export async function GET(req: Request) {
 /**
  * Bảng thông báo của một module phụ chưa tồn tại trên database này.
  *
- * Chuông đọc ba bảng, nhưng chỉ `task_notifications` là bắt buộc. Hai bảng kia
+ * Chuông đọc bốn bảng, nhưng chỉ `task_notifications` là bắt buộc. Các bảng kia
  * thuộc module ra đời sau, và luôn có quãng giữa lúc code lên và lúc rollout
  * chạy. Không bỏ qua được lỗi này thì một bảng còn thiếu làm CHẾT CẢ CÁI
  * CHUÔNG của mọi người, kể cả những thông báo task hoàn toàn bình thường.
@@ -640,10 +754,8 @@ function isMissingOptionalTableError(error: { code?: string; message?: string })
   const message = error.message?.toLowerCase() ?? "";
   return (
     error.code === "PGRST205" ||
-    message.includes("schema cache") ||
-    message.includes("enrollment_notifications") ||
-    message.includes("time_off_notifications") ||
-    message.includes("notification_preferences")
+    error.code === "42P01" ||
+    (message.includes("could not find the table") && message.includes("schema cache"))
   );
 }
 

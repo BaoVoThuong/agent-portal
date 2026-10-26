@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Download, Plus, Upload } from "lucide-react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { resolveLayout, serializeLayout, type LayoutEntry } from "@/lib/table-config/layout";
@@ -53,6 +54,7 @@ export function ProviderListClient({
   columns,
   columnOptions,
   viewerName,
+  currentEmail,
   canExport,
   canImport,
   canManage,
@@ -63,6 +65,8 @@ export function ProviderListClient({
   columnOptions: TableColumnOption[];
   /** Tên người đang đăng nhập, để form điền sẵn Verified by khi đánh dấu đã soát. */
   viewerName: string;
+  /** Email người đang đăng nhập (chữ thường), cho phần comment của dialog. */
+  currentEmail: string;
   /** Hai quyền tách riêng: Export chỉ đọc, Import ghi đè hàng loạt. */
   canExport: boolean;
   canImport: boolean;
@@ -91,6 +95,29 @@ export function ProviderListClient({
   const [notice, setNotice] = useState<{ tone: "error" | "info"; text: string } | null>(
     loadError ? { tone: "error", text: loadError } : null
   );
+
+  // Link từ chuông thông báo: /tasks/providers?provider=<id> mở thẳng dialog của
+  // dòng đó. Bảng đã nạp đủ mọi dòng còn hoạt động, nên không cần gọi API; không
+  // thấy là dòng đã bị xoá. Xong thì bỏ tham số để đóng dialog không mở lại.
+  const searchParams = useSearchParams();
+  const linkedProviderId = searchParams.get("provider");
+  useEffect(() => {
+    if (!linkedProviderId) return;
+    const linked = providers.find((provider) => provider.id === linkedProviderId);
+    const timer = window.setTimeout(() => {
+      setView("list");
+      if (linked) setEditingProvider(linked);
+      else setNotice({ tone: "info", text: "That provider is no longer in the list." });
+      // Chỉ bỏ param đã xử lý. Router navigation sẽ chạy lại Server Component
+      // và truy vấn hàng nghìn provider ngay lúc người dùng mở dialog.
+      const url = new URL(window.location.href);
+      url.searchParams.delete("provider");
+      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    }, 0);
+    return () => window.clearTimeout(timer);
+    // Chỉ chạy khi link đổi, không chạy lại mỗi lần danh sách nạp lại.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedProviderId]);
 
   const layoutHydratedRef = useRef(false);
   const layoutUpdatedAtRef = useRef<string | null>(null);
@@ -444,6 +471,7 @@ export function ProviderListClient({
         columns={columns}
         columnOptions={columnOptions}
         viewerName={viewerName}
+        currentEmail={currentEmail}
         onClose={() => setEditingProvider(null)}
         onSave={(patch) =>
           editingProvider ? patchProvider(editingProvider.id, patch) : Promise.resolve()

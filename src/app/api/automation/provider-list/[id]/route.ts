@@ -5,7 +5,9 @@ import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { canManageProviders } from "@/lib/providers/access";
 import { buildProviderPatch } from "@/lib/providers/patch";
-import { PROVIDER_SELECT, PROVIDER_TABLE } from "@/lib/providers/types";
+import { PROVIDER_SELECT, PROVIDER_TABLE, type ProviderRow } from "@/lib/providers/types";
+import { providerFieldChanges } from "@/lib/providers/activity";
+import { insertProviderActivity } from "@/lib/providers/collaboration";
 import { validateCustomValues } from "@/lib/table-config/custom-values";
 import { findMissingRequiredFieldsFromContext } from "@/lib/table-config/required";
 import {
@@ -34,9 +36,10 @@ export async function PATCH(request: Request, { params }: Ctx) {
   }
 
   const supabase = getSupabaseAdmin();
+  // Đọc cả dòng (không chỉ custom_values) để Activity ghi được "cũ → mới".
   const { data: current, error: currentError } = await supabase
     .from(PROVIDER_TABLE)
-    .select("id,custom_values")
+    .select(PROVIDER_SELECT)
     .eq("id", id)
     .is("archived_at", null)
     .maybeSingle();
@@ -44,9 +47,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
     return NextResponse.json({ error: currentError.message }, { status: 500 });
   }
   if (!current) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const currentRow = current as {
-    custom_values?: Record<string, unknown> | null;
-  };
+  const currentRow = current as unknown as ProviderRow;
 
   const parsed = buildProviderPatch(await request.json().catch(() => null));
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
@@ -123,6 +124,22 @@ export async function PATCH(request: Request, { params }: Ctx) {
     .single();
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
+  }
+
+  // Ghi trong request (một lượt insert), không để after(): Activity là lịch sử
+  // nghiệp vụ. Lỗi chỉ ghi log — lượt sửa đã lưu thì không báo hỏng.
+  const actorEmail = email.trim().toLowerCase();
+  if ("archived_at" in parsed.patch) {
+    await insertProviderActivity(supabase, [
+      { provider_id: id, actor_email: actorEmail, type: "archived" },
+    ]);
+  } else {
+    const changes = providerFieldChanges(currentRow, provider as unknown as ProviderRow);
+    if (changes.length > 0) {
+      await insertProviderActivity(supabase, [
+        { provider_id: id, actor_email: actorEmail, type: "field_changed", meta: { changes } },
+      ]);
+    }
   }
 
   return NextResponse.json({ provider });

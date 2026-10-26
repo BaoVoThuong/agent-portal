@@ -36,9 +36,11 @@ export async function POST(req: Request) {
     const taskIds: string[] = [];
     const enrollmentIds: string[] = [];
     const timeOffIds: string[] = [];
+    const providerIds: string[] = [];
     for (const id of ids ?? []) {
       if (id.startsWith("enrollment:")) enrollmentIds.push(id.slice("enrollment:".length));
       else if (id.startsWith("timeoff:")) timeOffIds.push(id.slice("timeoff:".length));
+      else if (id.startsWith("provider:")) providerIds.push(id.slice("provider:".length));
       else if (id.startsWith("task:")) taskIds.push(id.slice("task:".length));
       // Không có tiền tố = dữ liệu cũ, ghi trước khi chuông đọc nhiều nguồn.
       else taskIds.push(id);
@@ -69,6 +71,15 @@ export async function POST(req: Request) {
           .update({ is_read: !markUnread })
           .eq("recipient_email", email)
           .in("id", timeOffIds)
+      );
+    }
+    if (providerIds.length > 0) {
+      updates.push(
+        supabase
+          .from("provider_notifications")
+          .update({ is_read: !markUnread })
+          .eq("recipient_email", email)
+          .in("id", providerIds)
       );
     }
     const results = await Promise.all(updates);
@@ -103,10 +114,15 @@ export async function POST(req: Request) {
       .update({ is_read: true })
       .eq("recipient_email", email)
       .eq("is_read", false);
-    // Bỏ sót bảng này là "Đánh dấu đã đọc tất cả" không bao giờ đưa chuông về 0:
-    // phần đếm đã cộng cả ba nguồn, nên phần ghi cũng phải quét đủ ba.
+    // Bỏ sót bảng nào là "Đánh dấu đã đọc tất cả" không bao giờ đưa chuông về 0:
+    // phần đếm đã cộng cả bốn nguồn, nên phần ghi cũng phải quét đủ bốn.
     let timeOffQuery = supabase
       .from("time_off_notifications")
+      .update({ is_read: true })
+      .eq("recipient_email", email)
+      .eq("is_read", false);
+    let providerQuery = supabase
+      .from("provider_notifications")
       .update({ is_read: true })
       .eq("recipient_email", email)
       .eq("is_read", false);
@@ -114,16 +130,19 @@ export async function POST(req: Request) {
       taskQuery = taskQuery.lte("created_at", before);
       enrollmentQuery = enrollmentQuery.lte("created_at", before);
       timeOffQuery = timeOffQuery.lte("created_at", before);
+      providerQuery = providerQuery.lte("created_at", before);
     }
     if (type) {
       taskQuery = taskQuery.eq("type", type);
       enrollmentQuery = enrollmentQuery.eq("type", type);
       timeOffQuery = timeOffQuery.eq("type", type);
+      providerQuery = providerQuery.eq("type", type);
     }
-    const [taskRes, enrollmentRes, timeOffRes] = await Promise.all([
+    const [taskRes, enrollmentRes, timeOffRes, providerRes] = await Promise.all([
       taskQuery,
       enrollmentQuery,
       timeOffQuery,
+      providerQuery,
     ]);
     if (taskRes.error) {
       return NextResponse.json({ error: taskRes.error.message }, { status: 500 });
@@ -133,6 +152,9 @@ export async function POST(req: Request) {
     }
     if (timeOffRes.error && !isMissingOptionalTableError(timeOffRes.error)) {
       return NextResponse.json({ error: timeOffRes.error.message }, { status: 500 });
+    }
+    if (providerRes.error && !isMissingOptionalTableError(providerRes.error)) {
+      return NextResponse.json({ error: providerRes.error.message }, { status: 500 });
     }
     return NextResponse.json({ ok: true });
   }
@@ -155,8 +177,7 @@ function isMissingOptionalTableError(error: { code?: string; message?: string })
   const message = error.message?.toLowerCase() ?? "";
   return (
     error.code === "PGRST205" ||
-    message.includes("schema cache") ||
-    message.includes("enrollment_notifications") ||
-    message.includes("time_off_notifications")
+    error.code === "42P01" ||
+    (message.includes("could not find the table") && message.includes("schema cache"))
   );
 }

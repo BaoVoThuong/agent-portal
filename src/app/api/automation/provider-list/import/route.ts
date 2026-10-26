@@ -9,11 +9,16 @@ import { buildProviderPatch } from "@/lib/providers/patch";
 import { personLabel } from "@/lib/tasks/people";
 import { fetchTableColumns } from "@/lib/table-config/queries";
 import { PROVIDER_SELECT, PROVIDER_TABLE, type ProviderRow } from "@/lib/providers/types";
+import { providerFieldChanges } from "@/lib/providers/activity";
+import { insertProviderActivity, isProviderUuid } from "@/lib/providers/collaboration";
 
 export const dynamic = "force-dynamic";
 
 /** Trần an toàn: một file quá cỡ thì chặn ngay chứ đừng ghi được nửa bảng rồi hỏng. */
 const MAX_ROWS = 2000;
+// `.in("id", …)` đi trong URL: 2.000 uuid một lượt là ~80 KB, quá giới hạn URL.
+const SNAPSHOT_CHUNK = 200;
+const ACTIVITY_INSERT_CHUNK = 500;
 
 type IncomingRow = {
   /** Số dòng trong Excel, chỉ dùng để báo lỗi đúng dòng người dùng thấy. */
@@ -75,6 +80,29 @@ export async function POST(request: Request) {
   const created: ProviderRow[] = [];
   const updated: ProviderRow[] = [];
 
+  // Bản trước khi nhập của các dòng sẽ bị sửa, để Activity ghi "cũ → mới" như
+  // khi sửa tay. Đọc theo chùm một lần thay vì mỗi dòng một lượt; sau mỗi lượt
+  // ghi thì thay bằng bản mới, nên một id lặp hai lần trong file vẫn so đúng.
+  const snapshotIds = [
+    ...new Set(
+      (payload.rows as IncomingRow[])
+        .map((raw) => (typeof raw.id === "string" ? raw.id : ""))
+        .filter(isProviderUuid)
+    ),
+  ];
+  const snapshots = new Map<string, ProviderRow>();
+  for (let index = 0; index < snapshotIds.length; index += SNAPSHOT_CHUNK) {
+    const { data, error } = await supabase
+      .from(PROVIDER_TABLE)
+      .select(PROVIDER_SELECT)
+      .in("id", snapshotIds.slice(index, index + SNAPSHOT_CHUNK));
+    // Thiếu snapshot thì import vẫn sửa được dòng nhưng Activity sẽ im lặng
+    // mất phần "cũ → mới". Dừng trước lượt ghi đầu tiên nếu đọc thất bại.
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    for (const row of (data ?? []) as unknown as ProviderRow[]) snapshots.set(row.id, row);
+  }
+  const activity: Parameters<typeof insertProviderActivity>[1] = [];
+
   for (const raw of payload.rows as IncomingRow[]) {
     const excelRow = typeof raw.row === "number" ? raw.row : 0;
     const body = raw.body;
@@ -127,7 +155,19 @@ export async function POST(request: Request) {
         failed.push({ row: excelRow, error: "No row found with this ID." });
         continue;
       }
-      updated.push(data as unknown as ProviderRow);
+      const after = data as unknown as ProviderRow;
+      const before = snapshots.get(raw.id);
+      const changes = before ? providerFieldChanges(before, after) : [];
+      if (changes.length > 0) {
+        activity.push({
+          provider_id: raw.id,
+          actor_email: actor,
+          type: "field_changed",
+          meta: { changes, source: "import" },
+        });
+      }
+      snapshots.set(raw.id, after);
+      updated.push(after);
       continue;
     }
 
@@ -146,6 +186,16 @@ export async function POST(request: Request) {
       continue;
     }
     created.push(data as unknown as ProviderRow);
+    activity.push({
+      provider_id: (data as unknown as ProviderRow).id,
+      actor_email: actor,
+      type: "created",
+      meta: { source: "import" },
+    });
+  }
+
+  for (let index = 0; index < activity.length; index += ACTIVITY_INSERT_CHUNK) {
+    await insertProviderActivity(supabase, activity.slice(index, index + ACTIVITY_INSERT_CHUNK));
   }
 
   return NextResponse.json({

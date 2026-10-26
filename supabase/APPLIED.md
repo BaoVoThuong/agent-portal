@@ -13,6 +13,12 @@ Ba thư mục, ba vai trò khác nhau:
 
 ---
 
+## 2026-10-25 — Comments + Activity + thông báo @mention cho Provider List
+
+Đã chạy `rollouts/2026-10-25-provider-comments-activity.sql` trên Portal production (local dùng chung DB) để test tính năng trước khi deploy. Chạy thử trong transaction rollback trước (tạo đủ 5 bảng, sau rollback không còn bảng nào), rồi chạy thật kèm `notify pgrst, 'reload schema'`. Kiểm sau khi chạy: 5 bảng (`provider_comments`, `provider_comment_edits`, `provider_comment_reactions`, `provider_activity`, `provider_notifications`) đều bật RLS; 5 RPC chỉ `service_role` gọi được (`anon`/`authenticated` không). Chỉ thêm mới, không đụng bảng cũ; code đang chạy trên production không dùng tới. Không nằm trong `schema.sql` vì chính `provider_directory` cũng chỉ có trong rollout.
+
+---
+
 ## 2026-10-24 — Bảng upload intent cho luồng đính kèm 50 MB
 
 Đã chạy `rollouts/2026-10-22-attachment-upload-intents.sql` trên Portal production (local dùng chung DB) khi test nhánh `dev/attachment-50mb-rebuild`: thiếu bảng làm mọi lượt xin link upload trả 500 ("Could not find the table 'public.attachment_upload_intents'"). Chạy thử trong transaction rollback trước, rồi chạy thật và `notify pgrst, 'reload schema'`. Kiểm sau khi chạy: bảng có 3 index, RLS bật, chỉ `service_role` đọc/ghi (`authenticated`/`anon` không có quyền). Code `main` không dùng bảng này.

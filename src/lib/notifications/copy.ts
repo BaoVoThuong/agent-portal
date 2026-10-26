@@ -9,7 +9,7 @@
  * Toàn bộ file thuần: không I/O, không đụng DOM, import được từ cả hai phía.
  */
 
-export type NotificationEntityKind = "task" | "enrollment" | "time_off";
+export type NotificationEntityKind = "task" | "enrollment" | "time_off" | "provider";
 
 /**
  * Danh sách loại thông báo mà giao diện biết cách diễn đạt.
@@ -82,6 +82,7 @@ export function notificationEntityKind(
 ): NotificationEntityKind {
   if (notification.entity_type === "enrollment") return "enrollment";
   if (notification.entity_type === "time_off") return "time_off";
+  if (notification.entity_type === "provider") return "provider";
   return "task";
 }
 
@@ -95,6 +96,8 @@ export function notificationEntityLabel(notification: NotificationCopySource): s
       return "Enrollment";
     case "time_off":
       return "Time off";
+    case "provider":
+      return "Provider";
     default:
       return "Task";
   }
@@ -117,6 +120,9 @@ export function notificationHref(notification: NotificationCopySource): string {
       if (notification.type === "cancelled") return "/time-off?tab=history";
       return "/time-off?tab=approvals";
     }
+    // Provider List mở đúng dialog của dòng đó (ProviderListClient đọc ?provider=).
+    case "provider":
+      return `/tasks/providers?provider=${notificationEntityId(notification)}`;
     default:
       return `/tasks?task=${notificationEntityId(notification)}`;
   }

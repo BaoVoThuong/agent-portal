@@ -1,5 +1,5 @@
 export type ScopedNotification = {
-  entity_type: "task" | "enrollment" | "time_off";
+  entity_type: "task" | "enrollment" | "time_off" | "provider";
   task_id: string;
   entity_id: string;
   comment_id: string | null;

@@ -4,6 +4,8 @@ import { taskDisplayKey } from "@/lib/tasks/sorting";
 import { enrollmentDisplayKey } from "@/lib/enrollment/helpers";
 import type { EnrollmentProgram } from "@/lib/enrollment/types";
 import { getUserAccessByEmail } from "@/lib/rbac/access";
+import { PROVIDER_TABLE } from "@/lib/providers/types";
+import { canViewProviderNotification } from "@/lib/providers/notification-access";
 import { buildTaskActor } from "@/lib/tasks/access";
 import {
   buildEnrollmentScope,
@@ -69,6 +71,8 @@ function actorLabel(email: string, labels: Map<string, string>): string {
   return labels.get(normalized) ?? normalized;
 }
 
+type PushEntityType = "task" | "enrollment" | "provider";
+
 export type PushGroup = {
   source: NotificationCopySource;
   actorEmail: string;
@@ -88,9 +92,10 @@ type EnrollmentPushScopeRow = {
 
 async function authorizedDispatchRows(
   rows: readonly DispatchRow[],
-  entityType: "task" | "enrollment",
+  entityType: PushEntityType,
   taskRows: readonly NotificationTaskScopeRow[],
   enrollmentRows: readonly EnrollmentPushScopeRow[],
+  activeProviderIds: readonly string[] = [],
 ): Promise<DispatchRow[]> {
   const supabase = getSupabaseAdmin();
   const recipients = [...new Set(rows.map((row) => row.recipient_email.trim().toLowerCase()))];
@@ -106,6 +111,11 @@ async function authorizedDispatchRows(
       const actor = buildTaskActor(access.permissions, email);
       if (entityType === "task") {
         visibleByEmail.set(email, await visibleNotificationTaskIds(actor, taskRows, supabase));
+      } else if (entityType === "provider") {
+        // Provider List không chia phạm vi theo người: xem được bảng là xem được mọi dòng.
+        if (canViewProviderNotification(access.permissions)) {
+          visibleByEmail.set(email, new Set(activeProviderIds));
+        }
       } else if (actor.isWorker) {
         const scope = buildEnrollmentScope({
           actor,
@@ -143,7 +153,7 @@ async function authorizedDispatchRows(
  */
 export function groupPushRows(
   rows: readonly DispatchRow[],
-  entityType: "task" | "enrollment"
+  entityType: PushEntityType
 ): PushGroup[] {
   const groups = new Map<string, PushGroup>();
   for (const row of rows) {
@@ -174,7 +184,7 @@ export function groupPushRows(
 
 async function dispatch(
   rows: DispatchRow[],
-  entityType: "task" | "enrollment",
+  entityType: PushEntityType,
   titles: Map<string, string>
 ): Promise<void> {
   const labels = await labelsForActors(rows.map((row) => row.actor_email));
@@ -294,6 +304,51 @@ export async function pushForEnrollmentNotifications(
       "enrollment",
       titles
     );
+  } catch {
+    // không làm gì
+  }
+}
+
+/** Tiêu đề push cho provider: tên bác sĩ, không có thì tên cơ sở. */
+export async function pushForProviderNotifications(
+  rows: readonly {
+    recipient_email: string;
+    provider_id: string;
+    type: string;
+    actor_email: string;
+    detail?: string | null;
+  }[]
+): Promise<void> {
+  try {
+    if (rows.length === 0) return;
+    const ids = [...new Set(rows.map((row) => row.provider_id))];
+    const titles = new Map<string, string>();
+    const activeIds: string[] = [];
+
+    try {
+      const { data, error } = await getSupabaseAdmin()
+        .from(PROVIDER_TABLE)
+        .select("id,doctors,facility")
+        .in("id", ids)
+        .is("archived_at", null);
+      if (error) return;
+      for (const row of (data ?? []) as {
+        id: string;
+        doctors: string | null;
+        facility: string | null;
+      }[]) {
+        activeIds.push(row.id);
+        titles.set(row.id, row.doctors?.trim() || row.facility?.trim() || "Provider");
+      }
+    } catch {
+      return;
+    }
+
+    const dispatchRows = await authorizedDispatchRows(
+      rows.map((row) => ({ ...row, entity_id: row.provider_id })),
+      "provider", [], [], activeIds,
+    );
+    await dispatch(dispatchRows, "provider", titles);
   } catch {
     // không làm gì
   }
