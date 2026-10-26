@@ -3929,12 +3929,15 @@ function EnrollmentStagePill({
   stageId,
   stages,
   field = false,
+  fieldChrome = true,
   canEdit = true,
   onChange,
 }: {
   stageId: string | null;
   stages: EnrollmentOption[];
   field?: boolean;
+  /** The create form supplies its own field border around this control. */
+  fieldChrome?: boolean;
   canEdit?: boolean;
   onChange: (stageId: string) => Promise<void>;
 }) {
@@ -3952,14 +3955,16 @@ function EnrollmentStagePill({
   const style = enrollmentStateBadgeStyle(stage);
   const label = stage?.label ?? "No stage";
   const pill = field ? (
-    <span className={DETAIL_FIELD_BUTTON_CLASS}>
+    <span className={fieldChrome
+      ? DETAIL_FIELD_BUTTON_CLASS
+      : "flex h-7 w-full min-w-0 items-center gap-2 text-left text-sm font-semibold text-[#172b4d]"}>
       <span
         className="inline-flex max-w-full min-w-0 items-center rounded px-2 py-1 text-[11px] font-bold uppercase leading-none tracking-wide"
         style={{ backgroundColor: style.bg, color: style.fg }}
       >
         <span className="truncate">{label}</span>
       </span>
-      <ChevronDown className="h-4 w-4 shrink-0 opacity-60" />
+      <ChevronDown className="ml-auto h-4 w-4 shrink-0 opacity-60" />
     </span>
   ) : (
     <span
@@ -5349,6 +5354,7 @@ function NewEnrollmentDialog({
                         stageId={form.stage_id || null}
                         stages={optionsBySet.stage}
                         field
+                        fieldChrome={false}
                         canEdit={optionsBySet.stage.length > 0}
                         onChange={async (stageId) => update("stage_id", stageId)}
                       />
