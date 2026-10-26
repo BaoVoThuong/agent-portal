@@ -134,7 +134,8 @@ export function providerFormValues(
       .map((column) => {
         const raw = valueForColumn(provider, column);
         if (isNewPatientColumn(column)) return [column.key, isTruthyProviderValue(raw)];
-        // Ô trên form là "Reviewed", cột trong bảng là "needs_review" — ngược nhau.
+        // Ô trên form là "Verified" (trước 26/10 tên "Reviewed"), cột trong bảng
+        // là "needs_review" — ngược nhau.
         if (isReviewedColumn(column)) return [column.key, !isTruthyProviderValue(raw)];
         if (isProviderMultiselectColumn(column)) {
           return [

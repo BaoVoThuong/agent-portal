@@ -13,6 +13,24 @@ Ba thư mục, ba vai trò khác nhau:
 
 ---
 
+## 2026-10-26 — Provider List: cột Reviewed đổi tên thành Verified
+
+Đã chạy `rollouts/2026-10-26-provider-verified-label.sql` trên Portal production (user duyệt). Chỉ đổi `table_column.label` của `provider / needs_review` từ "Reviewed" sang "Verified" — không đụng dữ liệu provider. Kiểm sau khi chạy: ba nhãn là Verified / Verified by / Verified date. Bản đang chạy trên Vercel đọc nhãn từ bảng này nên đổi theo ngay.
+
+---
+
+## 2026-10-26 — Backlog: Update existing chạy trong một transaction
+
+Đã chạy `rollouts/2026-10-26-provider-backlog-atomic-merge.sql` (sau `2026-10-26-provider-backlog.sql`) trên Portal production. Chạy thử trước trong transaction rồi huỷ: gọi hàm trên một dòng Backlog mẫu thì dòng cũ nhận đúng các ô gộp, dấu Verified, `custom_values`, toạ độ bị xoá; dòng Backlog bị archive; gọi lần hai báo `BACKLOG_CONFLICT`; key ngoài danh sách báo `INVALID_PROVIDER_MERGE_PATCH`; sau khi huỷ không còn hàm và dữ liệu y nguyên. Rồi chạy thật kèm `notify pgrst, 'reload schema'`. Kiểm sau khi chạy: `merge_provider_backlog_atomic` là SECURITY DEFINER, chỉ `service_role` gọi được (`anon`/`authenticated` không).
+
+---
+
+## 2026-10-26 — Backlog chờ duyệt cho Provider List
+
+Đã chạy `rollouts/2026-10-26-provider-backlog.sql` trên Portal production (local dùng chung DB) để test tính năng trước khi deploy. Chạy thử trong transaction rollback trước, rồi chạy thật kèm `notify pgrst, 'reload schema'`. Kiểm sau khi chạy: `provider_directory` có `pending boolean not null default false` và `duplicate_of uuid` (FK về chính bảng, `on delete set null`); CHECK của `provider_activity` thêm `submitted`/`approved`/`merged`/`rejected`, của `provider_notifications` thêm `submitted`/`approved`/`rejected`. Dòng cũ đều `pending = false`. **Lưu ý:** code đang chạy trên production trước lần deploy này KHÔNG lọc `pending` — dòng Backlog tạo ra lúc test local sẽ hiện trong List/Finder của bản đang chạy cho tới khi deploy.
+
+---
+
 ## 2026-10-25 — Comments + Activity + thông báo @mention cho Provider List
 
 Đã chạy `rollouts/2026-10-25-provider-comments-activity.sql` trên Portal production (local dùng chung DB) để test tính năng trước khi deploy. Chạy thử trong transaction rollback trước (tạo đủ 5 bảng, sau rollback không còn bảng nào), rồi chạy thật kèm `notify pgrst, 'reload schema'`. Kiểm sau khi chạy: 5 bảng (`provider_comments`, `provider_comment_edits`, `provider_comment_reactions`, `provider_activity`, `provider_notifications`) đều bật RLS; 5 RPC chỉ `service_role` gọi được (`anon`/`authenticated` không). Chỉ thêm mới, không đụng bảng cũ; code đang chạy trên production không dùng tới. Không nằm trong `schema.sql` vì chính `provider_directory` cũng chỉ có trong rollout.

@@ -4,9 +4,15 @@ import { PERMISSIONS } from "@/lib/rbac/permissions";
 /**
  * Quyền trên Provider List, hai tầng.
  *
- *   Tầng 1 `automation.provider_finder`  — xem bảng, chạy Finder, sửa ô.
- *   Tầng 2 `automation.provider_manage`  — THÊM / XOÁ address, đổi cột của bảng,
- *                                          và Export / Import bảng.
+ *   Tầng 1 `automation.provider_finder`  — xem bảng, chạy Finder, sửa ô, và
+ *                                          thêm / nhập address VÀO BACKLOG.
+ *   Tầng 2 `automation.provider_manage`  — thêm / nhập vào thẳng danh sách,
+ *                                          duyệt Backlog, XOÁ address, đổi cột
+ *                                          của bảng, và Export.
+ *
+ * Backlog (2026-10-26): trước đó chỉ tầng 2 thêm / nhập được. Giờ ai xem được
+ * bảng cũng gửi được, nhưng dòng của tầng 1 chờ tầng 2 duyệt rồi mới vào danh
+ * sách — List, Finder và Export không bao giờ thấy dòng chưa duyệt.
  *
  * Tầng 2 đứng TRÊN tầng 1, không thay nó: người không vào được Provider List thì
  * vẫn không đụng được dữ liệu của nó, dù có cấp nhầm quyền manage.
@@ -38,7 +44,29 @@ export function canExportProviders(
   return canManageProviders(permissions);
 }
 
+/** Thêm address bằng form. Không có Manage thì dòng vào Backlog. */
+export function canAddProviders(
+  permissions: readonly string[] | undefined
+): boolean {
+  return hasFinder(permissions);
+}
+
+/** Nhập file. Cùng luật với thêm bằng form: không có Manage thì vào Backlog. */
 export function canImportProviders(
+  permissions: readonly string[] | undefined
+): boolean {
+  return canAddProviders(permissions);
+}
+
+/** Dòng người này thêm / nhập vào thẳng danh sách, không qua Backlog. */
+export function providerWritesGoLive(
+  permissions: readonly string[] | undefined
+): boolean {
+  return canManageProviders(permissions);
+}
+
+/** Duyệt Backlog: Verify, Update existing, Reject. */
+export function canReviewProviderBacklog(
   permissions: readonly string[] | undefined
 ): boolean {
   return canManageProviders(permissions);

@@ -307,7 +307,8 @@ export function providerImportPayload(
     if (!column) continue;
 
     if (key === "needs_review") {
-      // Cột trên file tên là "Reviewed" — ngược nghĩa với `needs_review`.
+      // Cột trên file tên là "Verified" (file cũ: "Reviewed") — ngược nghĩa với
+      // `needs_review`.
       body[key] = value !== true;
     } else if (key === "accepting_new_patients") {
       body[key] = value === true ? "Yes" : "No";

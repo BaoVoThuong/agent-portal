@@ -25,6 +25,8 @@ function row(overrides: Partial<ProviderRow> = {}): ProviderRow {
     source_row_number: 2,
     custom_values: {},
     needs_review: false,
+    pending: false,
+    duplicate_of: null,
     created_at: "2026-09-16T00:00:00.000Z",
     created_by_email: null,
     updated_by_email: null,

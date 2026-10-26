@@ -23,7 +23,9 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("provider", "state", "State", "text", 80),
     col("provider", "zip_code", "ZIP", "text", 90),
     col("provider", "accepting_new_patients", "New Patient", "checkbox", 100),
-    col("provider", "needs_review", "Reviewed", "checkbox", 110),
+    // "Verified" chứ không phải "Reviewed": tick ô này là đóng dấu Verified by /
+    // Verified date — một trạng thái, một tên (user chốt 26/10).
+    col("provider", "needs_review", "Verified", "checkbox", 110),
     // Hiện mặc định: "nhận hãng bảo hiểm nào" chính là câu hỏi nghiệp vụ của cả
     // màn này. Thưa (ACA 14%, Medicare 22% dòng có giá trị) nhưng thưa vì dữ
     // liệu chưa nhập đủ, không phải vì ít ai cần — giấu đi thì không ai biết là

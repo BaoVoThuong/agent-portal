@@ -14,6 +14,11 @@ export const PROVIDER_ACTIVITY_TYPES = [
   "comment_added",
   "comment_edited",
   "comment_deleted",
+  // Backlog (rollout 2026-10-26): gửi vào Backlog, rồi một trong ba kết quả.
+  "submitted",
+  "approved",
+  "merged",
+  "rejected",
 ] as const;
 
 export type ProviderActivityType = (typeof PROVIDER_ACTIVITY_TYPES)[number];

@@ -324,19 +324,25 @@ export async function pushForProviderNotifications(
     const ids = [...new Set(rows.map((row) => row.provider_id))];
     const titles = new Map<string, string>();
     const activeIds: string[] = [];
+    // Dòng Backlog bị Reject thì đã archive, nhưng người gửi vẫn phải nhận được
+    // tin "bị từ chối" — chỉ riêng loại đó được đi qua dòng đã archive.
+    const rejectedIds = new Set(
+      rows.filter((row) => row.type === "rejected").map((row) => row.provider_id)
+    );
 
     try {
       const { data, error } = await getSupabaseAdmin()
         .from(PROVIDER_TABLE)
-        .select("id,doctors,facility")
-        .in("id", ids)
-        .is("archived_at", null);
+        .select("id,doctors,facility,archived_at")
+        .in("id", ids);
       if (error) return;
       for (const row of (data ?? []) as {
         id: string;
         doctors: string | null;
         facility: string | null;
+        archived_at: string | null;
       }[]) {
+        if (row.archived_at && !rejectedIds.has(row.id)) continue;
         activeIds.push(row.id);
         titles.set(row.id, row.doctors?.trim() || row.facility?.trim() || "Provider");
       }

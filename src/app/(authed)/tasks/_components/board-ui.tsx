@@ -151,9 +151,11 @@ export function SlaTimer({
 /**
  * Cỡ của avatar. `sm` (24px) là cỡ gốc, dùng ở bảng, thẻ board, ô chọn nhỏ —
  * mặc định để mọi chỗ đang dùng không đổi gì. `md` (32px) cho các danh sách
- * chọn người có tên + email hai dòng, nơi 24px trông lọt thỏm.
+ * chọn người có tên + email hai dòng, nơi 24px trông lọt thỏm. `xs` (20px) cho
+ * ô chỉ-đọc cao 30px của form Provider, nơi 24px chạm sát viền.
  */
 const INITIALS_SIZE = {
+  xs: { box: "h-5 w-5", text: "text-[9px]", px: 20 },
   sm: { box: "h-6 w-6", text: "text-[10px]", px: 24 },
   md: { box: "h-8 w-8", text: "text-xs", px: 32 },
 } as const;

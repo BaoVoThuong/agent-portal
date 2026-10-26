@@ -165,6 +165,8 @@ async function fetchProviderRows() {
       // Phân trang phải bám một cột KHÔNG rỗng và duy nhất. `source_row_number`
       // giờ để trống với dòng gõ tay trong portal, mà giá trị rỗng thì Postgres
       // xếp cuối và không phân định được thứ tự — các trang sẽ trùng/sót dòng.
+      // Dòng Backlog chưa ai duyệt: agent không được đọc nó cho khách.
+      .eq("pending", false)
       .is("archived_at", null)
       .order("id", { ascending: true })
       .range(from, from + pageSize - 1);

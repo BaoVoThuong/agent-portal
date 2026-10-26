@@ -1,8 +1,10 @@
 "use client";
 
 import { ArrowDown, ArrowUp, Check } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
+import { formatEmailAsName } from "@/lib/tasks/people";
+import { Initials } from "../../_components/board-ui";
 import { parseMultiselectValue } from "@/lib/table-config/multiselect";
 import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
 import { MultiValueBadges } from "../../../_shared/MultiValueBadges";
@@ -64,20 +66,28 @@ export function ProviderTable({
   providers,
   columns,
   columnOptions,
+  nameByEmail,
   sortKey,
   sortDir,
   onSort,
   onOpenProvider,
+  renderTag,
+  emptyText = "No providers match the current search.",
   hasMore = false,
   onEndReached,
 }: {
   providers: ProviderRow[];
   columns: TableColumn[];
   columnOptions: TableColumnOption[];
+  /** Tên tài khoản cho cột Opened by / Updated by — hiện tên, không hiện email. */
+  nameByEmail: ReadonlyMap<string, string>;
   sortKey: string | null;
   sortDir: ProviderSortDir;
   onSort: (key: string) => void;
   onOpenProvider: (provider: ProviderRow) => void;
+  /** Nhãn đứng trước ô đầu tiên của dòng, như tag Duplicate ở tab Backlog. */
+  renderTag?: (provider: ProviderRow) => ReactNode;
+  emptyText?: string;
   hasMore?: boolean;
   onEndReached?: () => void;
 }) {
@@ -113,7 +123,7 @@ export function ProviderTable({
   if (providers.length === 0) {
     return (
       <div className="rounded border border-dashed border-[#c1c7d0] bg-[#f4f5f7] px-6 py-12 text-center text-sm font-semibold text-[#6b778c]">
-        No providers match the current search.
+        {emptyText}
       </div>
     );
   }
@@ -190,8 +200,9 @@ export function ProviderTable({
                     : "bg-[#fdecef] hover:bg-[#fbdde3]"
                 }`}
               >
-                {columns.map((column) => {
+                {columns.map((column, columnIndex) => {
                   const pinned = pinnedOffsetByKey.has(column.key);
+                  const tag = columnIndex === 0 ? renderTag?.(provider) : null;
                   return (
                     <div
                       key={column.id}
@@ -209,12 +220,14 @@ export function ProviderTable({
                           : ""
                       }`}
                     >
+                      {tag ? <span className="mr-1.5 shrink-0">{tag}</span> : null}
                       <ProviderCell
                         provider={provider}
                         column={column}
                         options={columnOptions.filter(
                           (option) => option.column_id === column.id
                         )}
+                        nameByEmail={nameByEmail}
                       />
                     </div>
                   );
@@ -234,13 +247,27 @@ function ProviderCell({
   provider,
   column,
   options,
+  nameByEmail,
 }: {
   provider: ProviderRow;
   column: TableColumn;
   options: TableColumnOption[];
+  nameByEmail: ReadonlyMap<string, string>;
 }) {
   if (isMetaColumn(column)) {
     const raw = provider[column.key as ProviderMetaField];
+    // Opened by / Updated by: avatar + tên như cột người của bảng Task, không
+    // hiện địa chỉ email.
+    if (column.key.endsWith("_email") && raw) {
+      const email = raw.trim().toLowerCase();
+      const name = nameByEmail.get(email) ?? formatEmailAsName(email);
+      return (
+        <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium text-[#5e6c84]" title={name}>
+          <Initials email={email} label={name} />
+          <span className="truncate">{name}</span>
+        </span>
+      );
+    }
     const text = formatMetaValue(raw, column.type, column.key);
     return (
       <span

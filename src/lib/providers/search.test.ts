@@ -4,6 +4,8 @@ import {
   EMPTY_PROVIDER_FILTERS,
   applyProviderFilters,
   filterProviders,
+  keepCitiesInSelectedStates,
+  providerFacetOptions,
   providerFilterOptions,
   sortProviders,
 } from "@/lib/providers/search";
@@ -15,6 +17,8 @@ function row(overrides: Partial<ProviderRow> = {}): ProviderRow {
     source_row_number: 2,
     custom_values: {},
     needs_review: false,
+    pending: false,
+    duplicate_of: null,
     created_at: "2026-09-16T00:00:00.000Z",
     created_by_email: null,
     updated_by_email: null,
@@ -255,5 +259,58 @@ describe("providerFilterOptions", () => {
     ]);
 
     expect(options.specialty).toEqual(["Ophthalmology", "PCP - Family"]);
+  });
+});
+
+describe("providerFacetOptions", () => {
+  const rows = [
+    row({ id: "a", state: "TX", city: "Houston", street: "1 Main" }),
+    row({ id: "b", state: "TX", city: "Katy", street: "2 Oak" }),
+    row({ id: "c", state: "IL", city: "Chicago", street: "3 Elm" }),
+    // Dòng nhiều địa điểm: City ghi cả chuỗi thành phố, địa chỉ không có số nhà.
+    row({ id: "d", state: "TX", city: "Houston, Katy, Spring", street: "Baptist Locations" }),
+  ];
+
+  it("City chỉ còn thành phố của bang đang chọn", () => {
+    const options = providerFacetOptions(rows, { ...EMPTY_PROVIDER_FILTERS, state: ["TX"] });
+    expect(options.city).toEqual(["Houston", "Houston, Katy, Spring", "Katy"]);
+    // Ô State không tự lọc chính nó: vẫn đổi sang bang khác được.
+    expect(options.state).toEqual(["IL", "TX"]);
+  });
+
+  it("mặc định chỉ địa chỉ Valid: không hiện City của dòng địa chỉ hỏng", () => {
+    const options = providerFacetOptions(rows, DEFAULT_PROVIDER_FILTERS);
+    expect(options.city).toEqual(["Chicago", "Houston", "Katy"]);
+  });
+
+  it("giá trị đang chọn vẫn còn trong danh sách để bỏ chọn", () => {
+    const options = providerFacetOptions(rows, {
+      ...EMPTY_PROVIDER_FILTERS,
+      state: ["IL"],
+      city: ["Katy"],
+    });
+    expect(options.city).toEqual(["Chicago", "Katy"]);
+  });
+});
+
+describe("keepCitiesInSelectedStates", () => {
+  const rows = [
+    row({ id: "a", state: "TX", city: "Houston" }),
+    row({ id: "c", state: "IL", city: "Chicago" }),
+  ];
+
+  it("đổi State thì bỏ City không thuộc bang đó", () => {
+    expect(
+      keepCitiesInSelectedStates(rows, {
+        ...EMPTY_PROVIDER_FILTERS,
+        state: ["TX"],
+        city: ["Houston", "Chicago"],
+      }).city
+    ).toEqual(["Houston"]);
+  });
+
+  it("không chọn State thì giữ nguyên City", () => {
+    const filters = { ...EMPTY_PROVIDER_FILTERS, city: ["Chicago"] };
+    expect(keepCitiesInSelectedStates(rows, filters)).toBe(filters);
   });
 });

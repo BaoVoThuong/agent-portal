@@ -6,6 +6,59 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-26 — Provider: State → City → ZIP là dropdown lọc dây chuyền; sửa bộ lọc City (chưa deploy)
+
+- **Form Add / Edit** (user chốt 26/10: danh sách đầy đủ của Mỹ, chỉ được chọn): State là 50 bang + DC; City chỉ còn
+  thành phố của bang đang chọn; ZIP của City đang chọn lên đầu, các ZIP khác của bang vẫn chọn được ở dưới. Đổi
+  sang bang khác thì xoá City / ZIP cũ; đổi City thì bỏ ZIP không thuộc City đó (City một ZIP thì điền luôn); chọn
+  ZIP khi chưa có City thì điền City theo ZIP (`lib/providers/us-places.ts`). Giá trị cũ không có trong danh sách
+  vẫn giữ nguyên cho tới khi chọn lại; tải danh sách hỏng thì quay về ô gõ tay. State đứng trước City trên form.
+- Dữ liệu: GeoNames (CC BY 4.0) — tên bưu điện của 40.977 ZIP, cộng thành phố thật mà bưu điện gộp vào tên khác
+  (The Woodlands, Live Oak, Farmers Branch…, ZIP gán theo khoảng cách). `scripts/build-us-places.mjs` dựng
+  `public/us-places/<BANG>.json`, form chỉ tải bang đang chọn (TX ~54 KB).
+- **Bộ lọc City trên List hiện giá trị chọn vào ra 0 dòng**: lựa chọn lấy từ toàn bảng trong khi bảng mặc định chỉ
+  hiện địa chỉ Valid, nên City của dòng địa chỉ hỏng ("Corpus Christi, Cypress, … Sugar Land" — một ô ghi nhiều
+  thành phố) vẫn hiện. Nay mỗi ô lọc lấy giá trị từ những dòng khớp các bộ lọc KHÁC (`providerFacetOptions`):
+  chọn State thì City chỉ còn thành phố của bang đó, lựa chọn nào cũng có kết quả; đổi State thì bỏ City không
+  thuộc bang (`keepCitiesInSelectedStates`). Tab Finder vẫn dùng danh sách đầy đủ.
+
+## 2026-10-26 — Provider List: Backlog chờ duyệt cho dòng của người không có Manage (chưa deploy)
+
+- **Luật** (user chốt 26/10): ai xem được Provider List (`automation.provider_finder`) cũng Add / Import được.
+  Người có Provider List - Manage thì vào thẳng danh sách như cũ; người không có thì dòng vào **tab Backlog**
+  (`provider_directory.pending = true`), Reviewed tắt, Verified by / date để trống. Export vẫn chỉ Manage.
+  `lib/providers/access.ts`: `canAddProviders`, `canImportProviders` (nay = xem được bảng), `providerWritesGoLive`,
+  `canReviewProviderBacklog`.
+- **Dòng chờ duyệt không bao giờ ra ngoài**: trang List, API danh sách, Export và Provider Finder đều lọc
+  `pending = false`; test `backlog-readers.test.ts` khoá bốn chỗ đó.
+- **Duplicate** (user chốt 26/10: dòng đã có cũng vào Backlog, kèm tag): dòng Import mang ID của một dòng đã có thành
+  bản đề xuất (dòng cũ phủ phần trong file, `proposedProviderValues`); dòng mới thì dò trùng — cùng Street + ZIP và cùng
+  NPI khi cả hai có NPI, thiếu NPI thì cùng tên (`findProviderDuplicate`, gộp viết tắt St/Ave/Ste…). Dòng trùng lưu
+  `duplicate_of`; sửa tên / NPI / địa chỉ của dòng Backlog thì dò lại.
+- **Duyệt** (`POST /api/automation/provider-list/[id]/review`, chỉ Manage): Verify = vào danh sách, giữ nguyên id
+  (comment / activity đi theo), đóng dấu Verified người duyệt; dòng Duplicate có thêm **Update existing** — chép sang dòng
+  cũ những ô dòng gửi lên CÓ giá trị và khác (`providerMergeChanges`; ô trống không xoá dữ liệu cũ, không chép dấu
+  Verified), đóng dấu Verified trên dòng cũ, đóng dòng Backlog — và Add as new; **Reject** = archive kèm lý do tuỳ chọn.
+  Mọi lượt ghi có điều kiện `pending = true AND archived_at IS NULL`, hai người duyệt cùng lúc thì người sau nhận 409.
+- Dòng Backlog chỉ người gửi và người duyệt sửa được; người gửi rút lại được (Withdraw). Ô Reviewed không áp lên dòng
+  Backlog — chỉ Verify mới đóng dấu.
+- **Chuông, cả hai phía**: `submitted` → mọi người có Manage (một lượt Import = một thông báo, `detail` = số dòng);
+  `approved` (`detail` = "merged" khi Update existing, trỏ về dòng cũ) / `rejected` (lý do trong `detail`, vẫn đọc được dù
+  dòng đã archive) → người gửi. Activity thêm `submitted`, `approved`, `merged`, `rejected`.
+- Rollout `supabase/rollouts/2026-10-26-provider-backlog.sql` (giữ local): cột `pending`, `duplicate_of`, index,
+  nới CHECK của `provider_activity` và `provider_notifications`.
+- Review bổ sung rollout `supabase/rollouts/2026-10-26-provider-backlog-atomic-merge.sql` (chưa áp dụng):
+  Update existing khoá và kiểm phiên bản cả dòng gửi lẫn dòng cũ, rồi cập nhật/đóng Backlog trong một transaction.
+  Form từ chối ghi nếu dòng đổi trạng thái giữa lúc mở và lúc lưu; preview gộp dùng các giá trị đang nhập.
+- Backlog và tập khoá dò trùng đọc theo trang thay vì dừng ở 2.000/10.000 dòng; nhập Backlog theo lô 100 dòng để
+  không gọi database tuần tự hàng nghìn lần. Tab Comments/Activity xác thực và đọc provider song song, chỉ tải
+  danh sách @mention sau khi comment hiện và không tải lại Activity mỗi lần đổi tab.
+- Kèm theo: form provider hiện Opened by / Created date / Verified by / Verified date dạng ô chỉ-đọc có avatar + tên (bỏ
+  Last updated — đã có ở Activity); cột Opened by / Updated by của bảng hiện tên thay vì email.
+- **Reviewed = Verified** (user chốt 26/10: chỉ đổi tên): cột `needs_review` đổi nhãn "Reviewed" → "Verified" (rollout
+  `2026-10-26-provider-verified-label.sql`, chỉ đổi khi nhãn còn là "Reviewed"), nhãn trên dialog cũng vậy; cách hoạt
+  động giữ nguyên. File Excel cũ có cột "Reviewed" vẫn nhập được (alias `reviewed`).
+
 ## 2026-10-26 — Enrollment ACA: tiêu đề cột Apply number kèm tổng (chưa deploy)
 
 - Tiêu đề hiện "APPLY NUMBER (597)": tổng các dòng ĐANG HIỆN — theo bộ lọc, năm, ô tìm kiếm — như tổng có lọc trong

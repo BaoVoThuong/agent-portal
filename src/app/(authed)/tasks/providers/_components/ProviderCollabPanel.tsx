@@ -71,6 +71,9 @@ export function ProviderCollabPanel({
   }, [reload]);
 
   useEffect(() => {
+    // Chỉ người được viết comment mới cần danh sách @mention. Đợi lần tải
+    // comments đầu tiên xong để truy vấn RBAC không tranh tài nguyên ban đầu.
+    if (!detail?.canComment) return;
     let cancelled = false;
     void fetch(`/api/automation/provider-list/${providerId}/detail?section=members`, {
       cache: "no-store",
@@ -83,7 +86,7 @@ export function ProviderCollabPanel({
       // Comment vẫn dùng được khi danh sách gợi ý @mention tạm thời lỗi.
     });
     return () => { cancelled = true; };
-  }, [providerId]);
+  }, [providerId, detail?.canComment]);
 
   const loadActivity = useCallback(async () => {
     setActivityFailed(false);
@@ -109,7 +112,7 @@ export function ProviderCollabPanel({
 
   const openActivity = () => {
     setTab("activity");
-    if (activity !== null || activityFailed) void loadActivity();
+    if (activityFailed) void loadActivity();
   };
 
   const loadOlder = useCallback(async () => {

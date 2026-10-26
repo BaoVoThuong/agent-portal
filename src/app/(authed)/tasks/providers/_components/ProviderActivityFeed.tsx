@@ -15,9 +15,18 @@ function sentence(row: ProviderActivityRow): string {
     case "created":
       return fromImport ? "imported this provider" : "added this provider";
     case "field_changed":
+      if (row.meta?.source === "backlog") return "updated this provider from a Backlog submission";
       return fromImport ? "updated this provider from an import" : "edited this provider";
     case "archived":
       return "deleted this address";
+    case "submitted":
+      return fromImport ? "sent this provider to the Backlog from an import" : "sent this provider to the Backlog";
+    case "approved":
+      return "verified this provider into the list";
+    case "merged":
+      return "merged this submission into the existing address";
+    case "rejected":
+      return "rejected this submission";
     case "comment_added":
       return "commented";
     case "comment_edited":
@@ -56,6 +65,9 @@ export function ProviderActivityFeed({
             <span className="ml-1 whitespace-nowrap text-[#97a0af]">
               {new Date(row.created_at).toLocaleString()}
             </span>
+            {row.type === "rejected" && typeof row.meta?.reason === "string" && row.meta.reason ? (
+              <p className="mt-0.5 border-l-2 border-[#dfe1e6] pl-2 text-[#42526e]">{row.meta.reason}</p>
+            ) : null}
             {changes.length > 0 ? (
               <ul className="mt-1 space-y-0.5 border-l-2 border-[#dfe1e6] pl-2">
                 {changes.map((change) => {

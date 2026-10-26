@@ -610,11 +610,18 @@ export async function GET(req: Request) {
     providerRows.map((row) => [row.id, row.doctors?.trim() || row.facility?.trim() || "Provider"])
   );
   // Provider List không chia phạm vi theo người: xem được bảng là xem được mọi
-  // dòng còn hoạt động. Mất quyền hoặc dòng đã xoá thì thông báo bị che nội dung.
+  // dòng còn hoạt động. Mất quyền hoặc dòng đã xoá thì thông báo bị che nội dung
+  // — trừ tin "bị từ chối" của Backlog: Reject chính là archive dòng đó, và
+  // người gửi vẫn phải đọc được dòng nào bị từ chối, vì sao.
   const canViewProviders = canViewProviderNotification(access.permissions);
-  const providerAccessById = new Map(
-    providerRows.map((row) => [row.id, canViewProviders && !row.archived_at])
+  const providerArchivedById = new Map(
+    providerRows.map((row) => [row.id, Boolean(row.archived_at)])
   );
+  const providerAccessible = (notification: { entity_id: string; type: string }) => {
+    const archived = providerArchivedById.get(notification.entity_id);
+    if (!canViewProviders || archived === undefined) return false;
+    return !archived || notification.type === "rejected";
+  };
 
   let visibleTaskIds = new Set<string>();
   try {
@@ -695,7 +702,12 @@ export async function GET(req: Request) {
             ? providerTitleById.get(n.entity_id) ?? null
             : titleById.get(n.entity_id) ?? null,
     actor_name: nameByEmail.get(n.actor_email) ?? null,
-    comment_body: n.comment_id ? commentById.get(n.comment_id) ?? null : null,
+    // Lý do Reject của Backlog nằm ở `detail`; hiện nó ở chỗ đoạn trích comment.
+    comment_body: n.comment_id
+      ? commentById.get(n.comment_id) ?? null
+      : n.entity_type === "provider" && n.type === "rejected"
+        ? n.detail ?? null
+        : null,
   })).map((notification) => redactNotification(
     notification,
     notification.entity_type === "enrollment"
@@ -703,7 +715,7 @@ export async function GET(req: Request) {
       : notification.entity_type === "time_off"
         ? timeOffAccessById.get(notification.entity_id) === true
         : notification.entity_type === "provider"
-          ? providerAccessById.get(notification.entity_id) === true
+          ? providerAccessible(notification)
           : visibleTaskIds.has(notification.entity_id),
   ));
   const unread =

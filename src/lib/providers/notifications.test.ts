@@ -4,7 +4,7 @@ vi.mock("@/lib/supabase", () => ({ getSupabaseAdmin: vi.fn() }));
 vi.mock("@/lib/tasks/realtime", () => ({ broadcastNotif: vi.fn() }));
 vi.mock("./collaboration", () => ({ fetchProviderViewers: vi.fn() }));
 
-import { providerMentionRecipients } from "./notifications";
+import { providerBacklogReviewers, providerMentionRecipients } from "./notifications";
 
 const tag = (name: string, email: string) => `@[${name}](${email})`;
 
@@ -40,5 +40,17 @@ describe("providerMentionRecipients", () => {
         viewerEmails,
       })
     ).toEqual(["cy@x.com"]);
+  });
+});
+
+describe("providerBacklogReviewers", () => {
+  it("notifies managers who can open the list, once, without the submitter", () => {
+    expect(
+      providerBacklogReviewers({
+        managerEmails: ["Ann@x.com", "ann@x.com", "bao@x.com", "lost@x.com"],
+        viewerEmails: new Set(["ann@x.com", "bao@x.com"]),
+        actorEmail: "BAO@x.com",
+      })
+    ).toEqual(["ann@x.com"]);
   });
 });

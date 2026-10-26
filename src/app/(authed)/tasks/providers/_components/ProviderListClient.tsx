@@ -15,17 +15,20 @@ import {
   DEFAULT_PROVIDER_FILTERS,
   applyProviderFilters,
   filterProviders,
+  keepCitiesInSelectedStates,
+  providerFacetOptions,
   providerFilterOptions,
   sortProviders,
   type ProviderFilters,
   type ProviderSortDir,
 } from "@/lib/providers/search";
 import type { ProviderRow } from "@/lib/providers/types";
+import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { providerCarrierOptions } from "@/lib/providers/carriers";
 import { AddProviderDialog } from "./AddProviderDialog";
 import { ProviderImportDialog } from "./ProviderImportDialog";
 import { ProviderTable } from "./ProviderTable";
-import { ProviderEditDialog } from "./ProviderEditDialog";
+import { ProviderEditDialog, type ProviderReviewAction } from "./ProviderEditDialog";
 import {
   PAGE_ACTIONS_CLASS,
   PAGE_HEADER_CLASS,
@@ -34,32 +37,36 @@ import {
   pageSecondaryButtonClass,
 } from "../../../_shared/page-header-styles";
 import { ProviderTableSettingsButton } from "./ProviderTableSettingsButton";
-import { ProviderToolbar } from "./ProviderToolbar";
+import { ProviderToolbar, type ProviderView } from "./ProviderToolbar";
 // Dựng lại CHÍNH component của Provider Finder, không chép code sang đây.
 // Trang riêng `/automation/provider-finder` đã bị ẩn (chỉ còn chuyển hướng về
 // đây), nên tab này là lối vào DUY NHẤT của tính năng tìm theo khoảng cách.
 import ProviderFinderClient from "./ProviderFinderClient";
 
-const VIEWS = [
-  { key: "list" as const, label: "List" },
-  { key: "finder" as const, label: "Finder Tool" },
-];
+/** Opened by + Created date luôn hiện ở tab Backlog: ai gửi, gửi lúc nào. */
+const BACKLOG_INFO_COLUMN_KEYS = new Set(["created_by_email", "created_at"]);
 
 /** Dựng dần: 889 dòng × hơn chục cột là quá nhiều nút DOM cho một lần vẽ. */
 const PAGE_SIZE = 200;
 
 export function ProviderListClient({
   initialProviders,
+  initialBacklog,
   loadError,
   columns,
   columnOptions,
   viewerName,
   currentEmail,
+  people,
   canExport,
   canImport,
   canManage,
+  canAdd,
+  canReview,
 }: {
   initialProviders: ProviderRow[];
+  /** Dòng chờ duyệt (`pending`) — tab Backlog. */
+  initialBacklog: ProviderRow[];
   loadError: string | null;
   columns: TableColumn[];
   columnOptions: TableColumnOption[];
@@ -67,13 +74,20 @@ export function ProviderListClient({
   viewerName: string;
   /** Email người đang đăng nhập (chữ thường), cho phần comment của dialog. */
   currentEmail: string;
+  /** Người xem được Provider List — tên + avatar trong form. */
+  people: TaskAssignee[];
   /** Hai quyền tách riêng: Export chỉ đọc, Import ghi đè hàng loạt. */
   canExport: boolean;
   canImport: boolean;
-  /** Thêm và xoá address — tầng Provider List - Manage. */
+  /** Xoá address, và thêm / nhập thẳng vào danh sách — tầng Provider List - Manage. */
   canManage: boolean;
+  /** Thêm address. Không có `canManage` thì dòng vào Backlog. */
+  canAdd: boolean;
+  /** Verify / Update existing / Reject dòng Backlog. */
+  canReview: boolean;
 }) {
   const [providers, setProviders] = useState<ProviderRow[]>(initialProviders);
+  const [backlog, setBacklog] = useState<ProviderRow[]>(initialBacklog);
   const [query, setQuery] = useState("");
   const [filters, setFilters] = useState<ProviderFilters>(DEFAULT_PROVIDER_FILTERS);
   const [sortKey, setSortKey] = useState<string | null>(null);
@@ -91,33 +105,56 @@ export function ProviderListClient({
   const [editingProvider, setEditingProvider] = useState<ProviderRow | null>(null);
   // Tab nằm trong state, không phải điều hướng: đổi tab mà chạy lại server
   // component thì phải nạp lại cả 889 dòng chỉ để xem ô tìm kiếm theo địa chỉ.
-  const [view, setView] = useState<"list" | "finder">("list");
+  const [view, setView] = useState<ProviderView>("list");
   const [notice, setNotice] = useState<{ tone: "error" | "info"; text: string } | null>(
     loadError ? { tone: "error", text: loadError } : null
   );
 
   // Link từ chuông thông báo: /tasks/providers?provider=<id> mở thẳng dialog của
-  // dòng đó. Bảng đã nạp đủ mọi dòng còn hoạt động, nên không cần gọi API; không
-  // thấy là dòng đã bị xoá. Xong thì bỏ tham số để đóng dialog không mở lại.
+  // dòng đó — tìm ở danh sách rồi tới Backlog; ?view=backlog mở tab Backlog.
+  // Bảng đã nạp đủ mọi dòng còn hoạt động, nên không cần gọi API; không thấy là
+  // dòng đã bị xoá. Xong thì bỏ tham số để đóng dialog không mở lại.
   const searchParams = useSearchParams();
   const linkedProviderId = searchParams.get("provider");
+  const linkedView = searchParams.get("view");
   useEffect(() => {
-    if (!linkedProviderId) return;
-    const linked = providers.find((provider) => provider.id === linkedProviderId);
+    if (!linkedProviderId && linkedView !== "backlog") return;
+    const inList = linkedProviderId
+      ? providers.find((provider) => provider.id === linkedProviderId)
+      : undefined;
+    const inBacklog = linkedProviderId
+      ? backlog.find((provider) => provider.id === linkedProviderId)
+      : undefined;
     const timer = window.setTimeout(() => {
-      setView("list");
-      if (linked) setEditingProvider(linked);
-      else setNotice({ tone: "info", text: "That provider is no longer in the list." });
+      if (linkedProviderId) {
+        setView(inBacklog ? "backlog" : "list");
+        const linked = inList ?? inBacklog;
+        if (linked) setEditingProvider(linked);
+        else setNotice({ tone: "info", text: "That provider is no longer in the list." });
+      } else {
+        setView("backlog");
+      }
       // Chỉ bỏ param đã xử lý. Router navigation sẽ chạy lại Server Component
       // và truy vấn hàng nghìn provider ngay lúc người dùng mở dialog.
       const url = new URL(window.location.href);
       url.searchParams.delete("provider");
+      url.searchParams.delete("view");
       window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
     }, 0);
     return () => window.clearTimeout(timer);
     // Chỉ chạy khi link đổi, không chạy lại mỗi lần danh sách nạp lại.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [linkedProviderId]);
+  }, [linkedProviderId, linkedView]);
+
+  const nameByEmail = useMemo(
+    () =>
+      new Map(
+        people.flatMap((person) =>
+          person.name?.trim() ? [[person.email, person.name.trim()] as const] : []
+        )
+      ),
+    [people]
+  );
 
   const layoutHydratedRef = useRef(false);
   const layoutUpdatedAtRef = useRef<string | null>(null);
@@ -210,6 +247,12 @@ export function ProviderListClient({
   // Lựa chọn của bộ lọc rút từ chính dữ liệu: provider không có cột dropdown
   // nào, mọi cột đều là văn bản tự do đến từ Sheet.
   const filterOptions = useMemo(() => providerFilterOptions(providers), [providers]);
+  // Thanh lọc dùng lựa chọn faceted: mỗi ô chỉ còn giá trị có dòng khớp các bộ
+  // lọc còn lại. Tab Finder vẫn cần đủ mọi giá trị nên giữ `filterOptions`.
+  const facetOptions = useMemo(
+    () => providerFacetOptions(providers, filters),
+    [providers, filters]
+  );
   const finderCarrierOptions = useMemo(
     () => providerCarrierOptions(providers),
     [providers]
@@ -219,6 +262,36 @@ export function ProviderListClient({
     const filtered = filterProviders(applyProviderFilters(providers, filters), query);
     return sortKey ? sortProviders(filtered, sortKey, sortDir) : filtered;
   }, [providers, filters, query, sortKey, sortDir]);
+
+  // Backlog chỉ có ô tìm kiếm: vài chục dòng chờ duyệt không cần bộ lọc.
+  const backlogRows = useMemo(() => {
+    const filtered = filterProviders(backlog, query);
+    return sortKey ? sortProviders(filtered, sortKey, sortDir) : filtered;
+  }, [backlog, query, sortKey, sortDir]);
+
+  // Cột như danh sách, cộng Opened by + Created date dù người xem đang ẩn chúng:
+  // ở Backlog, ai gửi và gửi lúc nào là thứ người duyệt cần trước tiên.
+  const backlogColumns = useMemo(() => {
+    const shown = new Set(visibleColumns.map((column) => column.key));
+    return [
+      ...visibleColumns,
+      ...layoutColumns.filter(
+        (column) =>
+          BACKLOG_INFO_COLUMN_KEYS.has(column.key) && !column.archived_at && !shown.has(column.key)
+      ),
+    ];
+  }, [visibleColumns, layoutColumns]);
+
+  const providerById = useMemo(
+    () => new Map(providers.map((provider) => [provider.id, provider])),
+    [providers]
+  );
+
+  const views = [
+    { key: "list" as const, label: "List" },
+    { key: "backlog" as const, label: "Backlog", count: backlog.length },
+    { key: "finder" as const, label: "Finder Tool" },
+  ];
 
   const hasMoreRows = visibleCount < rows.length;
   const renderNextRows = useCallback(() => {
@@ -272,6 +345,7 @@ export function ProviderListClient({
       return;
     }
     setProviders(payload.providers as ProviderRow[]);
+    setBacklog((payload.backlog ?? []) as ProviderRow[]);
   }
 
   async function patchProvider(id: string, patch: Record<string, unknown>) {
@@ -289,8 +363,12 @@ export function ProviderListClient({
       throw new Error(payload?.error ?? "Could not save the change.");
     }
     const saved = payload.provider;
+    // Dòng nằm ở danh sách hoặc ở Backlog; thay đúng chỗ nó đang ở.
     setProviders((current) => current.map((row) => (row.id === id ? saved : row)));
+    setBacklog((current) => current.map((row) => (row.id === id ? saved : row)));
+    setEditingProvider((current) => current?.id === id ? saved : current);
     setNotice(null);
+    return saved;
   }
 
   /** Xoá = archive: dòng biến khỏi bảng nhưng vẫn nằm trong database. */
@@ -304,10 +382,46 @@ export function ProviderListClient({
       | { error?: string }
       | null;
     if (!response?.ok) {
-      throw new Error(payload?.error ?? "Could not delete the address.");
+      throw new Error(payload?.error ?? "Could not archive the address.");
     }
+    const wasPending = backlog.some((row) => row.id === id);
     setProviders((current) => current.filter((row) => row.id !== id));
-    setNotice({ tone: "info", text: "Address deleted." });
+    setBacklog((current) => current.filter((row) => row.id !== id));
+    setNotice({ tone: "info", text: wasPending ? "Withdrawn from the Backlog." : "Address archived." });
+  }
+
+  /** Verify / Update existing / Reject một dòng Backlog — xem review/route.ts. */
+  async function reviewProvider(id: string, action: ProviderReviewAction, reason?: string) {
+    const response = await fetch(`/api/automation/provider-list/${id}/review`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, reason }),
+    }).catch(() => null);
+    const payload = (await response?.json().catch(() => null)) as
+      | { provider?: ProviderRow; removedBacklogId?: string; error?: string }
+      | null;
+    if (!response?.ok) {
+      throw new Error(payload?.error ?? "Could not review this row.");
+    }
+    setBacklog((current) => current.filter((row) => row.id !== id));
+    const reviewed = payload?.provider;
+    if (reviewed) {
+      // Verify: dòng mới vào danh sách. Update existing: dòng cũ vừa được sửa.
+      setProviders((current) =>
+        current.some((row) => row.id === reviewed.id)
+          ? current.map((row) => (row.id === reviewed.id ? reviewed : row))
+          : [reviewed, ...current]
+      );
+    }
+    setNotice({
+      tone: "info",
+      text:
+        action === "approve"
+          ? "Verified — the address is in the list."
+          : action === "merge"
+            ? "The existing address was updated."
+            : "Rejected.",
+    });
   }
 
   async function createProvider(body: Record<string, unknown>) {
@@ -323,6 +437,13 @@ export function ProviderListClient({
       throw new Error(payload?.error ?? "Could not add the provider.");
     }
     const created = payload.provider;
+    if (created.pending) {
+      // Không có Manage: dòng chờ duyệt — đưa người gửi tới đúng chỗ nó nằm.
+      setBacklog((current) => [created, ...current]);
+      setView("backlog");
+      setNotice({ tone: "info", text: "Sent to the Backlog. A manager verifies it before it shows in the list." });
+      return;
+    }
     setProviders((current) => [created, ...current]);
     setNotice({ tone: "info", text: "Address added." });
   }
@@ -351,7 +472,7 @@ export function ProviderListClient({
                   {exporting ? "Exporting…" : "Export"}
                 </button>
               ) : null}
-              {view === "list" && canImport ? (
+              {view !== "finder" && canImport ? (
                 <button
                   type="button"
                   onClick={() => setImportOpen(true)}
@@ -360,7 +481,7 @@ export function ProviderListClient({
                   <Upload className="h-4 w-4" /> Import
                 </button>
               ) : null}
-              {view === "list" && canManage ? (
+              {view !== "finder" && canAdd ? (
                 <button
                   type="button"
                   onClick={() => setAddOpen(true)}
@@ -373,7 +494,7 @@ export function ProviderListClient({
           </header>
 
           <ProviderToolbar
-            views={VIEWS}
+            views={views}
             view={view}
             onViewChange={setView}
             query={query}
@@ -383,10 +504,10 @@ export function ProviderListClient({
             }}
             filters={filters}
             onFilters={(next) => {
-              setFilters(next);
+              setFilters(keepCitiesInSelectedStates(providers, next));
               setVisibleCount(PAGE_SIZE);
             }}
-            options={filterOptions}
+            options={facetOptions}
             resultCount={rows.length}
             totalCount={providers.length}
             settingsSlot={
@@ -426,6 +547,7 @@ export function ProviderListClient({
                 providers={rows.slice(0, visibleCount)}
                 columns={visibleColumns}
                 columnOptions={columnOptions}
+                nameByEmail={nameByEmail}
                 sortKey={sortKey}
                 sortDir={sortDir}
                 onSort={toggleSort}
@@ -434,6 +556,28 @@ export function ProviderListClient({
                 onEndReached={renderNextRows}
               />
             </>
+          ) : view === "backlog" ? (
+            <ProviderTable
+              providers={backlogRows}
+              columns={backlogColumns}
+              columnOptions={columnOptions}
+              nameByEmail={nameByEmail}
+              sortKey={sortKey}
+              sortDir={sortDir}
+              onSort={toggleSort}
+              onOpenProvider={setEditingProvider}
+              emptyText={query ? "No Backlog rows match the current search." : "Nothing is waiting for review."}
+              renderTag={(provider) =>
+                provider.duplicate_of ? (
+                  <span
+                    title="Matches an address already in the list"
+                    className="rounded bg-[#ffece0] px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.02em] text-[#a54800]"
+                  >
+                    Duplicate
+                  </span>
+                ) : null
+              }
+            />
           ) : (
             <ProviderFinderClient
               carrierOptions={finderCarrierOptions}
@@ -449,8 +593,12 @@ export function ProviderListClient({
         open={importOpen}
         columns={columns}
         viewerName={viewerName}
+        goesToBacklog={!canManage}
         onClose={() => setImportOpen(false)}
-        onImported={() => void reloadProviders()}
+        onImported={(result) => {
+          void reloadProviders();
+          if (result.submitted > 0) setView("backlog");
+        }}
       />
 
       <AddProviderDialog
@@ -461,6 +609,8 @@ export function ProviderListClient({
         columns={columns}
         columnOptions={columnOptions}
         viewerName={viewerName}
+        people={people}
+        goesToBacklog={!canManage}
         onClose={() => setAddOpen(false)}
         onCreate={createProvider}
       />
@@ -472,15 +622,35 @@ export function ProviderListClient({
         columnOptions={columnOptions}
         viewerName={viewerName}
         currentEmail={currentEmail}
+        people={people}
+        canReview={canReview}
+        duplicateOf={
+          editingProvider?.duplicate_of
+            ? providerById.get(editingProvider.duplicate_of) ?? null
+            : null
+        }
         onClose={() => setEditingProvider(null)}
         onSave={(patch) =>
-          editingProvider ? patchProvider(editingProvider.id, patch) : Promise.resolve()
+          editingProvider
+            ? patchProvider(editingProvider.id, patch)
+            : Promise.reject(new Error("The provider is no longer open."))
         }
         onArchive={
-          canManage && editingProvider
+          editingProvider &&
+          // Dòng Backlog: người gửi rút lại được; người duyệt dùng Reject.
+          (editingProvider.pending
+            ? !canReview &&
+              editingProvider.created_by_email?.trim().toLowerCase() === currentEmail
+            : canManage)
             ? () => archiveProvider(editingProvider.id)
             : undefined
         }
+        onReview={
+          editingProvider?.pending && canReview
+            ? (action, reason) => reviewProvider(editingProvider.id, action, reason)
+            : undefined
+        }
+        onOpenProvider={setEditingProvider}
       />
     </main>
   );

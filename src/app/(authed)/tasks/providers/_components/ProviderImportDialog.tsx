@@ -28,6 +28,8 @@ const SECTION_TITLE_CLASS =
 type ImportResult = {
   created: number;
   updated: number;
+  /** Dòng vào Backlog — lượt nhập của người không có Provider List - Manage. */
+  submitted: number;
   failed: { row: number; error: string }[];
 };
 
@@ -35,6 +37,7 @@ export function ProviderImportDialog({
   open,
   columns,
   viewerName,
+  goesToBacklog = false,
   onClose,
   onImported,
 }: {
@@ -42,9 +45,14 @@ export function ProviderImportDialog({
   columns: TableColumn[];
   /** Tên người đang nhập — điền vào Verified by cho mọi dòng của lượt này. */
   viewerName: string;
+  /**
+   * Người không có Provider List - Manage: mọi dòng vào Backlog chờ duyệt, kể cả
+   * dòng có ID (thành bản đề xuất, tag Duplicate) — không đóng dấu Verified.
+   */
+  goesToBacklog?: boolean;
   onClose: () => void;
   /** Nhập xong thì bảng phải nạp lại — dòng mới/đã sửa không nằm trong state cũ. */
-  onImported: () => void;
+  onImported: (result: ImportResult) => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
   const [headers, setHeaders] = useState<string[]>([]);
@@ -180,12 +188,14 @@ export function ProviderImportDialog({
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.error ?? "The import failed.");
-      setResult({
+      const finished: ImportResult = {
         created: payload.created ?? 0,
         updated: payload.updated ?? 0,
+        submitted: payload.submitted ?? 0,
         failed: payload.failed ?? [],
-      });
-      onImported();
+      };
+      setResult(finished);
+      onImported(finished);
     } catch (importError) {
       setError(
         importError instanceof Error ? importError.message : "The import failed."
@@ -295,8 +305,14 @@ export function ProviderImportDialog({
                     Choose an .xlsx or .csv file
                   </span>
                   <span className="text-xs text-[#626f86]">
-                    Columns are matched by name — nothing to map. Rows with an{" "}
-                    <strong>ID</strong> are updated, rows without one are added.
+                    Columns are matched by name — nothing to map.{" "}
+                    {goesToBacklog ? (
+                      <>Every row goes to the <strong>Backlog</strong> for review.</>
+                    ) : (
+                      <>
+                        Rows with an <strong>ID</strong> are updated, rows without one are added.
+                      </>
+                    )}
                   </span>
                 </label>
               )}
@@ -307,8 +323,10 @@ export function ProviderImportDialog({
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <h3 className={SECTION_TITLE_CLASS}>2. Preview and import</h3>
                   <div className="flex shrink-0 flex-wrap items-center gap-1.5">
-                    <Chip tone="create">{createCount} to add</Chip>
-                    <Chip tone="update">{updateCount} to update</Chip>
+                    <Chip tone="create">{createCount} {goesToBacklog ? "new" : "to add"}</Chip>
+                    <Chip tone="update">
+                      {updateCount} {goesToBacklog ? "already in the list" : "to update"}
+                    </Chip>
                     {parsed.skipped.length > 0 ? (
                       <Chip tone="skip">{parsed.skipped.length} skipped</Chip>
                     ) : null}
@@ -324,16 +342,22 @@ export function ProviderImportDialog({
                   </p>
                 ) : null}
 
-                <p className="mt-3 text-xs text-[#626f86]">
-                  <strong className="font-bold text-[#42526e]">Verified by</strong> and{" "}
-                  <strong className="font-bold text-[#42526e]">Verified date</strong> are
-                  set for every row from this import: {stamp.verifiedBy} ·{" "}
-                  {stamp.verifiedDate}
-                  {matched.managed.length > 0
-                    ? ` (the file's ${matched.managed.join(", ")} is not used)`
-                    : ""}
-                  .
-                </p>
+                {goesToBacklog ? (
+                  <p className="mt-3 text-xs text-[#626f86]">
+                    A Provider List manager verifies each row before it shows in the list.
+                  </p>
+                ) : (
+                  <p className="mt-3 text-xs text-[#626f86]">
+                    <strong className="font-bold text-[#42526e]">Verified by</strong> and{" "}
+                    <strong className="font-bold text-[#42526e]">Verified date</strong> are
+                    set for every row from this import: {stamp.verifiedBy} ·{" "}
+                    {stamp.verifiedDate}
+                    {matched.managed.length > 0
+                      ? ` (the file's ${matched.managed.join(", ")} is not used)`
+                      : ""}
+                    .
+                  </p>
+                )}
 
                 {previewColumns.length === 0 ? (
                   <p className="mt-3 rounded-lg border border-[#ffbdad] bg-[#ffebe6] px-3 py-2 text-xs font-semibold text-[#bf2600]">
@@ -408,7 +432,9 @@ export function ProviderImportDialog({
                   Import finished
                 </h3>
                 <p className="mt-1.5 text-sm font-semibold text-emerald-900">
-                  {result.created} added · {result.updated} updated
+                  {goesToBacklog
+                    ? `${result.submitted} sent to the Backlog`
+                    : `${result.created} added · ${result.updated} updated`}
                   {result.failed.length > 0 ? ` · ${result.failed.length} failed` : ""}
                 </p>
                 {result.failed.length > 0 ? (
@@ -433,7 +459,9 @@ export function ProviderImportDialog({
 
         <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-[#dfe1e6] bg-white px-6 py-4">
           <p className="hidden text-xs text-[#626f86] sm:block">
-            Rows with an ID are updated. Rows without one are added.
+            {goesToBacklog
+              ? "Rows wait in the Backlog until a manager verifies them."
+              : "Rows with an ID are updated. Rows without one are added."}
           </p>
           <div className="ml-auto flex items-center gap-2">
             <button

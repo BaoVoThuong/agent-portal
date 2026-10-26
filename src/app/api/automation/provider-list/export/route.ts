@@ -42,6 +42,8 @@ export async function POST(request: Request) {
     supabase
       .from(PROVIDER_TABLE)
       .select(PROVIDER_SELECT)
+      // Dòng Backlog chưa ai duyệt: không bao giờ rời hệ thống qua file xuất.
+      .eq("pending", false)
       .is("archived_at", null)
       .order("updated_at", { ascending: false })
       .limit(5000),

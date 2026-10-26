@@ -25,6 +25,8 @@ const ADDRESS_OPTIONS = [
   { value: "invalid", label: "Invalid" },
 ];
 
+export type ProviderView = "list" | "backlog" | "finder";
+
 function toOptions(values: readonly string[]) {
   return values.map((value) => ({ value, label: value }));
 }
@@ -42,9 +44,9 @@ export function ProviderToolbar({
   totalCount,
   settingsSlot,
 }: {
-  views: readonly { key: "list" | "finder"; label: string }[];
-  view: "list" | "finder";
-  onViewChange: (view: "list" | "finder") => void;
+  views: readonly { key: ProviderView; label: string; count?: number }[];
+  view: ProviderView;
+  onViewChange: (view: ProviderView) => void;
   query: string;
   onQuery: (value: string) => void;
   filters: ProviderFilters;
@@ -80,18 +82,27 @@ export function ProviderToolbar({
               type="button"
               onClick={() => onViewChange(option.key)}
               aria-current={view === option.key ? "page" : undefined}
-              className={`rounded-md px-3 py-1.5 text-sm font-semibold transition ${
+              className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-semibold transition ${
                 view === option.key
                   ? "bg-white text-[#0c66e4] shadow-sm"
                   : "text-[#5e6c84] hover:text-[#172b4d]"
               }`}
             >
               {option.label}
+              {option.count ? (
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-[11px] font-bold tabular-nums ${
+                    view === option.key ? "bg-[#e9f2ff] text-[#0c66e4]" : "bg-[#dfe1e6] text-[#44546f]"
+                  }`}
+                >
+                  {option.count}
+                </span>
+              ) : null}
             </button>
           ))}
         </nav>
 
-        {view === "list" ? (
+        {view !== "finder" ? (
           <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#44546f]" />
             <input

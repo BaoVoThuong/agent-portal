@@ -3,7 +3,9 @@ import { auth } from "@/auth";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { canManageProviders } from "@/lib/providers/access";
+import { canManageProviders, canReviewProviderBacklog } from "@/lib/providers/access";
+import { findProviderDuplicate } from "@/lib/providers/backlog";
+import { fetchLiveProviderKeys } from "@/lib/providers/backlog-queries";
 import { buildProviderPatch } from "@/lib/providers/patch";
 import { PROVIDER_SELECT, PROVIDER_TABLE, type ProviderRow } from "@/lib/providers/types";
 import { providerFieldChanges } from "@/lib/providers/activity";
@@ -28,7 +30,15 @@ const UUID_RE =
 
 type Ctx = { params: Promise<{ id: string }> };
 
-/** Sửa ô ngay trên bảng (quyền Provider Finder), và archive một dòng (quyền Manage). */
+/** Những ô `findProviderDuplicate` so. */
+const DUPLICATE_KEY_FIELDS = ["doctors", "facility", "npi", "street", "zip_code"] as const;
+
+/**
+ * Sửa ô ngay trên bảng (quyền Provider Finder), và archive một dòng (quyền Manage).
+ *
+ * Dòng ở Backlog (`pending`) thì chặt hơn: chỉ người gửi và người duyệt được sửa
+ * hay rút lại, vì đó là đề xuất của một người chứ chưa phải dữ liệu chung.
+ */
 export async function PATCH(request: Request, { params }: Ctx) {
   const { id } = await params;
   const session = await auth();
@@ -57,15 +67,32 @@ export async function PATCH(request: Request, { params }: Ctx) {
 
   const parsed = buildProviderPatch(await request.json().catch(() => null));
   if (!parsed.ok) return NextResponse.json({ error: parsed.error }, { status: 400 });
+  const actorEmail = email.trim().toLowerCase();
+  const isSubmitter = currentRow.created_by_email?.trim().toLowerCase() === actorEmail;
+  if (
+    currentRow.pending &&
+    !isSubmitter &&
+    !canReviewProviderBacklog(session.user.permissions)
+  ) {
+    return NextResponse.json(
+      { error: "Only the person who sent this row or a Provider List manager can change it." },
+      { status: 403 }
+    );
+  }
   // Xoá (archive) một address là việc của tầng Manage; sửa ô thì không cần.
+  // Người gửi thì rút lại được dòng Backlog của chính mình.
   // Kiểm ở đây chứ không chỉ ẩn nút trên giao diện — ẩn nút không phải là quyền.
   if (
     "archived_at" in parsed.patch &&
-    !canManageProviders(session.user.permissions)
+    !canManageProviders(session.user.permissions) &&
+    !(currentRow.pending && isSubmitter)
   ) {
     return NextResponse.json({ error: "You cannot delete addresses." }, { status: 403 });
   }
   const patch: Record<string, unknown> = { ...parsed.patch };
+  // Dòng Backlog chỉ thành "đã soát" qua nút Verify của người duyệt
+  // (review/route.ts) — ô Reviewed trên form không đi đường tắt được.
+  if (currentRow.pending) delete patch.needs_review;
   const submittedCustomValues = parsed.customValues ?? {};
 
   let writeContext: Awaited<ReturnType<typeof fetchWriteValidationContext>>;
@@ -138,23 +165,44 @@ export async function PATCH(request: Request, { params }: Ctx) {
     );
   }
 
+  // Sửa tên / NPI / địa chỉ của dòng Backlog thì dò trùng lại: tag Duplicate
+  // phải nói về dòng như nó đang là, không phải như lúc mới gửi.
+  if (
+    currentRow.pending &&
+    !("archived_at" in patch) &&
+    DUPLICATE_KEY_FIELDS.some((key) => key in patch)
+  ) {
+    patch.duplicate_of = findProviderDuplicate(
+      { ...currentRow, ...patch } as ProviderRow,
+      (await fetchLiveProviderKeys(supabase)).filter((row) => row.id !== id),
+    );
+  }
+
   const { data: provider, error: updateError } = await supabase
     .from(PROVIDER_TABLE)
     .update({
       ...patch,
       updated_at: new Date().toISOString(),
-      updated_by_email: email.trim().toLowerCase(),
+      updated_by_email: actorEmail,
     })
     .eq("id", id)
+    .eq("pending", currentRow.pending)
+    .eq("updated_at", currentRow.updated_at)
+    .is("archived_at", null)
     .select(PROVIDER_SELECT)
-    .single();
+    .maybeSingle();
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
+  }
+  if (!provider) {
+    return NextResponse.json(
+      { error: "This address changed while you were editing it. Reload and try again." },
+      { status: 409 }
+    );
   }
 
   // Ghi trong request (một lượt insert), không để after(): Activity là lịch sử
   // nghiệp vụ. Lỗi chỉ ghi log — lượt sửa đã lưu thì không báo hỏng.
-  const actorEmail = email.trim().toLowerCase();
   if ("archived_at" in parsed.patch) {
     await insertProviderActivity(supabase, [
       { provider_id: id, actor_email: actorEmail, type: "archived" },

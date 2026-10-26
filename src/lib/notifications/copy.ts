@@ -120,8 +120,15 @@ export function notificationHref(notification: NotificationCopySource): string {
       if (notification.type === "cancelled") return "/time-off?tab=history";
       return "/time-off?tab=approvals";
     }
-    // Provider List mở đúng dialog của dòng đó (ProviderListClient đọc ?provider=).
+    // Provider List mở đúng dialog của dòng đó (ProviderListClient đọc ?provider=,
+    // tìm ở cả List lẫn Backlog). Dòng bị Reject đã archive, không còn dialog
+    // nào để mở — đưa người gửi về tab Backlog.
     case "provider":
+      // Một lượt nhập chỉ có một thông báo trỏ vào dòng đầu. Dòng đầu có thể
+      // đã được duyệt trong khi các dòng còn lại vẫn chờ, nên mở tab Backlog.
+      if (notification.type === "submitted" || notification.type === "rejected") {
+        return "/tasks/providers?view=backlog";
+      }
       return `/tasks/providers?provider=${notificationEntityId(notification)}`;
     default:
       return `/tasks?task=${notificationEntityId(notification)}`;
@@ -133,12 +140,25 @@ export function notificationActionText(notification: NotificationCopySource): st
   switch (notification.type) {
     case "record_created":
       return kind === "enrollment" ? "created a new enrollment record" : "created a new record";
-    case "submitted":
-      return "gửi một đơn xin nghỉ";
+    // Ba loại này dùng chung giữa Time Off và Backlog của Provider List
+    // (2026-10-26); tách câu theo entity. Một lượt nhập nhiều dòng là MỘT thông
+    // báo, `detail` mang số dòng.
+    case "submitted": {
+      if (kind !== "provider") return "gửi một đơn xin nghỉ";
+      const count = Number(notification.detail);
+      return count > 1
+        ? `sent ${count} providers to the Backlog`
+        : "sent a provider to the Backlog";
+    }
     case "approved":
-      return "duyệt đơn xin nghỉ của bạn";
+      if (kind !== "provider") return "duyệt đơn xin nghỉ của bạn";
+      return notification.detail === "merged"
+        ? "merged your Backlog submission into this provider"
+        : "verified your provider into the list";
     case "rejected":
-      return "từ chối đơn xin nghỉ của bạn";
+      return kind === "provider"
+        ? "rejected your provider submission"
+        : "từ chối đơn xin nghỉ của bạn";
     case "assigned":
       return kind === "enrollment"
         ? "assigned you to an enrollment record"

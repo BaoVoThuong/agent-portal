@@ -248,11 +248,13 @@ describe("runProviderSearch - validation", () => {
   it("contract-only không gọi Maps hoặc geocode provider", async () => {
     const query = {
       select: vi.fn(),
+      eq: vi.fn(),
       is: vi.fn(),
       order: vi.fn(),
       range: vi.fn(),
     };
     query.select.mockReturnValue(query);
+    query.eq.mockReturnValue(query);
     query.is.mockReturnValue(query);
     query.order.mockReturnValue(query);
     query.range.mockResolvedValue({ data: [providerRow(1)], error: null });
@@ -264,5 +266,7 @@ describe("runProviderSearch - validation", () => {
     expect(out.body.results).toHaveLength(1);
     expect(out.body.logs).toContain("maps skipped: no customer address");
     expect(getMapsServiceMock).not.toHaveBeenCalled();
+    // Backlog rows nobody has verified must never reach a customer search.
+    expect(query.eq).toHaveBeenCalledWith("pending", false);
   });
 });

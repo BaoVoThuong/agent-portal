@@ -53,7 +53,21 @@ export async function loadProviderCollabContext(
   | ({ ok: true } & ProviderCollabContext)
   | { ok: false; error: string; status: number }
 > {
-  const session = await auth();
+  // Kiểm quyền và kiểm dòng là hai lượt I/O độc lập. Chạy cùng lúc để mỗi
+  // request Comments/Activity không phải chờ auth rồi mới bắt đầu query.
+  const validId = isProviderUuid(providerId);
+  const supabase = getSupabaseAdmin();
+  const [session, providerResult] = await Promise.all([
+    auth(),
+    validId
+      ? supabase
+          .from(PROVIDER_TABLE)
+          .select("id,doctors,facility")
+          .eq("id", providerId)
+          .is("archived_at", null)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+  ]);
   const email = session?.user?.email?.trim().toLowerCase();
   if (!session || !email) return { ok: false, error: "Unauthorized", status: 401 };
   const permissions = session.user.permissions;
@@ -64,25 +78,19 @@ export async function loadProviderCollabContext(
   if (options.write && !canComment) {
     return { ok: false, error: "Only Provider List managers can comment.", status: 403 };
   }
-  if (!isProviderUuid(providerId)) {
+  if (!validId) {
     return { ok: false, error: "Invalid provider id.", status: 400 };
   }
-
-  const supabase = getSupabaseAdmin();
-  const { data, error } = await supabase
-    .from(PROVIDER_TABLE)
-    .select("id,doctors,facility")
-    .eq("id", providerId)
-    .is("archived_at", null)
-    .maybeSingle();
-  if (error) return { ok: false, error: error.message, status: 500 };
-  if (!data) return { ok: false, error: "Not found", status: 404 };
+  if (providerResult.error) {
+    return { ok: false, error: providerResult.error.message, status: 500 };
+  }
+  if (!providerResult.data) return { ok: false, error: "Not found", status: 404 };
   return {
     ok: true,
     supabase,
     email,
     canComment,
-    provider: data as ProviderCollabContext["provider"],
+    provider: providerResult.data as ProviderCollabContext["provider"],
   };
 }
 
@@ -205,6 +213,27 @@ const providerViewers = createSharedLookup(
 
 export async function fetchProviderViewers(): Promise<TaskAssignee[]> {
   return [...(await providerViewers.get("all"))];
+}
+
+// Chỉ để hiển thị tên/avatar trong bảng và form: không cần đi qua chuỗi tra
+// quyền mention (nhiều truy vấn RBAC). Giữ cả tài khoản cũ đã ngưng hoạt động
+// để Opened by của hồ sơ lịch sử vẫn hiện tên.
+const providerDisplayPeople = createSharedLookup(
+  async (): Promise<TaskAssignee[]> => {
+    const { data, error } = await getSupabaseAdmin()
+      .from("portal_account")
+      .select("email,name")
+      .limit(5000);
+    if (error) throw new Error(error.message);
+    return ((data ?? []) as { email: string; name: string | null }[])
+      .map((row) => ({ email: row.email.trim().toLowerCase(), name: row.name }))
+      .sort((a, b) => (a.name ?? a.email).localeCompare(b.name ?? b.email));
+  },
+  { ttlMs: 60 * 1000 }
+);
+
+export async function fetchProviderDisplayPeople(): Promise<TaskAssignee[]> {
+  return [...(await providerDisplayPeople.get("all"))];
 }
 
 /** Ghi activity không được làm hỏng thao tác đã lưu: lỗi chỉ ghi log. */

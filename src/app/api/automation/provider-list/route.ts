@@ -1,9 +1,12 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { canManageProviders } from "@/lib/providers/access";
+import { canAddProviders, providerWritesGoLive } from "@/lib/providers/access";
+import { findProviderDuplicate, pendingProviderFields } from "@/lib/providers/backlog";
+import { fetchBacklogProviderRows, fetchLiveProviderKeys } from "@/lib/providers/backlog-queries";
+import { notifyProviderBacklogSubmitted } from "@/lib/providers/notifications";
 import { buildProviderRow, parseCreateProviderInput } from "@/lib/providers/create";
 import { PROVIDER_SELECT, PROVIDER_TABLE, PROVIDER_TEXT_FIELDS } from "@/lib/providers/types";
 import { validateCustomValues } from "@/lib/table-config/custom-values";
@@ -27,7 +30,7 @@ export const dynamic = "force-dynamic";
  * Provider List dùng chung quyền với Provider Finder — cùng một dữ liệu, cùng
  * một nhóm người dùng trong Automation Tool.
  */
-async function gate(timing?: RouteTiming, options: { manage?: boolean } = {}) {
+async function gate(timing?: RouteTiming, options: { add?: boolean } = {}) {
   const session = timing
     ? await timing.measure("auth", () => auth())
     : await auth();
@@ -36,12 +39,17 @@ async function gate(timing?: RouteTiming, options: { manage?: boolean } = {}) {
   if (!can(session.user.permissions, PERMISSIONS.AUTOMATION_PROVIDER_FINDER)) {
     return { ok: false as const, status: 403, error: "Forbidden" };
   }
-  // Thêm address là việc của tầng Manage (xem lib/providers/access.ts); xem và
-  // sửa ô thì chỉ cần quyền Provider Finder.
-  if (options.manage && !canManageProviders(session.user.permissions)) {
+  // Ai xem được bảng cũng thêm được (2026-10-26); khác nhau ở chỗ dòng vào
+  // thẳng danh sách hay vào Backlog — xem lib/providers/access.ts.
+  if (options.add && !canAddProviders(session.user.permissions)) {
     return { ok: false as const, status: 403, error: "You cannot add addresses." };
   }
-  return { ok: true as const, email, name: session.user.name };
+  return {
+    ok: true as const,
+    email,
+    name: session.user.name,
+    goesLive: providerWritesGoLive(session.user.permissions),
+  };
 }
 
 export async function GET() {
@@ -59,16 +67,22 @@ export async function GET() {
 
     // 458 dòng sau khi làm sạch: nạp hết một lần rồi lọc/sắp xếp ngay trong trình
     // duyệt. Timing này giúp biết khi nào cần chuyển sang server-side pagination.
-    const { data, error } = await timing.measure("provider_query", async () =>
-      getSupabaseAdmin()
-        .from(PROVIDER_TABLE)
-        .select(PROVIDER_SELECT)
-        .is("archived_at", null)
-        .order("updated_at", { ascending: false })
-        .limit(5000),
-    );
-    if (error) return respond({ error: error.message }, 500);
-    return respond({ providers: data ?? [] });
+    // Backlog đi cùng chuyến: nhập file xong thì cả hai tab đều có thể đã đổi.
+    const supabase = getSupabaseAdmin();
+    const [live, backlog] = await Promise.all([
+      timing.measure("provider_query", async () =>
+        supabase
+          .from(PROVIDER_TABLE)
+          .select(PROVIDER_SELECT)
+          .eq("pending", false)
+          .is("archived_at", null)
+          .order("updated_at", { ascending: false })
+          .limit(5000),
+      ),
+      timing.measure("backlog_query", () => fetchBacklogProviderRows(supabase)),
+    ]);
+    if (live.error) return respond({ error: live.error.message }, 500);
+    return respond({ providers: live.data ?? [], backlog });
   } catch (error) {
     return respond(
       { error: error instanceof Error ? error.message : "Unable to load providers." },
@@ -87,7 +101,7 @@ export async function POST(request: Request) {
   };
 
   try {
-    const actor = await gate(timing, { manage: true });
+    const actor = await gate(timing, { add: true });
     if (!actor.ok) return respond({ error: actor.error }, actor.status);
 
     const parsed = parseCreateProviderInput(
@@ -122,19 +136,23 @@ export async function POST(request: Request) {
       throw error;
     }
 
-    const stamp = trustedVerifiedStamp({
-      currentNeedsReview: null,
-      nextNeedsReview: input.needsReview ?? false,
-      actorName: personLabel(
-        actor.email,
-        actor.name ? new Map([[actor.email, actor.name]]) : undefined,
-      ),
-      date: todayForColumn(
-        writeContext.columns.find((column) => column.key === "date"),
-        new Date(),
-        PROVIDER_STAMP_TIME_ZONE,
-      ),
-    });
+    // Vào Backlog thì chưa ai duyệt: không đóng dấu Verified, người duyệt đóng
+    // dấu lúc Verify (`pendingProviderFields`).
+    const stamp = actor.goesLive
+      ? trustedVerifiedStamp({
+          currentNeedsReview: null,
+          nextNeedsReview: input.needsReview ?? false,
+          actorName: personLabel(
+            actor.email,
+            actor.name ? new Map([[actor.email, actor.name]]) : undefined,
+          ),
+          date: todayForColumn(
+            writeContext.columns.find((column) => column.key === "date"),
+            new Date(),
+            PROVIDER_STAMP_TIME_ZONE,
+          ),
+        })
+      : { verified_by: null, date: null };
     input.verified_by = stamp.verified_by;
     input.date = stamp.date;
     fieldValues.verified_by = stamp.verified_by;
@@ -160,6 +178,17 @@ export async function POST(request: Request) {
       );
     }
 
+    // Dòng vào Backlog mang sẵn dòng đã có mà nó trùng (nếu có), để người duyệt
+    // chọn "Update existing" thay vì thêm một bản thứ hai.
+    const pending = actor.goesLive
+      ? null
+      : pendingProviderFields(
+          findProviderDuplicate(
+            input,
+            await timing.measure("duplicate_keys", () => fetchLiveProviderKeys(supabase)),
+          ),
+        );
+
     // Khoá của bảng sạch là uuid do database sinh, nên hai người thêm cùng lúc
     // không còn giành nhau con số nào — bỏ hẳn vòng truy vấn "số dòng kế tiếp"
     // và nhánh xử lý trùng khoá đi kèm nó.
@@ -171,6 +200,7 @@ export async function POST(request: Request) {
           .insert({
             ...buildProviderRow(input, { actorEmail: actor.email }),
             custom_values: validated.values,
+            ...(pending ?? {}),
           })
           .select(PROVIDER_SELECT)
           .single(),
@@ -178,15 +208,25 @@ export async function POST(request: Request) {
     if (insertError) {
       return respond({ error: insertError.message }, 500);
     }
+    const providerId = (provider as unknown as { id: string }).id;
+    const actorEmail = actor.email.trim().toLowerCase();
     await timing.measure("activity", () =>
       insertProviderActivity(supabase, [
-        {
-          provider_id: (provider as unknown as { id: string }).id,
-          actor_email: actor.email.trim().toLowerCase(),
-          type: "created",
-        },
+        { provider_id: providerId, actor_email: actorEmail, type: pending ? "submitted" : "created" },
       ])
     );
+    if (pending) {
+      after(async () => {
+        try {
+          await notifyProviderBacklogSubmitted({ providerId, actorEmail, count: 1 });
+        } catch (error) {
+          console.error("provider.backlog.notify_failed", {
+            stage: "submitted",
+            error: error instanceof Error ? error.message : "unknown error",
+          });
+        }
+      });
+    }
 
     return respond({ provider });
   } catch (error) {

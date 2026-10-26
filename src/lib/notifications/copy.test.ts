@@ -152,3 +152,26 @@ describe("time-off decision copy", () => {
     ).toBe("cancelled this task");
   });
 });
+
+describe("provider Backlog copy", () => {
+  const provider = (type: string, detail: string | null = null) =>
+    ({ type, detail, entity_type: "provider", entity_id: "p-1", task_id: "p-1" }) as unknown as Parameters<typeof notificationHref>[0];
+
+  it("tells managers how many rows wait in the Backlog", () => {
+    expect(notificationActionText(provider("submitted"))).toBe("sent a provider to the Backlog");
+    expect(notificationActionText(provider("submitted", "12"))).toBe("sent 12 providers to the Backlog");
+    expect(notificationHref(provider("submitted"))).toBe("/tasks/providers?view=backlog");
+  });
+
+  it("tells the submitter how the review ended", () => {
+    expect(notificationActionText(provider("approved"))).toBe("verified your provider into the list");
+    expect(notificationActionText(provider("approved", "merged"))).toBe(
+      "merged your Backlog submission into this provider"
+    );
+    expect(notificationActionText(provider("rejected", "Already in the list"))).toBe(
+      "rejected your provider submission"
+    );
+    // A rejected row is archived, so there is no dialog to open.
+    expect(notificationHref(provider("rejected"))).toBe("/tasks/providers?view=backlog");
+  });
+});

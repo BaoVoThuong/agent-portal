@@ -49,6 +49,8 @@ export const PROVIDER_SELECT = [
   ...PROVIDER_TEXT_FIELDS,
   "custom_values",
   "needs_review",
+  "pending",
+  "duplicate_of",
   "created_at",
   "created_by_email",
   "updated_by_email",
@@ -81,6 +83,13 @@ export type ProviderRow = {
   source_row_number: number | null;
   custom_values: Record<string, unknown>;
   needs_review: boolean;
+  /**
+   * Dòng nằm ở Backlog, chờ người có Provider List - Manage duyệt. List, Finder
+   * và Export chỉ đọc dòng `false` — xem rollout 2026-10-26-provider-backlog.
+   */
+  pending: boolean;
+  /** Dòng đã có trong danh sách mà dòng chờ duyệt này trùng với. */
+  duplicate_of: string | null;
   created_at: string | null;
   created_by_email: string | null;
   updated_by_email: string | null;

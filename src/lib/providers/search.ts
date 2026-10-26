@@ -211,6 +211,62 @@ export function providerFilterOptions(rows: ProviderRow[]): {
   };
 }
 
+type ProviderFilterOptions = ReturnType<typeof providerFilterOptions>;
+
+/** Gộp giá trị đang chọn vào danh sách (không phân biệt hoa thường), giữ thứ tự chữ cái. */
+function withSelected(options: string[], selected: readonly string[]): string[] {
+  const known = new Set(options.map((option) => option.toLowerCase()));
+  const missing = selected.filter((value) => !known.has(value.trim().toLowerCase()));
+  return missing.length === 0
+    ? options
+    : [...options, ...missing].sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Lựa chọn cho thanh lọc, tính kiểu faceted: mỗi ô lấy giá trị từ những dòng khớp
+ * MỌI bộ lọc KHÁC (trừ chính nó). Chọn State = TX thì City chỉ còn thành phố của
+ * TX, và lựa chọn nào hiện ra cũng cho ít nhất một dòng.
+ *
+ * Trước đây lấy từ toàn bộ bảng trong khi bảng mặc định chỉ hiện địa chỉ Valid,
+ * nên City của dòng địa chỉ hỏng — một ô ghi cả chục thành phố — vẫn hiện ra mà
+ * chọn vào thì bảng trống. Giá trị đang chọn luôn còn trong danh sách để bỏ chọn
+ * được, kể cả khi nó không còn khớp dòng nào.
+ */
+export function providerFacetOptions(
+  rows: ProviderRow[],
+  filters: ProviderFilters
+): ProviderFilterOptions {
+  const facet = <K extends keyof ProviderFilterOptions & keyof ProviderFilters>(key: K) =>
+    providerFilterOptions(
+      applyProviderFilters(rows, { ...filters, [key]: EMPTY_PROVIDER_FILTERS[key] })
+    )[key];
+  return {
+    state: withSelected(facet("state"), filters.state),
+    city: withSelected(facet("city"), filters.city),
+    specialty: withSelected(facet("specialty"), filters.specialty),
+    accepting: withSelected(facet("accepting"), filters.accepting),
+    acaPlans: withSelected(facet("acaPlans"), filters.acaPlans),
+    medicarePlans: withSelected(facet("medicarePlans"), filters.medicarePlans),
+  };
+}
+
+/**
+ * Đổi State thì bỏ những City đang chọn mà không thuộc bang nào được chọn — để
+ * "TX + Chicago" không thành một bảng trống mà không ai hiểu vì sao.
+ */
+export function keepCitiesInSelectedStates(
+  rows: ProviderRow[],
+  filters: ProviderFilters
+): ProviderFilters {
+  if (filters.state.length === 0 || filters.city.length === 0) return filters;
+  const states = new Set(filters.state.map(normalize));
+  const cities = new Set(
+    rows.filter((row) => states.has(normalize(row.state))).map((row) => normalize(row.city))
+  );
+  const city = filters.city.filter((value) => cities.has(normalize(value)));
+  return city.length === filters.city.length ? filters : { ...filters, city };
+}
+
 export type ProviderSortDir = "asc" | "desc";
 
 export function sortProviders(

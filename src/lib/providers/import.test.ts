@@ -79,6 +79,16 @@ describe("matchProviderHeaders", () => {
     expect(matched.ignored).toEqual(["Added on"]);
   });
 
+  // Cột needs_review đổi nhãn "Reviewed" → "Verified" (26/10). File xuất trước
+  // ngày đó mang tiêu đề "Reviewed" và vẫn phải nhập lại được.
+  it("nhận cả tiêu đề Verified mới lẫn Reviewed cũ cho cột needs_review", () => {
+    const renamed = COLUMNS.map((item) =>
+      item.key === "needs_review" ? column("needs_review", "Verified", "checkbox") : item
+    );
+    expect(matchProviderHeaders(["Verified"], renamed).byHeader.get("Verified")).toBe("needs_review");
+    expect(matchProviderHeaders(["Reviewed"], renamed).byHeader.get("Reviewed")).toBe("needs_review");
+  });
+
   it("hai tiêu đề cùng trỏ một cột thì chỉ cái đầu được nhận", () => {
     const matched = matchProviderHeaders(["Doctor", "doctors"], COLUMNS);
     expect(matched.byHeader.get("Doctor")).toBe("doctors");

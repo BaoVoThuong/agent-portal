@@ -25,7 +25,8 @@ export function buildProviderExportMatrix(
 
 function formatCell(record: ProviderRow, column: TableColumn): string {
   if (column.key === "needs_review") {
-    // Nhãn cột là "Reviewed", ngược nghĩa với `needs_review` trong bảng.
+    // Nhãn cột là "Verified" (trước 26/10 là "Reviewed"), ngược nghĩa với
+    // `needs_review` trong bảng.
     return record.needs_review ? "No" : "Yes";
   }
 
