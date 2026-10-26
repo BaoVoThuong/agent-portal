@@ -6,6 +6,19 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-25 — Provider: Verified by / Verified date thôi là ô gõ tay (chưa deploy)
+
+- **Luật** (user chốt 25/10): người soát là một người thật, không phải chữ ai cũng gõ được. Form Thêm/Sửa chỉ HIỆN
+  hai ô này (Verified by kèm chữ viết tắt); hệ thống điền khi bật Reviewed — tên người bật và ngày hôm đó, như trước.
+  Giữ tên cột cũ; không đổi sang Updated By/Updated Date.
+- Vì không gõ lại được, **bỏ tick Reviewed trả hai ô về như trước khi tick** (`providerFieldPatch`, `unreviewed`):
+  form Sửa về giá trị đang lưu (vẫn không xoá người soát cũ từ Sheet), form Thêm về trống — dòng mới bỏ tick là chưa
+  ai soát. API Thêm/Sửa tự đóng dấu theo ngày Việt Nam khi chuyển sang Reviewed và bỏ qua dấu do client tự gửi;
+  bỏ Reviewed hoặc chỉ sửa ô khác thì giữ dấu đã lưu. Import vẫn để máy chủ đóng dấu như cũ. Form xem trước, API và
+  Import dùng chung một múi giờ (`PROVIDER_STAMP_TIME_ZONE` = Asia/Ho_Chi_Minh), nên ngày hiện trên form là ngày được lưu.
+- Ô nhiều lựa chọn của form (Specialty, ACA/Medicare plans) mở menu qua `useAnchoredMenu` vẽ ra `document.body`:
+  trước đây menu nằm trong vùng cuộn của dialog nên ô sát đáy bị footer cắt mất nửa danh sách.
+
 ## 2026-10-25 — Provider List: Comments + Activity trong dialog provider, @mention báo lên chuông (chưa deploy)
 
 - **Review 25/10**: Comments, Activity và danh sách @mention tải độc lập; Activity nạp nền khi mở dialog.

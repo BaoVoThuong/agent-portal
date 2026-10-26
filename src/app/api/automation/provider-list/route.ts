@@ -14,6 +14,12 @@ import {
 } from "@/lib/table-config/write-context";
 import { RouteTiming } from "@/lib/server-timing";
 import { insertProviderActivity } from "@/lib/providers/collaboration";
+import {
+  PROVIDER_STAMP_TIME_ZONE,
+  todayForColumn,
+  trustedVerifiedStamp,
+} from "@/lib/providers/form";
+import { personLabel } from "@/lib/tasks/people";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +41,7 @@ async function gate(timing?: RouteTiming, options: { manage?: boolean } = {}) {
   if (options.manage && !canManageProviders(session.user.permissions)) {
     return { ok: false as const, status: 403, error: "You cannot add addresses." };
   }
-  return { ok: true as const, email };
+  return { ok: true as const, email, name: session.user.name };
 }
 
 export async function GET() {
@@ -115,6 +121,24 @@ export async function POST(request: Request) {
       }
       throw error;
     }
+
+    const stamp = trustedVerifiedStamp({
+      currentNeedsReview: null,
+      nextNeedsReview: input.needsReview ?? false,
+      actorName: personLabel(
+        actor.email,
+        actor.name ? new Map([[actor.email, actor.name]]) : undefined,
+      ),
+      date: todayForColumn(
+        writeContext.columns.find((column) => column.key === "date"),
+        new Date(),
+        PROVIDER_STAMP_TIME_ZONE,
+      ),
+    });
+    input.verified_by = stamp.verified_by;
+    input.date = stamp.date;
+    fieldValues.verified_by = stamp.verified_by;
+    fieldValues.date = stamp.date;
 
     const validated = validateCustomValues(input.customValues, writeContext);
     if (!validated.ok) {

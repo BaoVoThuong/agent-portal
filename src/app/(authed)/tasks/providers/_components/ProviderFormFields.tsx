@@ -4,6 +4,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, ExternalLink, MapPin, Search } from "lucide-react";
 import { useAnchoredMenu } from "../../_components/use-anchored-menu";
+import { Initials } from "../../_components/board-ui";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import { parseMultiselectValue } from "@/lib/table-config/multiselect";
 import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
@@ -20,7 +21,9 @@ import {
   isReadOnlyProviderColumn,
   isReviewedColumn,
   isTruthyProviderValue,
+  isVerifiedStampColumn,
   providerFieldPatch,
+  type ProviderFormValues,
 } from "@/lib/providers/form";
 
 // Bám đúng TaskDetailDrawer (CUSTOM_FIELD_INPUT_CLASS + LABEL_CLASS) để hai
@@ -242,6 +245,7 @@ export function ProviderFormBody({
   onChange,
   viewerName,
   showSystemInfo,
+  unreviewedValues,
 }: {
   columns: readonly TableColumn[];
   columnOptions: readonly TableColumnOption[];
@@ -250,6 +254,8 @@ export function ProviderFormBody({
   viewerName: string;
   /** Tắt ở form Thêm: dòng chưa tồn tại thì chưa có ai tạo và chưa có lần sửa nào. */
   showSystemInfo: boolean;
+  /** Verified by / Verified date khi bỏ tick Reviewed — xem `providerFieldPatch`. */
+  unreviewedValues?: ProviderFormValues;
 }) {
   const optionsByColumn = useMemo(() => {
     const map = new Map<string, TableColumnOption[]>();
@@ -284,7 +290,7 @@ export function ProviderFormBody({
   }
 
   function handleChange(column: TableColumn, value: unknown) {
-    onChange(providerFieldPatch(column, value, { columns, viewerName }));
+    onChange(providerFieldPatch(column, value, { columns, viewerName, unreviewed: unreviewedValues }));
   }
 
   function field(column: TableColumn) {
@@ -441,6 +447,23 @@ function ProviderEditField({
             {checked ? <Check className="h-3.5 w-3.5" /> : null}
           </span>
         </button>
+      </div>
+    );
+  }
+
+  // Ô do hệ thống điền khi bật Reviewed: chỉ hiện, không cho gõ.
+  if (isVerifiedStampColumn(column)) {
+    const text = value === null || value === undefined ? "" : String(value).trim();
+    return (
+      <div className="min-w-0">
+        {label}
+        <div
+          className="flex h-9 min-w-0 items-center gap-2 rounded-lg border-2 border-[#ebecf0] bg-[#f7f8f9] px-2 text-sm font-semibold text-[#42526e]"
+          title="Filled in when Reviewed is checked"
+        >
+          {column.key === "verified_by" && text ? <Initials email={text} label={text} /> : null}
+          <span className={`min-w-0 truncate ${text ? "" : "text-[#97a0af]"}`}>{text || "—"}</span>
+        </div>
       </div>
     );
   }

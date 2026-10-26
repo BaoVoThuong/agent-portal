@@ -13,7 +13,7 @@ import {
   type ProviderImportParse,
 } from "@/lib/providers/import";
 import { providerColumnWidth } from "@/lib/providers/list-columns";
-import { todayForColumn } from "@/lib/providers/form";
+import { PROVIDER_STAMP_TIME_ZONE, todayForColumn } from "@/lib/providers/form";
 import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
 
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -65,7 +65,11 @@ export function ProviderImportDialog({
   const stamp = useMemo(
     () => ({
       verifiedBy: viewerName,
-      verifiedDate: todayForColumn(columns.find((column) => column.key === "date")),
+      verifiedDate: todayForColumn(
+        columns.find((column) => column.key === "date"),
+        new Date(),
+        PROVIDER_STAMP_TIME_ZONE
+      ),
     }),
     [viewerName, columns]
   );

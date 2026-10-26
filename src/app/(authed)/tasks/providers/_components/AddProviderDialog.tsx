@@ -9,6 +9,7 @@ import {
   blankProviderValues,
   isReadOnlyProviderColumn,
   providerFormPayload,
+  verifiedStampValues,
 } from "@/lib/providers/form";
 import { ProviderFormBody } from "./ProviderFormFields";
 
@@ -128,6 +129,8 @@ export function AddProviderDialog({
             values={values}
             viewerName={viewerName}
             showSystemInfo={false}
+            // Dòng mới: bỏ tick Reviewed nghĩa là chưa ai soát, nên để trống.
+            unreviewedValues={verifiedStampValues(values, { blank: true })}
             onChange={(patch) => setValues((current) => ({ ...current, ...patch }))}
           />
           {error ? (

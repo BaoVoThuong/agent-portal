@@ -3,7 +3,7 @@ import { auth } from "@/auth";
 import { canImportProviders } from "@/lib/providers/access";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildProviderRow, parseCreateProviderInput } from "@/lib/providers/create";
-import { todayForColumn } from "@/lib/providers/form";
+import { PROVIDER_STAMP_TIME_ZONE, todayForColumn } from "@/lib/providers/form";
 import { PROVIDER_IMPORT_MANAGED_KEYS } from "@/lib/providers/import";
 import { buildProviderPatch } from "@/lib/providers/patch";
 import { personLabel } from "@/lib/tasks/people";
@@ -69,7 +69,11 @@ export async function POST(request: Request) {
       email,
       session.user.name ? new Map([[email, session.user.name]]) : undefined
     ),
-    date: todayForColumn(columns.find((column) => column.key === "date")),
+    date: todayForColumn(
+      columns.find((column) => column.key === "date"),
+      new Date(),
+      PROVIDER_STAMP_TIME_ZONE,
+    ),
   };
   const applyStamp = (body: Record<string, unknown>) => {
     const next = { ...body };

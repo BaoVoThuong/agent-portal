@@ -10,6 +10,7 @@ import {
   isReadOnlyProviderColumn,
   providerFormPayload,
   providerFormValues,
+  verifiedStampValues,
 } from "@/lib/providers/form";
 import { ProviderFormBody } from "./ProviderFormFields";
 import { ProviderCollabPanel } from "./ProviderCollabPanel";
@@ -37,9 +38,12 @@ export function ProviderEditDialog({
   onArchive?: () => Promise<void>;
 }) {
   const open = provider !== null;
-  const [values, setValues] = useState<Record<string, unknown>>(() =>
+  // Giữ bản lúc mở form: bỏ tick Reviewed thì Verified by/date trở về đúng giá
+  // trị đang lưu (hai ô không gõ lại được).
+  const [initialValues] = useState<Record<string, unknown>>(() =>
     provider ? providerFormValues(provider, columns) : {}
   );
+  const [values, setValues] = useState<Record<string, unknown>>(initialValues);
   const [saving, setSaving] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -134,6 +138,7 @@ export function ProviderEditDialog({
               values={values}
               viewerName={viewerName}
               showSystemInfo
+              unreviewedValues={verifiedStampValues(initialValues)}
               onChange={(patch) => setValues((current) => ({ ...current, ...patch }))}
             />
             {error ? (

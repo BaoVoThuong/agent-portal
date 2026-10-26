@@ -7,6 +7,12 @@ import { canManageProviders } from "@/lib/providers/access";
 import { buildProviderPatch } from "@/lib/providers/patch";
 import { PROVIDER_SELECT, PROVIDER_TABLE, type ProviderRow } from "@/lib/providers/types";
 import { providerFieldChanges } from "@/lib/providers/activity";
+import {
+  PROVIDER_STAMP_TIME_ZONE,
+  todayForColumn,
+  trustedVerifiedStamp,
+} from "@/lib/providers/form";
+import { personLabel } from "@/lib/tasks/people";
 import { insertProviderActivity } from "@/lib/providers/collaboration";
 import { validateCustomValues } from "@/lib/table-config/custom-values";
 import { findMissingRequiredFieldsFromContext } from "@/lib/table-config/required";
@@ -80,6 +86,26 @@ export async function PATCH(request: Request, { params }: Ctx) {
     }
     throw error;
   }
+
+  // Form gửi cả hai ô đã khóa để giữ payload đồng nhất, nhưng chỉ server mới
+  // quyết định được người/ngày soát. Bỏ Reviewed thì giữ đúng dấu cũ.
+  Object.assign(patch, trustedVerifiedStamp({
+    currentNeedsReview: currentRow.needs_review,
+    nextNeedsReview: typeof patch.needs_review === "boolean"
+      ? patch.needs_review
+      : currentRow.needs_review,
+    currentVerifiedBy: currentRow.verified_by,
+    currentDate: currentRow.date,
+    actorName: personLabel(
+      email,
+      session.user.name ? new Map([[email, session.user.name]]) : undefined,
+    ),
+    date: todayForColumn(
+      writeContext.columns.find((column) => column.key === "date"),
+      new Date(),
+      PROVIDER_STAMP_TIME_ZONE,
+    ),
+  }));
 
   if (parsed.customValues) {
     const validated = validateCustomValues(parsed.customValues, writeContext);

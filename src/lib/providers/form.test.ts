@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   blankProviderValues,
+  isVerifiedStampColumn,
   providerFieldPatch,
   providerFormPayload,
   todayForColumn,
+  trustedVerifiedStamp,
+  verifiedStampValues,
 } from "@/lib/providers/form";
 import type { TableColumn } from "@/lib/table-config/types";
 
@@ -34,6 +37,22 @@ describe("todayForColumn", () => {
 
   it("viết ISO khi admin đổi cột sang kiểu ngày, vì input type=date chỉ nhận ISO", () => {
     expect(todayForColumn(column({ key: "date", type: "date" }), NOW)).toBe("2026-09-19");
+  });
+
+  it("bản xem trước trên form dùng cùng ngày Việt Nam với dấu server ghi", () => {
+    const usEvening = new Date("2026-10-25T18:00:00Z"); // 11h tối 25/10 giờ Mỹ (PDT)
+    expect(
+      providerFieldPatch(REVIEWED, true, {
+        columns: [REVIEWED, VERIFIED_BY, VERIFIED_DATE],
+        viewerName: "Khang Nguyen",
+        now: usEvening,
+      }).date
+    ).toBe("10/26/2026");
+  });
+
+  it("đóng dấu theo ngày Việt Nam trên server kể cả khi UTC còn là hôm trước", () => {
+    const instant = new Date("2026-10-25T18:00:00Z");
+    expect(todayForColumn(VERIFIED_DATE, instant, "Asia/Ho_Chi_Minh")).toBe("10/26/2026");
   });
 });
 
@@ -71,6 +90,19 @@ describe("providerFieldPatch", () => {
         now: NOW,
       })
     ).toEqual({ needs_review: false });
+  });
+
+  // Hai ô Verified không còn gõ được (25/10/2026), nên tick rồi bỏ tick phải
+  // trả về đúng như trước — form Sửa là giá trị đang lưu, form Thêm là trống.
+  it("bỏ tick Reviewed thì trả hai ô Verified về giá trị trước khi tick", () => {
+    expect(
+      providerFieldPatch(REVIEWED, false, {
+        columns: [REVIEWED, VERIFIED_BY, VERIFIED_DATE],
+        viewerName: "Khang Nguyen",
+        now: NOW,
+        unreviewed: { verified_by: "Ngan Nguyen", date: "05/01/2026" },
+      })
+    ).toEqual({ needs_review: false, verified_by: "Ngan Nguyen", date: "05/01/2026" });
   });
 
   it("không điền gì khi admin đã archive hai cột đó", () => {
@@ -169,5 +201,46 @@ describe("providerFormPayload", () => {
   it("gộp cột tuỳ chỉnh lên giá trị sẵn có của dòng", () => {
     const body = providerFormPayload({ note: "Vietnamese" }, columns, { legacy: "keep" });
     expect(body.custom_values).toEqual({ legacy: "keep", note: "Vietnamese" });
+  });
+});
+
+describe("Verified by / Verified date do hệ thống điền", () => {
+  it("API tự đóng dấu khi Reviewed và bỏ qua dấu do client gửi", () => {
+    expect(trustedVerifiedStamp({
+      currentNeedsReview: true,
+      nextNeedsReview: false,
+      currentVerifiedBy: "Old Name",
+      currentDate: "01/01/2026",
+      actorName: "Khang Nguyen",
+      date: "10/26/2026",
+    })).toEqual({ verified_by: "Khang Nguyen", date: "10/26/2026" });
+  });
+
+  it("API giữ dấu cũ khi bỏ Reviewed hoặc chỉ sửa ô khác", () => {
+    const base = {
+      currentVerifiedBy: "Ngan Nguyen",
+      currentDate: "05/01/2026",
+      actorName: "Khang Nguyen",
+      date: "10/26/2026",
+    };
+    expect(trustedVerifiedStamp({ ...base, currentNeedsReview: false, nextNeedsReview: true }))
+      .toEqual({ verified_by: "Ngan Nguyen", date: "05/01/2026" });
+    expect(trustedVerifiedStamp({ ...base, currentNeedsReview: false, nextNeedsReview: false }))
+      .toEqual({ verified_by: "Ngan Nguyen", date: "05/01/2026" });
+  });
+
+  it("chỉ hai cột hệ thống đó là ô chỉ hiện", () => {
+    expect(isVerifiedStampColumn(VERIFIED_BY)).toBe(true);
+    expect(isVerifiedStampColumn(VERIFIED_DATE)).toBe(true);
+    expect(isVerifiedStampColumn(column({ key: "city" }))).toBe(false);
+    expect(isVerifiedStampColumn(column({ key: "date", is_system: false }))).toBe(false);
+  });
+
+  it("lấy đúng hai ô có trong form, hoặc để trống cho dòng mới", () => {
+    const values = { city: "Katy", verified_by: "Zoe Nguyen", date: "09/19/2026" };
+    expect(verifiedStampValues(values)).toEqual({ verified_by: "Zoe Nguyen", date: "09/19/2026" });
+    expect(verifiedStampValues(values, { blank: true })).toEqual({ verified_by: "", date: "" });
+    // Cột đã archive không có trong form thì không được thêm vào.
+    expect(verifiedStampValues({ verified_by: "Zoe Nguyen" })).toEqual({ verified_by: "Zoe Nguyen" });
   });
 });
