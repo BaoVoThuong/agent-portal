@@ -6,6 +6,18 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-27 — Sync Google Sheet chặn dữ liệu rác; dọn bảng backup cũ (code chưa deploy, DB đã chạy)
+
+- **datasync** (`lib/google-sheet.js`): phản hồi không phải `text/csv` giờ làm sync báo lỗi. Trước đây, Sheet bị
+  tắt chia sẻ link trả về trang đăng nhập Google (HTTP 200); trang đó bị đọc như CSV rồi thay bảng
+  `health_raw_data` / `pc_raw_data` bằng dòng rác.
+- **DB** (rollout `2026-10-27-drop-legacy-objects.sql`, đã chạy production 27/10; file giữ local):
+  - Đã xoá 2 hàm không dùng (`ai_run_select`, `create_adaptive_test`), 20 bảng `_bk_*`, 3 bảng legacy
+    (`health_client_submission`, `pc_month_base_policy`, `role_permissions_lead_timeoff_backup`) và schema
+    `access_backup`. CSV của 33 bảng giữ ở máy local.
+  - Script khôi phục `2026-10-16-access-restore.sql` vì thế không còn dùng được.
+  - Chốt chặn của `2026-08-17-reset-cs-for-golive.sql` trước đây dựa vào `_bk_20260817_tasks`, giờ dừng vô điều kiện.
+
 ## 2026-10-26 — Provider: State → City → ZIP là dropdown lọc dây chuyền; sửa bộ lọc City (chưa deploy)
 
 - **Form Add / Edit** (user chốt 26/10: danh sách đầy đủ của Mỹ, chỉ được chọn): State là 50 bang + DC; City chỉ còn

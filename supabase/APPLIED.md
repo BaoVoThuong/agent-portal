@@ -125,16 +125,16 @@ file 1 xoá.
 trước go-live. **Chạy đúng một lần.**
 
 `rollouts/2026-10-04-reset-leads-sample-data.sql` — xoá mọi lead + event trước
-khi nhập lead thật. **Đã chạy, đừng chạy lại**: có chốt chặn (bảng
-`_bk_20261004_*` tồn tại, hoặc hơn 150 lead thì dừng), nhưng đừng dựa vào đó.
-Xoá các bảng `_bk_20261004_*` khi không cần tra cứu nữa (lệnh ở cuối file).
+khi nhập lead thật. **Đã chạy, đừng chạy lại**: chốt chặn còn lại là hơn 150
+lead thì dừng, nhưng đừng dựa vào đó. Các bảng `_bk_20261004_*` đã xoá ngày
+27/10/2026 (CSV giữ ở máy local).
 
 Mọi file khác trong `rollouts/` chạy lại đều vô hại. File CS thì không: chạy lần
 hai sẽ xoá dữ liệu thật phát sinh sau go-live, và khối kiểm tra vẫn báo ✅ vì nó
 chỉ khẳng định `tasks = 0` — đúng y kết quả của một lần chạy nhầm.
 
-Đã cài chốt chặn ở đầu file: thấy bảng `_bk_20260817_*` là dừng ngay. Nhưng
-đừng dựa vào đó — hãy đọc file trước khi chạy.
+Chốt chặn ở đầu file giờ dừng vô điều kiện, vì các bảng `_bk_20260817_*` nó
+từng dựa vào đã xoá ngày 27/10/2026. Vẫn hãy đọc file trước khi chạy.
 
 Trước khi chạy nhớ **tắt workflow "Task reminders cron"**, bật lại sau khi xong.
 

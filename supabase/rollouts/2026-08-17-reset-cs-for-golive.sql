@@ -53,14 +53,14 @@
 -- bản sao lưu cũ, xoá sạch dữ liệu thật mới phát sinh, và khối kiểm tra vẫn
 -- báo ✅ vì nó chỉ khẳng định `tasks = 0` — đúng y kết quả của một lần chạy
 -- nhầm. Nên phải dừng ngay từ đầu.
+--
+-- Chốt cũ dựa vào bảng _bk_20260817_*. Các bảng đó đã xoá ngày 27/10/2026
+-- (CSV giữ ở máy local), nên giờ chặn vô điều kiện.
 do $$
 begin
-  if to_regclass('public._bk_20260817_tasks') is not null then
-    raise exception
-      'ĐÃ CHẠY RỒI. Bảng _bk_20260817_* đang tồn tại. Chạy lại sẽ xoá dữ liệu '
-      'thật phát sinh sau go-live. Muốn chạy lại thật thì xoá thủ công các '
-      'bảng _bk_20260817_* trước, sau khi đã chắc chắn không cần chúng nữa.';
-  end if;
+  raise exception
+    'ĐÃ CHẠY NGÀY 17/08/2026. Chạy lại sẽ xoá dữ liệu thật phát sinh sau go-live. '
+    'Muốn chạy lại thật thì xoá khối chốt chặn này, sau khi đã chắc chắn.';
 end $$;
 
 begin;

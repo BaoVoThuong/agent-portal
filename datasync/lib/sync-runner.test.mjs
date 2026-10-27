@@ -17,7 +17,9 @@ function fakeNetwork(finalize = () => new Response("1")) {
   vi.stubGlobal("fetch", vi.fn(async (input, init = {}) => {
     const url = new URL(String(input));
     calls.push({ method: init.method ?? "GET", url });
-    if (url.hostname === "docs.google.com") return new Response("agent\nann@example.com\n");
+    if (url.hostname === "docs.google.com") {
+      return new Response("agent\nann@example.com\n", { headers: { "content-type": "text/csv" } });
+    }
     if (url.pathname === "/rest/v1/rpc/finalize_sheet_sync") return finalize();
     if (url.pathname.startsWith("/rest/v1/rpc/")) return new Response("");
     return new Response(null, { status: 201 });
