@@ -1,273 +1,261 @@
 "use client";
 
-import { useState } from "react";
-import { createPortal } from "react-dom";
-import {
-  DndContext,
-  DragOverlay,
-  KeyboardSensor,
-  PointerSensor,
-  useDraggable,
-  useDroppable,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-  type DragStartEvent,
-} from "@dnd-kit/core";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import {
   assignPcColumn,
+  isCompletePcMapping,
+  missingPcInputs,
   PC_INPUT_FIELDS,
   type PcColumnMapping,
-  type PcFileColumn,
   type PcInputField,
   type PcWorkbookInspection,
 } from "@/lib/automation/pc-statement/column-mapping";
 
 type Mapping = Partial<PcColumnMapping>;
 
-function ColumnChip({
-  column,
-  usedBy,
-  compact = false,
-}: {
-  column: PcFileColumn;
-  usedBy?: string;
-  compact?: boolean;
-}) {
-  return (
-    <span className="flex min-w-0 items-center gap-2">
-      <span className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded bg-[#e8eef6] px-1.5 text-xs font-bold text-[#245a94]">
-        {column.letter}
-      </span>
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-semibold text-[#16233a]">{column.label}</span>
-        {!compact && (
-          <span className="block truncate text-xs text-[#667085]">
-            {usedBy ? `→ ${usedBy}` : column.samples.join(" · ") || "—"}
-          </span>
-        )}
-      </span>
-    </span>
-  );
-}
-
-function DraggableColumn({
-  column,
-  usedBy,
-  armed,
-  onPick,
-}: {
-  column: PcFileColumn;
-  usedBy?: string;
-  armed: boolean;
-  onPick: () => void;
-}) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `column:${column.letter}`,
-    data: { letter: column.letter },
-  });
-  return (
-    <button
-      ref={setNodeRef}
-      type="button"
-      {...attributes}
-      {...listeners}
-      onClick={onPick}
-      className={`flex w-full cursor-grab items-center rounded-md border px-2.5 py-2 text-left transition active:cursor-grabbing ${
-        isDragging ? "opacity-40" : ""
-      } ${
-        usedBy
-          ? "border-[#e1e7ef] bg-[#f8fafc] opacity-70"
-          : armed
-            ? "border-[#245a94] bg-white hover:bg-[#f3f6fa]"
-            : "border-[#d8dee7] bg-white hover:border-[#9fb3cc]"
-      }`}
-    >
-      <ColumnChip column={column} usedBy={usedBy} />
-    </button>
-  );
-}
-
-function InputSlot({
-  field,
-  label,
-  column,
-  armed,
-  onArm,
-  onClear,
-}: {
-  field: PcInputField;
-  label: string;
-  column: PcFileColumn | null;
-  armed: boolean;
-  onArm: () => void;
-  onClear: () => void;
-}) {
-  const { setNodeRef, isOver } = useDroppable({ id: `input:${field}`, data: { field } });
-  return (
-    <div
-      ref={setNodeRef}
-      className={`rounded-md border-2 border-dashed px-2.5 py-2 transition ${
-        isOver
-          ? "border-[#245a94] bg-[#eef4fb]"
-          : armed
-            ? "border-[#245a94] bg-white"
-            : column
-              ? "border-[#b8e0c7] bg-[#f3fbf6]"
-              : "border-[#cfd7e3] bg-white"
-      }`}
-    >
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="text-[11px] font-bold uppercase tracking-wide text-[#667085]">{label}</span>
-        {column && (
-          <button
-            type="button"
-            onClick={onClear}
-            aria-label={`Clear ${label}`}
-            className="rounded p-0.5 text-[#98a2b3] hover:bg-[#f3f6fa] hover:text-[#b42318]"
-          >
-            <X size={14} aria-hidden="true" />
-          </button>
-        )}
-      </div>
-      <button type="button" onClick={onArm} className="block w-full text-left">
-        {column ? (
-          <ColumnChip column={column} compact />
-        ) : (
-          <span className="block py-0.5 text-sm text-[#98a2b3]">
-            {armed ? "Now click a column below" : "Drop a column here"}
-          </span>
-        )}
-      </button>
-    </div>
-  );
-}
-
 /**
- * Drag the payment file's columns onto the five inputs the statement uses.
- * Pre-filled from the header text; a click on an input then a column does the
- * same as dragging, for touchpads and keyboards.
+ * Preview of the payment file with the five inputs on top: pick an input, then
+ * click its column in the preview. Opens on its own only when the header text
+ * did not name every input; a file that matched 5/5 never shows it.
  */
-export function PcColumnMapper({
+export function PcColumnMappingDialog({
+  fileName,
   inspection,
   mapping,
-  onChange,
+  onSave,
+  onClose,
 }: {
+  fileName: string;
   inspection: PcWorkbookInspection;
   mapping: Mapping;
-  onChange: (mapping: Mapping) => void;
+  onSave: (mapping: Mapping) => void;
+  onClose: () => void;
 }) {
-  const [armedField, setArmedField] = useState<PcInputField | null>(null);
-  const [dragLetter, setDragLetter] = useState<string | null>(null);
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor),
+  const [draft, setDraft] = useState<Mapping>(mapping);
+  const [activeField, setActiveField] = useState<PcInputField | null>(
+    missingPcInputs(mapping)[0] ?? PC_INPUT_FIELDS[0].key,
   );
-  const columnByLetter = new Map(inspection.columns.map((column) => [column.letter, column]));
+  const tableRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  // Bring the active input's column into view when it already has one.
+  useEffect(() => {
+    const letter = activeField ? draft[activeField] : undefined;
+    if (!letter) return;
+    tableRef.current
+      ?.querySelector(`[data-column="${letter}"]`)
+      ?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [activeField, draft]);
+
   const fieldByLetter = new Map(
-    PC_INPUT_FIELDS.filter((field) => mapping[field.key]).map((field) => [
-      mapping[field.key]!,
-      field.label,
-    ]),
+    PC_INPUT_FIELDS.filter((field) => draft[field.key]).map((field) => [draft[field.key]!, field]),
   );
-  const mappedCount = PC_INPUT_FIELDS.filter((field) => mapping[field.key]).length;
+  const columnLabel = new Map(inspection.columns.map((column) => [column.letter, column.label]));
+  const mappedCount = PC_INPUT_FIELDS.length - missingPcInputs(draft).length;
+  const complete = isCompletePcMapping(draft);
+  const activeLabel = PC_INPUT_FIELDS.find((field) => field.key === activeField)?.label;
 
-  const handleDragStart = (event: DragStartEvent) => {
-    setDragLetter((event.active.data.current as { letter?: string } | undefined)?.letter ?? null);
-  };
-  const handleDragEnd = (event: DragEndEvent) => {
-    setDragLetter(null);
-    const letter = (event.active.data.current as { letter?: string } | undefined)?.letter;
-    const field = (event.over?.data.current as { field?: PcInputField } | undefined)?.field;
-    if (letter && field) {
-      onChange(assignPcColumn(mapping, field, letter));
-      setArmedField(null);
-    }
+  const pickColumn = (letter: string) => {
+    if (!activeField) return;
+    const next = assignPcColumn(draft, activeField, letter);
+    setDraft(next);
+    setActiveField(missingPcInputs(next)[0] ?? null);
   };
 
-  if (inspection.columns.length === 0) {
-    return (
-      <div className="mt-3 rounded-md border border-[#f2b8b5] bg-[#fff4f2] px-3 py-2 text-sm text-[#9f2f24]">
-        Could not find the header row of this file.
-      </div>
-    );
-  }
-
-  const dragged = dragLetter ? columnByLetter.get(dragLetter) ?? null : null;
+  const clearField = (field: PcInputField) => {
+    const next = { ...draft };
+    delete next[field];
+    setDraft(next);
+    setActiveField(field);
+  };
 
   return (
-    <DndContext
-      sensors={sensors}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
-      onDragCancel={() => setDragLetter(null)}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#091e42]/40 p-4 sm:p-6"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
     >
-      <div className="mt-4 space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-sm font-semibold text-[#16233a]">Map columns</span>
-          <span
-            className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-              mappedCount === PC_INPUT_FIELDS.length
-                ? "bg-[#d1fadf] text-[#15803d]"
-                : "bg-[#fef0c7] text-[#b54708]"
-            }`}
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Map columns"
+        className="flex h-[min(760px,calc(100vh-3rem))] w-full max-w-6xl flex-col overflow-hidden rounded-lg bg-white shadow-[0_16px_48px_rgba(9,30,66,0.32)]"
+      >
+        <header className="flex shrink-0 items-center justify-between gap-4 border-b border-[#dfe1e6] px-6 py-4">
+          <div className="min-w-0">
+            <h2 className="text-xl font-semibold text-[#172b4d]">Map columns</h2>
+            <p className="mt-1 truncate text-sm text-[#626f86]">
+              {fileName}
+              {inspection.headerRow ? ` · Header row ${inspection.headerRow}` : ""}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded text-[#626f86] transition hover:bg-[#f4f5f7] hover:text-[#172b4d]"
           >
-            {mappedCount}/{PC_INPUT_FIELDS.length}
+            <X className="h-5 w-5" />
+          </button>
+        </header>
+
+        <div className="grid shrink-0 grid-cols-2 gap-3 border-b border-[#dfe1e6] bg-[#fafbfc] px-6 py-4 md:grid-cols-5">
+          {PC_INPUT_FIELDS.map((field) => {
+            const letter = draft[field.key];
+            const active = activeField === field.key;
+            return (
+              <button
+                key={field.key}
+                type="button"
+                onClick={() => setActiveField(active ? null : field.key)}
+                className={`min-w-0 rounded-lg border-2 px-3 py-2 text-left transition ${
+                  active
+                    ? "border-[#0c66e4] bg-white shadow-[0_0_0_3px_rgba(12,102,228,0.15)]"
+                    : letter
+                      ? "border-[#dfe1e6] bg-white hover:border-[#b3b9c4]"
+                      : "border-[#f5cd47] bg-[#fffbeb] hover:border-[#e2b203]"
+                }`}
+              >
+                <span className="block truncate text-xs font-bold uppercase tracking-wide text-[#6b778c]">
+                  {field.label}
+                </span>
+                <span className="mt-1 flex h-6 min-w-0 items-center gap-1.5 text-sm font-semibold">
+                  {letter ? (
+                    <>
+                      <span className="inline-flex h-[22px] min-w-6 shrink-0 items-center justify-center rounded bg-[#e9f2ff] px-1.5 text-xs font-bold text-[#0c66e4]">
+                        {letter}
+                      </span>
+                      <span className="truncate text-[#172b4d]">{columnLabel.get(letter) ?? letter}</span>
+                    </>
+                  ) : (
+                    <span className={`truncate ${active ? "text-[#0c66e4]" : "text-[#a54800]"}`}>
+                      {active ? "Click a column below" : "Not found"}
+                    </span>
+                  )}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <p className="shrink-0 border-b border-[#ebecf0] px-6 py-2.5 text-sm text-[#44546f]">
+          {activeLabel ? (
+            <>
+              Click the column for <span className="font-semibold text-[#0c66e4]">{activeLabel}</span>
+            </>
+          ) : (
+            "Pick an input above to change its column"
+          )}
+        </p>
+
+        <div ref={tableRef} className="min-h-0 flex-1 overflow-auto">
+          <table className="border-separate border-spacing-0 text-sm">
+            <thead>
+              <tr>
+                <th className="sticky left-0 top-0 z-30 h-[34px] min-w-11 border-b border-r border-[#ebecf0] bg-[#fafbfc]" />
+                {inspection.columns.map((column) => {
+                  const field = fieldByLetter.get(column.letter);
+                  return (
+                    <th
+                      key={column.letter}
+                      className={`sticky top-0 z-20 h-[34px] border-b border-r border-[#ebecf0] px-2 text-left ${
+                        field ? "bg-[#e9f2ff]" : "bg-white"
+                      }`}
+                    >
+                      {field && (
+                        <span className="inline-flex h-[22px] items-center gap-1 whitespace-nowrap rounded-full bg-[#0c66e4] pl-2 pr-1 text-[11px] font-bold text-white">
+                          {field.label}
+                          <button
+                            type="button"
+                            onClick={() => clearField(field.key)}
+                            aria-label={`Clear ${field.label}`}
+                            className="rounded-full p-0.5 opacity-80 hover:opacity-100"
+                          >
+                            <X size={12} aria-hidden="true" />
+                          </button>
+                        </span>
+                      )}
+                    </th>
+                  );
+                })}
+              </tr>
+              <tr>
+                <th className="sticky left-0 top-[34px] z-30 border-b border-r border-[#ebecf0] bg-[#fafbfc] px-2 py-2 text-right text-xs font-normal text-[#8590a2]">
+                  {inspection.headerRow ?? ""}
+                </th>
+                {inspection.columns.map((column) => {
+                  const mapped = fieldByLetter.has(column.letter);
+                  return (
+                    <th
+                      key={column.letter}
+                      data-column={column.letter}
+                      onClick={() => pickColumn(column.letter)}
+                      className={`sticky top-[34px] z-20 whitespace-nowrap border-b border-r border-[#ebecf0] px-3 py-2 text-left font-semibold ${
+                        mapped ? "bg-[#e9f2ff] text-[#09326c]" : "bg-[#fafbfc] text-[#172b4d]"
+                      } ${activeField ? "cursor-pointer hover:bg-[#cce0ff]" : ""}`}
+                    >
+                      <span className="mr-1.5 text-[11px] font-bold text-[#8590a2]">{column.letter}</span>
+                      {column.label}
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {inspection.preview.map((row, rowIndex) => (
+                <tr key={rowIndex}>
+                  <td className="sticky left-0 z-10 border-b border-r border-[#ebecf0] bg-[#fafbfc] px-2 py-1.5 text-right text-xs text-[#8590a2]">
+                    {rowIndex + 1}
+                  </td>
+                  {inspection.columns.map((column, columnIndex) => (
+                    <td
+                      key={column.letter}
+                      onClick={() => pickColumn(column.letter)}
+                      className={`max-w-[220px] truncate whitespace-nowrap border-b border-r border-[#ebecf0] px-3 py-1.5 text-[#44546f] ${
+                        fieldByLetter.has(column.letter) ? "bg-[#f5f9ff]" : ""
+                      } ${activeField ? "cursor-pointer" : ""}`}
+                    >
+                      {row[columnIndex]}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-[#dfe1e6] px-6 py-4">
+          <span className={`text-sm font-semibold ${complete ? "text-[#216e4e]" : "text-[#a54800]"}`}>
+            {mappedCount}/{PC_INPUT_FIELDS.length} mapped
           </span>
-        </div>
-
-        <div className="grid gap-2 sm:grid-cols-2">
-          {PC_INPUT_FIELDS.map((field) => (
-            <InputSlot
-              key={field.key}
-              field={field.key}
-              label={field.label}
-              column={mapping[field.key] ? columnByLetter.get(mapping[field.key]!) ?? null : null}
-              armed={armedField === field.key}
-              onArm={() => setArmedField((current) => (current === field.key ? null : field.key))}
-              onClear={() => {
-                const next = { ...mapping };
-                delete next[field.key];
-                onChange(next);
-              }}
-            />
-          ))}
-        </div>
-
-        <div>
-          <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wide text-[#667085]">
-            File columns{inspection.headerRow ? ` · header row ${inspection.headerRow}` : ""}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-9 rounded bg-[#f1f2f4] px-4 text-sm font-semibold text-[#44546f] transition hover:bg-[#e4e6ea]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={!complete}
+              onClick={() => onSave(draft)}
+              className="h-9 rounded bg-[#0c66e4] px-4 text-sm font-semibold text-white transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:bg-[#f1f2f4] disabled:text-[#a5adba]"
+            >
+              Save
+            </button>
           </div>
-          <div className="grid max-h-72 gap-1.5 overflow-y-auto pr-1 sm:grid-cols-2">
-            {inspection.columns.map((column) => (
-              <DraggableColumn
-                key={column.letter}
-                column={column}
-                usedBy={fieldByLetter.get(column.letter)}
-                armed={armedField !== null}
-                onPick={() => {
-                  if (!armedField) return;
-                  onChange(assignPcColumn(mapping, armedField, column.letter));
-                  setArmedField(null);
-                }}
-              />
-            ))}
-          </div>
-        </div>
+        </footer>
       </div>
-
-      {typeof document !== "undefined" &&
-        createPortal(
-          <DragOverlay dropAnimation={null}>
-            {dragged ? (
-              <div className="rounded-md border border-[#245a94] bg-white px-2.5 py-2 shadow-lg">
-                <ColumnChip column={dragged} compact />
-              </div>
-            ) : null}
-          </DragOverlay>,
-          document.body,
-        )}
-    </DndContext>
+    </div>
   );
 }

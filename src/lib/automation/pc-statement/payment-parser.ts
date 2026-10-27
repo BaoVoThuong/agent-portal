@@ -63,6 +63,7 @@ export class PcColumnMappingError extends Error {
 /** Header rows above the one with the field names that still belong to the header (two-row headers). */
 const MAX_EXTRA_HEADER_ROWS = 2;
 const SAMPLE_COUNT = 3;
+const PREVIEW_ROWS = 15;
 
 function normalizeLabel(value: CellValue | undefined) {
   return String(value ?? "")
@@ -383,7 +384,14 @@ function rowToCleanPayment(
 function inspectSheet(sheet: ParsedSheet, headerIndex: number) {
   const rows = dataRows(sheet, headerIndex);
   const columns = sheetColumns(sheet, headerIndex, rows);
-  return { columns, suggested: suggestMapping(columns, rows) };
+  const preview = rows
+    .slice(0, PREVIEW_ROWS)
+    .map((row) =>
+      columns.map((column) =>
+        isEmpty(row[column.index]) ? "" : sampleText(row[column.index], column.label),
+      ),
+    );
+  return { columns, preview, suggested: suggestMapping(columns, rows) };
 }
 
 function parseSheet(sheet: ParsedSheet, mapping: PcColumnMapping | null) {
@@ -482,15 +490,16 @@ export function inspectPcPaymentWorkbook(buffer: Buffer): PcWorkbookInspection {
   for (const sheet of workbookToSheets(buffer)) {
     const headerIndex = detectHeaderIndex(sheet);
     if (headerIndex === -1) continue;
-    const { columns, suggested } = inspectSheet(sheet, headerIndex);
+    const { columns, preview, suggested } = inspectSheet(sheet, headerIndex);
     return {
       sheet: sheet.name,
       headerRow: headerIndex + 1,
       columns: columns.map(({ letter, label, samples }) => ({ letter, label, samples })),
+      preview,
       suggested,
     };
   }
-  return { sheet: null, headerRow: null, columns: [], suggested: {} };
+  return { sheet: null, headerRow: null, columns: [], preview: [], suggested: {} };
 }
 
 /**

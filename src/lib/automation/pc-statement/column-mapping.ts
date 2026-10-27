@@ -66,6 +66,8 @@ export type PcWorkbookInspection = {
   /** 1-based, as Excel shows it. */
   headerRow: number | null;
   columns: PcFileColumn[];
+  /** The first data rows, one cell per entry of `columns`, for the mapping preview. */
+  preview: string[][];
   suggested: Partial<PcColumnMapping>;
 };
 

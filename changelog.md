@@ -6,6 +6,13 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-27 — P&C Statement: map cột bằng modal, chỉ mở khi thiếu (đã deploy)
+
+- File thanh toán tự khớp đủ 5/5 cột thì chỉ hiện dòng `✓ 5/5 columns matched` + Edit; thiếu cột thì modal
+  **Map columns** tự mở (xem trước file, bấm cột để gán, tự nhảy sang ô còn thiếu, Save khi đủ 5/5).
+  Bỏ khối kéo-thả cũ luôn hiện trên trang.
+- `inspectPcPaymentWorkbook` trả thêm `preview` (15 dòng dữ liệu đầu, mỗi ô theo `columns`) cho modal.
+
 ## 2026-10-27 — Sync Google Sheet chặn dữ liệu rác; dọn bảng backup cũ (code chưa deploy, DB đã chạy)
 
 - **datasync** (`lib/google-sheet.js`): phản hồi không phải `text/csv` giờ làm sync báo lỗi. Trước đây, Sheet bị

@@ -100,6 +100,16 @@ describe("inspectPcPaymentWorkbook", () => {
     expect(byLetter.K.samples).toEqual(["626", "1696", "-261"]);
   });
 
+  it("previews the first data rows, one cell per listed column", () => {
+    const inspection = inspectPcPaymentWorkbook(buildWorkbook());
+    expect(inspection.preview.length).toBeGreaterThan(0);
+    for (const row of inspection.preview) expect(row).toHaveLength(inspection.columns.length);
+    const premium = inspection.columns.findIndex((column) => column.letter === "K");
+    expect(inspection.preview.map((row) => row[premium]).filter(Boolean).slice(0, 3)).toEqual([
+      "626", "1696", "-261",
+    ]);
+  });
+
   it("pre-fills the five inputs from the header text", () => {
     expect(inspectPcPaymentWorkbook(buildWorkbook()).suggested).toEqual({
       insured: "A",

@@ -4,10 +4,12 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import {
   isCompletePcMapping,
+  missingPcInputs,
+  PC_INPUT_FIELDS,
   type PcColumnMapping,
   type PcWorkbookInspection,
 } from "@/lib/automation/pc-statement/column-mapping";
-import { PcColumnMapper } from "./PcColumnMapper";
+import { PcColumnMappingDialog } from "./PcColumnMapper";
 
 type PaymentFileInput = {
   id: string;
@@ -138,6 +140,27 @@ function rememberMapping(inspection: PcWorkbookInspection, mapping: Partial<PcCo
 
 function isFileReady(item: PaymentFileInput) {
   return Boolean(item.file) && !item.inspecting && isCompletePcMapping(item.mapping);
+}
+
+function MappingStatus({ missing, onOpen }: { missing: number; onOpen: () => void }) {
+  return (
+    <div className="mt-3 flex items-center gap-3 text-sm">
+      {missing === 0 ? (
+        <span className="font-semibold text-[#216e4e]">
+          ✓ {PC_INPUT_FIELDS.length}/{PC_INPUT_FIELDS.length} columns matched
+        </span>
+      ) : (
+        <span className="font-semibold text-[#a54800]">{missing} column(s) not found</span>
+      )}
+      <button
+        type="button"
+        onClick={onOpen}
+        className="font-semibold text-[#0c66e4] hover:underline"
+      >
+        {missing === 0 ? "Edit" : "Map columns"}
+      </button>
+    </div>
+  );
 }
 
 function formatFileSize(bytes: number) {
@@ -659,6 +682,7 @@ export default function PcStatementClient() {
   );
   const [totals, setTotals] = useState(emptyTotals);
   const [error, setError] = useState<string | null>(null);
+  const [mappingFileId, setMappingFileId] = useState<string | null>(null);
 
   const canRun = useMemo(
     () => paymentFiles.length > 0 && paymentFiles.every(isFileReady),
@@ -767,6 +791,7 @@ export default function PcStatementClient() {
       if (!response.ok || !inspection) {
         throw new Error(data?.error ?? "Could not read the payment file");
       }
+      const mapping = rememberedMapping(inspection) ?? inspection.suggested;
       setPaymentFiles((current) =>
         current.map((item) =>
           // A newer file chosen in the meantime owns this slot now.
@@ -774,13 +799,15 @@ export default function PcStatementClient() {
             ? {
                 ...item,
                 inspection,
-                mapping: rememberedMapping(inspection) ?? inspection.suggested,
+                mapping,
                 inspecting: false,
                 inspectError: null,
               }
             : item,
         ),
       );
+      // Only a file whose headers missed an input needs the mapping dialog.
+      if (inspection.columns.length > 0 && !isCompletePcMapping(mapping)) setMappingFileId(id);
     } catch (err) {
       setPaymentFiles((current) =>
         current.map((item) =>
@@ -819,6 +846,8 @@ export default function PcStatementClient() {
     if (item?.inspection) rememberMapping(item.inspection, mapping);
     patchPaymentFile(id, { mapping });
   };
+
+  const mappingItem = paymentFiles.find((item) => item.id === mappingFileId) ?? null;
 
   const addPaymentFile = () => {
     setReportPreview(null);
@@ -1041,16 +1070,33 @@ export default function PcStatementClient() {
                         {item.inspectError}
                       </div>
                     )}
-                    {item.inspection && (
-                      <PcColumnMapper
-                        inspection={item.inspection}
-                        mapping={item.mapping}
-                        onChange={(mapping) => updatePaymentMapping(item.id, mapping)}
-                      />
-                    )}
+                    {item.inspection &&
+                      (item.inspection.columns.length === 0 ? (
+                        <div className="mt-3 rounded-md border border-[#f2b8b5] bg-[#fff4f2] px-3 py-2 text-sm text-[#9f2f24]">
+                          Could not find the header row of this file.
+                        </div>
+                      ) : (
+                        <MappingStatus
+                          missing={missingPcInputs(item.mapping).length}
+                          onOpen={() => setMappingFileId(item.id)}
+                        />
+                      ))}
                   </div>
                 ))}
               </div>
+              {mappingItem?.file && mappingItem.inspection && (
+                <PcColumnMappingDialog
+                  key={mappingItem.id}
+                  fileName={mappingItem.file.name}
+                  inspection={mappingItem.inspection}
+                  mapping={mappingItem.mapping}
+                  onClose={() => setMappingFileId(null)}
+                  onSave={(mapping) => {
+                    updatePaymentMapping(mappingItem.id, mapping);
+                    setMappingFileId(null);
+                  }}
+                />
+              )}
             </div>
           </div>
 
