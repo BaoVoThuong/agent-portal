@@ -6,6 +6,16 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-30 — Accountant Management (nhánh `feat/accountant-management`, CHƯA merge)
+
+- Nhóm sidebar mới: **Health Commission** (`/accounting/health`) + **Commission Bill** (`/accounting/bills`). Giai đoạn UI:
+  server đọc thẳng CSV 2 tab sheet lương (2025 + 2026 clean), không bảng DB mới, không đụng `health_mart`/sync.
+  Sửa ô, Upload month, gắn agent chỉ nằm trong trình duyệt (chưa lưu).
+- Gác TẠM bằng quyền Role Manager (`src/lib/accounting/permission.ts`) — phải có quyền riêng trước khi deploy.
+- Paid Thru = Paid-to-date muộn nhất của tháng có Agent Received (không lấy cột K gõ tay).
+- "Unpaid months" (chỉ từ 2026): tháng từ Broker Eff tới tháng trước báo cáo mới nhất mà không khoản nào phủ
+  (bỏ NC/N/C/ô trống, dừng trước T; trả gộp N lần = N tháng; năm Paid-to-date gõ nhầm thì lấy năm của dòng).
+
 ## 2026-10-27 — P&C Statement: map cột bằng modal, chỉ mở khi thiếu (đã deploy)
 
 - File thanh toán tự khớp đủ 5/5 cột thì chỉ hiện dòng `✓ 5/5 columns matched` + Edit; thiếu cột thì modal

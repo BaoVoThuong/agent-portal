@@ -7,6 +7,7 @@ import { useState } from "react";
 import styles from "./sidebar.module.css";
 import { can, canAny } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { ACCOUNTING_PAGE_PERMISSION } from "@/lib/accounting/permission";
 
 type SidebarProps = {
   permissions?: string[];
@@ -59,6 +60,22 @@ const menuData: MenuItem[] = [
         href: "/automation/pc-statement",
         label: "P&C Statement",
         permission: PERMISSIONS.AUTOMATION_PC_STATEMENT,
+      },
+    ],
+  },
+  {
+    title: "Accountant Management",
+    permission: ACCOUNTING_PAGE_PERMISSION,
+    children: [
+      {
+        href: "/accounting/health",
+        label: "Health Commission",
+        permission: ACCOUNTING_PAGE_PERMISSION,
+      },
+      {
+        href: "/accounting/bills",
+        label: "Commission Bill",
+        permission: ACCOUNTING_PAGE_PERMISSION,
       },
     ],
   },
@@ -203,6 +220,7 @@ function groupForPath(pathname: string): string | null {
     return "Customer Registration";
   }
   if (pathname.startsWith("/automation")) return "Automation Tool";
+  if (pathname.startsWith("/accounting")) return "Accountant Management";
   if (
     pathname.startsWith("/dashboard") ||
     pathname.startsWith("/sales-dashboard")
