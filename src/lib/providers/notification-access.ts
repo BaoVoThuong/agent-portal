@@ -1,5 +1,4 @@
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { canViewProviders } from "./access";
 
 /**
  * Người nhận còn mở được thông báo Provider không. Provider List không chia
@@ -9,5 +8,5 @@ import { PERMISSIONS } from "@/lib/rbac/permissions";
  * phải tự nhắc tới quyền của module khác — xem rbac/module-boundaries.test.ts.
  */
 export function canViewProviderNotification(permissions: readonly string[] | undefined): boolean {
-  return can(permissions, PERMISSIONS.AUTOMATION_PROVIDER_FINDER);
+  return canViewProviders(permissions);
 }

@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import { requireAnyPermission } from "@/lib/rbac/server";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
 import {
   canAddProviders,
   canExportProviders,
   canImportProviders,
   canManageProviders,
   canReviewProviderBacklog,
+  PROVIDER_VIEW_PERMISSIONS,
 } from "@/lib/providers/access";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchTableColumnsWithOptions } from "@/lib/table-config/queries";
@@ -25,7 +25,7 @@ export default async function ProviderListPage() {
   const timing = new RouteTiming("provider-list-page");
   // Dùng chung quyền với Provider Finder: cùng dữ liệu, cùng nhóm người dùng.
   const session = await timing.measure("auth", () =>
-    requireAnyPermission([PERMISSIONS.AUTOMATION_PROVIDER_FINDER]),
+    requireAnyPermission([...PROVIDER_VIEW_PERMISSIONS]),
   );
 
   const supabase = getSupabaseAdmin();

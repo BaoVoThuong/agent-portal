@@ -1,7 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { fetchEmailsWithPermission } from "@/lib/rbac/permission-holders";
 import { createSharedLookup } from "@/lib/shared-lookup";
@@ -11,7 +10,7 @@ import type { CommentWithAttachments } from "@/lib/tasks/detail";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { sendBroadcastMessages } from "@/lib/tasks/realtime";
 import { nextCommentPageCursor, type CommentCursor } from "@/lib/collaboration/comment-pagination";
-import { canManageProviders } from "./access";
+import { canManageProviders, canViewProviders } from "./access";
 import type { ProviderActivityRow, ProviderActivityType } from "./activity";
 import { providerReactionTopic, providerRoomTopic } from "./realtime-topics";
 import { PROVIDER_TABLE } from "./types";
@@ -71,7 +70,7 @@ export async function loadProviderCollabContext(
   const email = session?.user?.email?.trim().toLowerCase();
   if (!session || !email) return { ok: false, error: "Unauthorized", status: 401 };
   const permissions = session.user.permissions;
-  if (!can(permissions, PERMISSIONS.AUTOMATION_PROVIDER_FINDER)) {
+  if (!canViewProviders(permissions)) {
     return { ok: false, error: "Forbidden", status: 403 };
   }
   const canComment = canManageProviders(permissions);
@@ -196,7 +195,17 @@ export async function loadProviderActivity(
 // (TASK_MEMBERSHIP_REUSE_MS): mỗi lần mở dialog mà đọc lại là 5 lượt nối đuôi.
 const providerViewers = createSharedLookup(
   async (): Promise<TaskAssignee[]> => {
-    const emails = await fetchEmailsWithPermission(PERMISSIONS.AUTOMATION_PROVIDER_FINDER);
+    // Manage bao gồm Work: người chỉ có Manage cũng xem được bảng.
+    const emails = [
+      ...new Set(
+        (
+          await Promise.all([
+            fetchEmailsWithPermission(PERMISSIONS.AUTOMATION_PROVIDER_FINDER),
+            fetchEmailsWithPermission(PERMISSIONS.AUTOMATION_PROVIDER_MANAGE),
+          ])
+        ).flat(),
+      ),
+    ];
     if (emails.length === 0) return [];
     const { data, error } = await getSupabaseAdmin()
       .from("portal_account")

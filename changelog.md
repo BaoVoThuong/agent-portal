@@ -6,6 +6,18 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-31 — Provider List: Manage bao gồm Work (như task.manage / task.work) (đã deploy)
+
+- `IMPLIED_PERMISSIONS`: `automation.provider_manage` ⊃ `automation.provider_finder`. Role Manager khoá ô Provider
+  Finder khi tick Manage và không lưu Finder bên cạnh Manage.
+- `canManageProviders` chỉ còn đòi Manage (trước: Manage **và** Finder). Mọi cổng "vào Provider List" nhận Finder
+  **hoặc** Manage (`canViewProviders` / `PROVIDER_VIEW_PERMISSIONS`): trang, sidebar, trang đích sau đăng nhập, API
+  list/[id]/review/finder search, chuông, @mention, Table Configuration.
+- Role đang có cả hai (Admin, Restricted Admin, Health Task Manager) không đổi gì; lần lưu role sau sẽ bỏ Finder thừa.
+- Role Manager: nhóm riêng **Provider List** (Manage 100, Work 200); `automation.provider_finder` đổi tên
+  "Provider Finder" → **"Provider List - Work"**. Rollout `2026-10-31-provider-list-permission-group.sql` (chỉ
+  label/group/mô tả của bảng `permissions`, key giữ nguyên) **đã chạy production 31/10**; file giữ local.
+
 ## 2026-10-31 — Enrollment: CS xem được hồ sơ thì sửa được trường của hồ sơ (đã deploy)
 
 - `resolveEnrollmentCapabilities` (`lib/enrollment/access.ts`): `canEditFields` của worker = `true` (trước: chỉ agent

@@ -32,7 +32,7 @@ const ACCESSIBLE_ROUTES: PermissionRoute[] = [
     // nay ở Task Management (2026-10-03); giữ nguyên VỊ TRÍ trong danh sách để
     // trang đích sau đăng nhập của mọi người không đổi.
     href: "/tasks/providers",
-    permission: PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
+    anyPermission: [PERMISSIONS.AUTOMATION_PROVIDER_FINDER, PERMISSIONS.AUTOMATION_PROVIDER_MANAGE],
   },
   {
     href: "/dashboard/health",

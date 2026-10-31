@@ -103,6 +103,7 @@ const menuData: MenuItem[] = [
       PERMISSIONS.LEAD_MANAGE,
       PERMISSIONS.LEAD_WORK,
       PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
+      PERMISSIONS.AUTOMATION_PROVIDER_MANAGE,
     ],
     children: [
       {
@@ -151,7 +152,8 @@ const menuData: MenuItem[] = [
         href: "/tasks/providers",
         label: "Provider List",
         activePath: "/tasks/providers",
-        permission: PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
+        // Manage bao gồm Work, như Task / Lead.
+        anyPermission: [PERMISSIONS.AUTOMATION_PROVIDER_FINDER, PERMISSIONS.AUTOMATION_PROVIDER_MANAGE],
       },
       {
         // MỘT mục cho mọi bảng. Mỗi người chỉ thấy bảng mình quản — người chỉ

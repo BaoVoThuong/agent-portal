@@ -5,6 +5,7 @@ import {
   canImportProviders,
   canManageProviders,
   canReviewProviderBacklog,
+  canViewProviders,
   providerWritesGoLive,
 } from "./access";
 
@@ -34,14 +35,22 @@ describe("provider list access", () => {
     expect(canExportProviders(permissions)).toBe(true);
   });
 
-  it("does not let Manage work without Provider Finder", () => {
-    const permissions = [MANAGE, "task.export", "task.import"];
-    expect(canManageProviders(permissions)).toBe(false);
-    expect(canAddProviders(permissions)).toBe(false);
-    expect(canImportProviders(permissions)).toBe(false);
-    expect(providerWritesGoLive(permissions)).toBe(false);
-    expect(canReviewProviderBacklog(permissions)).toBe(false);
-    expect(canExportProviders(permissions)).toBe(false);
+  // Manage covers Work (2026-10-31), like task.manage / task.work: a role
+  // with only Manage ticked opens the list and does everything.
+  it("lets Manage alone do everything, Finder included", () => {
+    const permissions = [MANAGE];
+    expect(canViewProviders(permissions)).toBe(true);
+    expect(canManageProviders(permissions)).toBe(true);
+    expect(canAddProviders(permissions)).toBe(true);
+    expect(canImportProviders(permissions)).toBe(true);
+    expect(providerWritesGoLive(permissions)).toBe(true);
+    expect(canReviewProviderBacklog(permissions)).toBe(true);
+    expect(canExportProviders(permissions)).toBe(true);
+  });
+
+  it("opens nothing without Finder or Manage", () => {
+    expect(canViewProviders(["task.export", "task.import"])).toBe(false);
+    expect(canAddProviders(["task.manage"])).toBe(false);
   });
 
   // No cross-module grant (2026-10-09): Task export / import open nothing in

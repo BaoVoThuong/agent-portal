@@ -64,15 +64,14 @@ describe("notification alert permissions", () => {
 });
 
 describe("provider permissions", () => {
-  it("keeps Provider List management separate from the Provider Finder tool", () => {
+  it("puts Provider List Work / Manage in their own group, Manage first", () => {
     expect(PERMISSIONS.AUTOMATION_PROVIDER_FINDER).toBe("automation.provider_finder");
     expect(PERMISSIONS.AUTOMATION_PROVIDER_MANAGE).toBe("automation.provider_manage");
     expect(PERMISSION_DEFINITIONS).toContainEqual(
-      expect.objectContaining({
-        key: "automation.provider_manage",
-        groupKey: "automation",
-        sortOrder: 350,
-      }),
+      expect.objectContaining({ key: "automation.provider_manage", label: "Provider List - Manage", groupKey: "provider_list", sortOrder: 100 }),
+    );
+    expect(PERMISSION_DEFINITIONS).toContainEqual(
+      expect.objectContaining({ key: "automation.provider_finder", label: "Provider List - Work", groupKey: "provider_list", sortOrder: 200 }),
     );
   });
 });
@@ -80,6 +79,9 @@ describe("provider permissions", () => {
 describe("manage includes work", () => {
   it("drops Work when the matching Manage is stored", () => {
     expect(normalizeExclusivePermissionKeys(["task.manage", "task.work"])).toEqual(["task.manage"]);
+    expect(
+      normalizeExclusivePermissionKeys(["automation.provider_manage", "automation.provider_finder"])
+    ).toEqual(["automation.provider_manage"]);
     expect(normalizeExclusivePermissionKeys(["lead.manage", "lead.work", "x"]).sort()).toEqual(
       ["lead.manage", "x"]
     );

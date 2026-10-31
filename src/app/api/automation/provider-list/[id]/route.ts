@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { canManageProviders, canReviewProviderBacklog } from "@/lib/providers/access";
+import { canManageProviders, canReviewProviderBacklog, canViewProviders } from "@/lib/providers/access";
 import { findProviderDuplicate } from "@/lib/providers/backlog";
 import { fetchLiveProviderKeys } from "@/lib/providers/backlog-queries";
 import { buildProviderPatch } from "@/lib/providers/patch";
@@ -44,7 +42,7 @@ export async function PATCH(request: Request, { params }: Ctx) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!can(session.user.permissions, PERMISSIONS.AUTOMATION_PROVIDER_FINDER)) {
+  if (!canViewProviders(session.user.permissions)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   if (!UUID_RE.test(id)) {

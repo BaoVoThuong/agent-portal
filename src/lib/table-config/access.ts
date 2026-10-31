@@ -9,9 +9,7 @@ import {
   canManageLeads,
   canWorkLeads,
 } from "@/lib/leads/access";
-import { canManageProviders } from "@/lib/providers/access";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { canManageProviders, canViewProviders } from "@/lib/providers/access";
 import type { TableScope } from "./types";
 
 export async function loadConfigActor() {
@@ -74,7 +72,7 @@ async function loadProviderConfigGate(mode: "read" | "write"): Promise<ScopeGate
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return { ok: false, error: "Unauthorized", status: 401 };
-  if (!can(session.user.permissions, PERMISSIONS.AUTOMATION_PROVIDER_FINDER)) {
+  if (!canViewProviders(session.user.permissions)) {
     return { ok: false, error: "Forbidden", status: 403 };
   }
   if (mode === "write" && !canManageProviders(session.user.permissions)) {

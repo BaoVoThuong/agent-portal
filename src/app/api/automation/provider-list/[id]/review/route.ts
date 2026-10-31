@@ -1,9 +1,7 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { canReviewProviderBacklog } from "@/lib/providers/access";
+import { canReviewProviderBacklog, canViewProviders } from "@/lib/providers/access";
 import { providerMergeChanges } from "@/lib/providers/backlog";
 import { providerFieldChanges } from "@/lib/providers/activity";
 import { insertProviderActivity, isProviderUuid } from "@/lib/providers/collaboration";
@@ -49,7 +47,7 @@ export async function POST(request: Request, { params }: Ctx) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!can(session.user.permissions, PERMISSIONS.AUTOMATION_PROVIDER_FINDER)) {
+  if (!canViewProviders(session.user.permissions)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
   if (!canReviewProviderBacklog(session.user.permissions)) {

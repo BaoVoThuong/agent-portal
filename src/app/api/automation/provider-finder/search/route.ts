@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
+import { canViewProviders } from "@/lib/providers/access";
 import { RouteTiming } from "@/lib/server-timing";
 import { runProviderSearch } from "@/lib/provider-finder/search";
 import type { SearchRequest } from "@/lib/provider-finder/types";
@@ -19,7 +18,7 @@ export async function POST(request: Request) {
 
   try {
     const session = await timing.measure("auth", () => auth());
-    if (!can(session?.user?.permissions, PERMISSIONS.AUTOMATION_PROVIDER_FINDER)) {
+    if (!canViewProviders(session?.user?.permissions)) {
       return respond({ error: "Unauthorized" }, 401);
     }
 

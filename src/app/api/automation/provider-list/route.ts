@@ -1,9 +1,7 @@
 import { after, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { can } from "@/lib/rbac/client";
-import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { canAddProviders, providerWritesGoLive } from "@/lib/providers/access";
+import { canAddProviders, canViewProviders, providerWritesGoLive } from "@/lib/providers/access";
 import { findProviderDuplicate, pendingProviderFields } from "@/lib/providers/backlog";
 import { fetchBacklogProviderRows, fetchLiveProviderKeys } from "@/lib/providers/backlog-queries";
 import { notifyProviderBacklogSubmitted } from "@/lib/providers/notifications";
@@ -36,7 +34,7 @@ async function gate(timing?: RouteTiming, options: { add?: boolean } = {}) {
     : await auth();
   const email = session?.user?.email;
   if (!email) return { ok: false as const, status: 401, error: "Unauthorized" };
-  if (!can(session.user.permissions, PERMISSIONS.AUTOMATION_PROVIDER_FINDER)) {
+  if (!canViewProviders(session.user.permissions)) {
     return { ok: false as const, status: 403, error: "Forbidden" };
   }
   // Ai xem được bảng cũng thêm được (2026-10-26); khác nhau ở chỗ dòng vào

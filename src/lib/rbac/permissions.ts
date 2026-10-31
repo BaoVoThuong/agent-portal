@@ -48,6 +48,9 @@ export type PermissionDefinition = {
 export const IMPLIED_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
   [PERMISSIONS.TASK_MANAGE]: [PERMISSIONS.TASK_WORK],
   [PERMISSIONS.LEAD_MANAGE]: [PERMISSIONS.LEAD_WORK],
+  // Provider List (2026-10-31): Manage bao gồm Finder như Task / Lead — trước
+  // đó Manage đòi tick thêm Finder, quên tick là mất lối vào trang mà không báo.
+  [PERMISSIONS.AUTOMATION_PROVIDER_MANAGE]: [PERMISSIONS.AUTOMATION_PROVIDER_FINDER],
 };
 
 /** Bỏ các quyền đã được một quyền khác bao gồm. Dùng khi LƯU quyền của role. */
@@ -117,22 +120,26 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     description: "Access and run the P&C Statement tool.",
     sortOrder: 200,
   },
-  {
-    key: PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
-    label: "Provider Finder",
-    groupKey: "automation",
-    groupLabel: "Automation",
-    description: "Access and run the Provider Finder tool.",
-    sortOrder: 300,
-  },
+  // Provider List có nhóm riêng như Tasks / Lead Management (2026-10-31): nó
+  // nằm ở Task Management từ 2026-10-03, không còn là một tool của Automation.
+  // Key giữ nguyên "automation.*" — đổi key là đổi role_permissions và JWT.
   {
     key: PERMISSIONS.AUTOMATION_PROVIDER_MANAGE,
     label: "Provider List - Manage",
-    groupKey: "automation",
-    groupLabel: "Automation",
+    groupKey: "provider_list",
+    groupLabel: "Provider List",
     description:
-      "Add and delete provider addresses, change the Provider List columns, and export / import the Provider List. Needs Provider Finder as well.",
-    sortOrder: 350,
+      "Everything in Provider List - Work, plus: add straight to the list, review the Backlog, delete addresses, comment, export, and change the Provider List columns.",
+    sortOrder: 100,
+  },
+  {
+    key: PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
+    label: "Provider List - Work",
+    groupKey: "provider_list",
+    groupLabel: "Provider List",
+    description:
+      "Open the Provider List and its Finder, edit cells, and add or import addresses into the Backlog for review.",
+    sortOrder: 200,
   },
   {
     key: PERMISSIONS.AGENT_DASHBOARD_HEALTH,
