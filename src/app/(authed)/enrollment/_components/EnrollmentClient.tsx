@@ -312,6 +312,9 @@ const DETAIL_FIELD_DISPLAY_CLASS =
   "h-9 w-full rounded-lg border-2 border-[#dfe1e6] bg-white px-2 py-1.5 text-left text-sm font-semibold text-[#172b4d] hover:border-[#c1c7d0] hover:bg-white disabled:bg-[#f4f5f7]";
 const LABEL_CLASS =
   "text-xs font-bold uppercase tracking-wide text-[#6b778c]";
+// Ô chọn người trong form chi tiết: khung của Task (min-h-10) hạ về h-9 cho
+// bằng các ô bên cạnh — Agent / Responsible / Follow up từng cao hơn Stage, PCP.
+const DETAIL_ASSIGNEE_BUTTON_CLASS = `${TASK_ASSIGNEE_BUTTON_CLASS} !min-h-9 !py-1`;
 const COMPACT_DETAIL_FIELD_CLASS = "block shrink-0 space-y-1";
 const COMPACT_DETAIL_INPUT_CLASS = `${INPUT_CLASS} h-9 !px-2 !py-1.5 font-semibold`;
 const COMPACT_DESCRIPTION_CLASS = `${INPUT_CLASS} min-h-[88px] max-h-[168px] resize-none overflow-x-hidden !px-2 !py-2 leading-6`;
@@ -3693,7 +3696,7 @@ export function EnrollmentPersonMenu({
     if (drawsOwnChrome) {
       return (
         <span
-          className={`${usesAssigneeChrome ? TASK_ASSIGNEE_BUTTON_CLASS : DETAIL_FIELD_DISPLAY_CLASS} flex min-w-0 items-center gap-2 bg-[#f4f5f7]`}
+          className={`${usesAssigneeChrome ? DETAIL_ASSIGNEE_BUTTON_CLASS : DETAIL_FIELD_DISPLAY_CLASS} flex min-w-0 items-center gap-2 bg-[#f4f5f7]`}
           title={selectedLabel}
         >
           {usesSelectChrome ? (
@@ -3752,7 +3755,7 @@ export function EnrollmentPersonMenu({
           usesSelectChrome
             ? `${drawsOwnChrome ? DETAIL_FIELD_BUTTON_CLASS : "flex w-full min-w-0"} items-center justify-between gap-2`
             : usesAssigneeChrome
-              ? `${drawsOwnChrome ? TASK_ASSIGNEE_BUTTON_CLASS : "flex w-full min-w-0"}`
+              ? `${drawsOwnChrome ? DETAIL_ASSIGNEE_BUTTON_CLASS : "flex w-full min-w-0"}`
               : drawsOwnChrome
                 ? DETAIL_FIELD_BUTTON_CLASS
                 : "flex w-full min-w-0 items-center"
@@ -5912,6 +5915,7 @@ function EnrollmentDetailCustomFieldControl({
       className={`${DETAIL_FIELD_DISPLAY_CLASS} ${column.type === "date" ? "!font-medium !text-[#42526e]" : ""}`}
       inputClassName={`${DETAIL_FIELD_INPUT_CLASS} ${column.type === "date" ? "!font-medium !text-[#42526e]" : ""}`}
       emptyLabel={`No ${column.label}`}
+      fieldBox
     />
   );
 }

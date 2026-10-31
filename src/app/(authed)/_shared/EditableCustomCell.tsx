@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, ExternalLink, UserPlus } from "lucide-react";
+import { Check, ChevronDown, ExternalLink, UserPlus } from "lucide-react";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import {
   parseMultiselectValue,
@@ -41,6 +41,7 @@ export function EditableCustomCell({
   inputClassName,
   emptyLabel = "-",
   surface = "detail",
+  fieldBox = false,
 }: {
   column: Pick<TableColumn, "id" | "type" | "key" | "label">;
   value: unknown;
@@ -63,6 +64,14 @@ export function EditableCustomCell({
    * Multiselect ở cả hai nơi hiện HẾT giá trị, xuống dòng (MultiValueBadges).
    */
   surface?: "list" | "detail";
+  /**
+   * `className` là CẢ khung ô của form chi tiết (viền, h-9, chữ 14px) — như ô
+   * hệ thống bên cạnh. Khi bật, giá trị nằm giữa khung theo chiều dọc, dùng
+   * đúng chữ của khung, dropdown có mũi tên. Không bật thì nút bên trong mang
+   * đệm và chữ 12px của ô bảng, chồng lên khung: badge bị đẩy lệch xuống
+   * (Year ở chi tiết Enrollment, 2026-10-31).
+   */
+  fieldBox?: boolean;
 }) {
   const {
     isOpen,
@@ -175,14 +184,18 @@ export function EditableCustomCell({
   if (column.type === "link" && !empty) {
     return (
       <span
-        className={`flex min-w-0 max-w-full items-center gap-1 ${saveErrorClass} ${className}`}
+        className={`flex min-w-0 max-w-full items-center gap-1 ${saveErrorClass} ${className} ${fieldBox ? "!py-0" : ""}`}
         title={displayTitle}
       >
         <button
           type="button"
           disabled={!canEdit}
           onClick={() => setEditing(true)}
-          className="min-w-0 flex-1 truncate rounded px-1.5 py-1 text-left text-xs font-semibold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:cursor-default disabled:hover:bg-transparent"
+          className={
+            fieldBox
+              ? "min-w-0 flex-1 truncate text-left disabled:cursor-default"
+              : "min-w-0 flex-1 truncate rounded px-1.5 py-1 text-left text-xs font-semibold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:cursor-default disabled:hover:bg-transparent"
+          }
           title={displayTitle}
         >
           {label}
@@ -236,7 +249,13 @@ export function EditableCustomCell({
       surface === "list" && canEdit && column.type === "person" && empty;
 
     return (
-      <span className={`relative block min-w-0 ${className}`}>
+      <span
+        className={`relative block min-w-0 ${className} ${
+          fieldBox
+            ? `!flex items-center ${column.type === "multiselect" ? "!h-auto min-h-9 !py-1" : "!py-0"}`
+            : ""
+        }`}
+      >
         <button
           ref={triggerRef}
           type="button"
@@ -256,7 +275,9 @@ export function EditableCustomCell({
           className={
             showsAssignCallToAction
               ? `flex min-w-0 max-w-full items-center rounded ${saveErrorClass}`
-              : `flex min-w-0 max-w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs font-semibold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:cursor-default disabled:hover:bg-transparent ${saveErrorClass}`
+              : fieldBox
+                ? `flex min-h-0 w-full min-w-0 items-center gap-2 self-stretch text-left disabled:cursor-default ${saveErrorClass}`
+                : `flex min-w-0 max-w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs font-semibold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:cursor-default disabled:hover:bg-transparent ${saveErrorClass}`
           }
         >
           {showsAssignCallToAction ? (
@@ -306,10 +327,13 @@ export function EditableCustomCell({
               <span className="min-w-0 truncate">{selectedOption.label}</span>
             </span>
           ) : (
-            <span className={`min-w-0 flex-1 truncate ${empty ? "text-[#97a0af]" : ""}`}>
+            <span className={`min-w-0 flex-1 truncate ${empty ? `text-[#97a0af] ${fieldBox ? "font-normal" : ""}` : ""}`}>
               {label || personEmptyLabel}
             </span>
           )}
+          {fieldBox && canEdit && column.type !== "person" ? (
+            <ChevronDown className="ml-auto h-4 w-4 shrink-0 text-[#6b778c]" aria-hidden="true" />
+          ) : null}
         </button>
         {isOpen
           ? createPortal(
@@ -398,10 +422,14 @@ export function EditableCustomCell({
       type="button"
       disabled={!canEdit}
       onClick={() => setEditing(true)}
-      className={`flex min-w-0 max-w-full items-center gap-1.5 truncate rounded px-1.5 py-1 text-left text-xs font-semibold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:cursor-default disabled:hover:bg-transparent ${saveErrorClass} ${className}`}
+      className={
+        fieldBox
+          ? `flex min-w-0 items-center gap-1.5 text-left disabled:cursor-default ${saveErrorClass} ${className}`
+          : `flex min-w-0 max-w-full items-center gap-1.5 truncate rounded px-1.5 py-1 text-left text-xs font-semibold text-[#42526e] transition hover:bg-[#f4f5f7] disabled:cursor-default disabled:hover:bg-transparent ${saveErrorClass} ${className}`
+      }
       title={displayTitle}
     >
-      <span className={`min-w-0 truncate ${empty ? "text-[#97a0af]" : ""}`}>
+      <span className={`min-w-0 truncate ${empty ? `text-[#97a0af] ${fieldBox ? "font-normal" : ""}` : ""}`}>
         {label || emptyLabel}
       </span>
     </button>
