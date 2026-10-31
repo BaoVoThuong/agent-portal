@@ -80,21 +80,18 @@ describe("resolveEnrollmentCapabilities", () => {
     expect(capabilities.canArchive).toBe(false);
   });
 
-  it("lets an unrelated worker view but not mutate", () => {
+  // Plain CS sees the shared queue but owns none of it. Since 2026-10-31 they
+  // fill its fields (ID, Carrier, custom columns…) and move the due date like
+  // anyone who can view it; main content and Stage stay with owner / caller /
+  // responsible / creator.
+  it("lets an unrelated worker edit fields and the due date, not content or stage", () => {
     const capabilities = resolveEnrollmentCapabilities(worker);
     expect(capabilities.canView).toBe(true);
-    expect(capabilities.canEditContent).toBe(false);
-    expect(capabilities.canEditFields).toBe(false);
-  });
-
-  // Plain CS sees the shared queue but owns none of it. Due Date follows view
-  // access, like CS tasks, while every other field stays with owner / caller /
-  // responsible / creator.
-  it("lets an unrelated worker move the due date but nothing else", () => {
-    const capabilities = resolveEnrollmentCapabilities(worker);
+    expect(capabilities.canEditFields).toBe(true);
     expect(capabilities.canEditDueDate).toBe(true);
-    expect(capabilities.canEditFields).toBe(false);
+    expect(capabilities.canEditContent).toBe(false);
     expect(capabilities.canChangeStage).toBe(false);
+    expect(capabilities.canArchive).toBe(false);
   });
 
   it("denies a non-worker even when membership flags are supplied", () => {

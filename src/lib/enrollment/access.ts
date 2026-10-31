@@ -19,11 +19,16 @@ export type EnrollmentCapabilities = {
   canView: boolean;
   /** Client name, FUB link and description — mirrors CS task content. */
   canEditContent: boolean;
+  /**
+   * Các trường của record (ID, Carrier, Platform, Consent, cột tuỳ chỉnh…) và
+   * file đính kèm. Từ 2026-10-31 ai xem được record thì sửa được: CS điền ID
+   * cho hồ sơ trong hàng đợi chung, không chỉ hồ sơ mình là Caller /
+   * Responsible. Nội dung chính (`canEditContent`) và Stage vẫn giữ như cũ.
+   */
   canEditFields: boolean;
   /**
-   * Due Date, tách khỏi `canEditFields`: ai xem được record thì dời được hạn,
-   * như Task CS (xem `canEditTaskDueDate` ở lib/tasks/access.ts). Các trường
-   * còn lại của `canEditFields` vẫn đòi chủ record / người làm việc / người tạo.
+   * Due Date: ai xem được record thì dời được hạn, như Task CS (xem
+   * `canEditTaskDueDate` ở lib/tasks/access.ts).
    */
   canEditDueDate: boolean;
   canChangeStage: boolean;
@@ -86,7 +91,9 @@ export function resolveEnrollmentCapabilities(
   return {
     canView: true,
     canEditContent: isOwner || Boolean(flags.isCreator),
-    canEditFields: isOwner || isDoingTheWork || Boolean(flags.isCreator),
+    // Worker nào đã qua ranh giới phạm vi (enrollment/scope.ts) đều xem được
+    // record này, nên đều sửa được trường của nó (yêu cầu 2026-10-31).
+    canEditFields: true,
     // Worker nào đã qua ranh giới phạm vi (enrollment/scope.ts) đều xem được
     // record này, nên đều dời được hạn — kể cả CS thường chỉ thấy hàng đợi chung.
     canEditDueDate: true,

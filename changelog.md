@@ -6,6 +6,13 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-10-31 — Enrollment: CS xem được hồ sơ thì sửa được trường của hồ sơ (đã deploy)
+
+- `resolveEnrollmentCapabilities` (`lib/enrollment/access.ts`): `canEditFields` của worker = `true` (trước: chỉ agent
+  owner/assistant, Caller, Responsible Enroll, người tạo). Lý do: CS báo không điền được cột **ID** của ACA cho hồ sơ
+  trong hàng đợi chung. Áp cho mọi chương trình (ACA/Medicare/Medicaid/Other) và cả upload đính kèm (cùng cờ).
+- Không đổi: nội dung chính (Client name, FUB, Description), Stage/Reopen, QC, gán người, Archive, chuyển Agent.
+
 ## 2026-10-27 — P&C Statement: map cột bằng modal, chỉ mở khi thiếu (đã deploy)
 
 - File thanh toán tự khớp đủ 5/5 cột thì chỉ hiện dòng `✓ 5/5 columns matched` + Edit; thiếu cột thì modal
