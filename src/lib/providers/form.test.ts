@@ -197,10 +197,10 @@ describe("providerFormPayload", () => {
     expect(providerFormPayload({ city: "" }, columns).city).toBeNull();
   });
 
-  // Bảng gửi lên đúng ô vừa sửa; ghi đè cả cụm sẽ xoá mất cột tuỳ chỉnh khác.
-  it("gộp cột tuỳ chỉnh lên giá trị sẵn có của dòng", () => {
-    const body = providerFormPayload({ note: "Vietnamese" }, columns, { legacy: "keep" });
-    expect(body.custom_values).toEqual({ legacy: "keep", note: "Vietnamese" });
+  // Server gộp từng khoá; gửi lại khoá cũ của cột đã xoá làm hỏng cả lần lưu.
+  it("chỉ gửi cột tuỳ chỉnh đang sửa được", () => {
+    const body = providerFormPayload({ note: "Vietnamese", aca_note: "stale" }, columns);
+    expect(body.custom_values).toEqual({ note: "Vietnamese" });
   });
 });
 

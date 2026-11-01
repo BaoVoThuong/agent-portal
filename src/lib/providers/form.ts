@@ -255,14 +255,17 @@ export function providerFieldPatch(
  * Một hàm cho cả hai form: trước đây form Thêm gửi mọi thứ dưới dạng chuỗi thô
  * còn form Sửa gửi mảng cho ô nhiều lựa chọn, nên cùng một ô Specialty đi hai
  * đường khác nhau tuỳ người dùng bấm nút nào.
+ *
+ * custom_values chỉ chứa các cột đang sửa được — PATCH tự gộp từng khoá vào giá
+ * trị sẵn có. Trước 2026-11-02 form gửi lại cả cụm cũ, nên một khoá còn sót của
+ * cột đã xoá (vd. `aca_note`) làm server từ chối mọi lần lưu dòng đó.
  */
 export function providerFormPayload(
   values: ProviderFormValues,
   editableColumns: readonly TableColumn[],
-  currentCustomValues: Record<string, unknown> = {}
 ): Record<string, unknown> {
   const systemPatch: Record<string, unknown> = {};
-  const customValues: Record<string, unknown> = { ...currentCustomValues };
+  const customValues: Record<string, unknown> = {};
 
   for (const column of editableColumns) {
     const value = values[column.key];

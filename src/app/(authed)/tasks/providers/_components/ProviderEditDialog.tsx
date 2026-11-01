@@ -98,7 +98,6 @@ export function ProviderEditDialog({
   useBodyScrollLock(open);
 
   if (!provider) return null;
-  const currentProvider = provider;
   const saving = busy !== null;
   const title = provider.doctors || provider.facility || "Provider";
   const subtitle = provider.doctors ? provider.facility : null;
@@ -114,7 +113,7 @@ export function ProviderEditDialog({
     (column) => !column.archived_at && !isReadOnlyProviderColumn(column)
   );
   const payload = () =>
-    providerFormPayload(values, editableColumns, currentProvider.custom_values ?? {});
+    providerFormPayload(values, editableColumns);
   // Tính preview từ những gì người dùng đang thấy, kể cả các ô vừa sửa nhưng
   // chưa bấm Save. Server dùng cùng bộ chuẩn hoá trước khi gộp.
   const previewPatch = duplicate && duplicateOf ? buildProviderPatch(payload()) : null;
