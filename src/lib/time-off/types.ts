@@ -91,13 +91,11 @@ export type TimeOffManagerOption = {
 export type TimeOffDashboardData = {
   policies: TimeOffPolicy[];
   /**
-   * Danh bạ để chọn người nhận tin khi nộp đơn; đã loại chính người đang xem.
-   *
-   * Không có giá trị mặc định: hệ thống KHÔNG biết ai là quản lý của ai. Từng
-   * có ý định dựng sơ đồ tổ chức để suy ra, nhưng đội đã bỏ hướng đó, nên người
-   * nộp tự chọn mỗi lần.
+   * Người nhận tin của đơn mới: Manager của người đang xem (Account Manager →
+   * Manager), đang hoạt động. `null` = chưa có Manager → ô "Approval by" ghi
+   * Admin, vì người có Time Off Admin luôn được báo. Không chọn tay (2026-11-01).
    */
-  manager_options: TimeOffManagerOption[];
+  request_approver: TimeOffManagerOption | null;
   balances: TimeOffBalance[];
   holidays: TimeOffHoliday[];
   calendar_requests: TimeOffCalendarEvent[];

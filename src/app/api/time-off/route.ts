@@ -150,10 +150,6 @@ export async function POST(request: Request) {
   const startDate = body?.start_date;
   const endDate = body?.end_date;
   const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
-  const managerId =
-    typeof body?.manager_id === "string" && body.manager_id.trim() !== ""
-      ? body.manager_id.trim()
-      : null;
   if (!policyCode) return error("Choose a time-off type.");
   if (!isDateKey(startDate) || !isDateKey(endDate) || startDate > endDate) {
     return error("Choose a valid start and end date.");
@@ -242,22 +238,30 @@ export async function POST(request: Request) {
     );
   }
 
-  // Manager nhận tin về đơn này. Kiểm ở server chứ không tin ô chọn: id gửi
-  // thẳng vào API vẫn ghi được nếu đây không kiểm.
+  // Người nhận tin = Manager của người nộp (Account Manager → Manager), tự gán
+  // ở server từ 2026-11-01 — body.manager_id bị bỏ qua. Không có Manager thì
+  // để trống: người có Time Off Admin vẫn luôn được báo.
+  const { data: requester, error: requesterError } = await supabase
+    .from(PORTAL_ACCOUNT_TABLE)
+    .select("manager_id")
+    .eq("id", actor.accountId)
+    .maybeSingle();
+  if (requesterError) return error(requesterError.message, 500);
+  let managerId: string | null = null;
   let managerEmail: string | null = null;
-  if (managerId) {
-    if (managerId === actor.accountId) {
-      return error("Bạn không thể chọn chính mình làm người duyệt.");
-    }
+  const assignedManagerId = (requester as { manager_id: string | null } | null)?.manager_id ?? null;
+  if (assignedManagerId && assignedManagerId !== actor.accountId) {
     const { data: manager, error: managerError } = await supabase
       .from(PORTAL_ACCOUNT_TABLE)
       .select("id,email")
-      .eq("id", managerId)
+      .eq("id", assignedManagerId)
       .eq("is_active", true)
       .maybeSingle();
     if (managerError) return error(managerError.message, 500);
-    if (!manager) return error("Không tìm thấy người duyệt đã chọn.");
-    managerEmail = (manager as { email: string }).email;
+    if (manager) {
+      managerId = (manager as { id: string }).id;
+      managerEmail = (manager as { email: string }).email;
+    }
   }
 
   const { data, error: insertError } = await supabase

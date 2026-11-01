@@ -6,6 +6,26 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-02 — Provider List: lưu được dòng có giá trị của cột tuỳ chỉnh đã xoá (đã deploy)
+
+- Lỗi (anh Khang báo): sửa Specialty → "aca_note: unknown column." Form Sửa gửi lại **cả** `custom_values` cũ của dòng,
+  trong đó còn khoá `aca_note` của cột tuỳ chỉnh đã xoá → `validateCustomValues` từ chối cả lần lưu. 4 dòng dính.
+- `providerFormPayload` giờ chỉ gửi cột tuỳ chỉnh đang sửa được; PATCH vốn đã gộp từng khoá vào giá trị cũ, nên
+  không mất dữ liệu cột khác. Khoá cũ vẫn nằm trong DB, không còn chặn lưu.
+
+## 2026-11-01 — Time Off: Approval by = Manager của người nộp; chọn ngày trên lịch (đã deploy)
+
+- Ô **Approval by** không chọn tay nữa: server tự gán `time_off_requests.manager_id` = Manager của người nộp
+  (`portal_account.manager_id`, đang hoạt động, không phải chính họ); `body.manager_id` bị bỏ qua. Chưa có Manager
+  → để trống, ô ghi "Admin" (người có Time Off Admin vẫn luôn được báo). Ai duyệt **không đổi**: Time Off Admin.
+- Dữ liệu trang: `manager_options` (cả danh bạ) → `request_approver` (Manager của người xem hoặc null).
+- Modal xin nghỉ: chọn ngày trên lịch nhỏ thay 2 ô date (bấm 1 ngày = đơn 1 ngày, bấm thêm = kéo dài). Lịch chấm màu
+  lễ liên bang / ngày nghỉ công ty / đơn đã duyệt / đơn đang chờ của mình, kèm danh sách "Days off this month".
+- Trang Time Off từ 6 tab còn 3: **My leave · Approvals · Team**. Approvals có Pending / History (Leave history cũ);
+  Team = bảng số dư + nút Monthly accruals / Adjust all (hộp thoại); Company days off quản lý ở khung "Upcoming days
+  off" (Add / View all). Link cũ `?tab=balances|accruals|admin` → Team, `history` → Approvals mở sẵn History,
+  `company-days` → My leave.
+
 ## 2026-11-01 — Notification Alerts gộp vào Account Manager (đã deploy)
 
 - Bỏ key `management.notification_alerts`. Ai có `management.account_manager` là bật/tắt Alerts của từng user:

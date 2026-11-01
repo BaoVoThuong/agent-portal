@@ -15,7 +15,7 @@ import type {
 } from "./types";
 import { getUsFederalHolidaysInRange } from "./us-holidays";
 
-type AccountRow = { id: string; email: string; name: string | null };
+type AccountRow = { id: string; email: string; name: string | null; manager_id: string | null };
 type RequestRow = {
   id: string;
   requester_id: string;
@@ -61,6 +61,13 @@ function asCalendarEvent(row: RequestRow): TimeOffCalendarEvent {
   };
 }
 
+/** Manager của người nộp, đang hoạt động và không phải chính họ; xem request_approver. */
+function requestApprover(accounts: Map<string, AccountRow>, accountId: string) {
+  const managerId = accounts.get(accountId)?.manager_id;
+  const manager = managerId && managerId !== accountId ? accounts.get(managerId) : undefined;
+  return manager ? { id: manager.id, name: manager.name, email: manager.email } : null;
+}
+
 export async function fetchTimeOffDashboard(
   params: { accountId: string; isManager: boolean; monthKey: string },
   supabase: SupabaseClient = getSupabaseAdmin()
@@ -94,7 +101,7 @@ export async function fetchTimeOffDashboard(
       .order("position"),
     supabase
       .from("portal_account")
-      .select("id,email,name")
+      .select("id,email,name,manager_id")
       .eq("is_active", true),
     supabase
       .from("time_off_holidays")
@@ -346,15 +353,7 @@ export async function fetchTimeOffDashboard(
 
   return {
     policies,
-    // Ai cũng chọn được bất kỳ đồng nghiệp nào đang hoạt động: đây là ô "gửi tin
-    // cho ai", không phải ô phân quyền. Chỉ loại chính mình — tự gửi đơn cho
-    // bản thân thì vô nghĩa, và server cũng từ chối.
-    manager_options: ((accountsResult.data ?? []) as AccountRow[])
-      .filter((account) => account.id !== params.accountId)
-      .map((account) => ({ id: account.id, name: account.name, email: account.email }))
-      .sort((a, b) =>
-        (a.name?.trim() || a.email).localeCompare(b.name?.trim() || b.email)
-      ),
+    request_approver: requestApprover(accounts, params.accountId),
     balances,
     holidays: [...holidayByDate.values()].sort((a, b) => a.date.localeCompare(b.date)),
     calendar_requests: ((calendarResult.data ?? []) as RequestRow[]).map(asCalendarEvent),

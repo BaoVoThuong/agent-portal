@@ -11,29 +11,22 @@ function currentMonthKey() {
 }
 
 /** Phải khớp với `Tab` trong TimeOffClient — một hàng tab phẳng, không lồng. */
-type TimeOffTab =
-  | "overview"
-  | "balances"
-  | "accruals"
-  | "approvals"
-  | "history"
-  | "company-days";
+type TimeOffTab = "overview" | "approvals" | "team";
 
-const ADMIN_TABS: readonly TimeOffTab[] = [
-  "balances",
-  "accruals",
-  "approvals",
-  "history",
-  "company-days",
-];
+// Địa chỉ cũ vẫn mở đúng chỗ: 6 tab gộp còn 3 (2026-11-01), và `?tab=admin`
+// từ hồi Administration còn là một tab chứa các tab con.
+const LEGACY_TABS: Record<string, TimeOffTab> = {
+  admin: "team",
+  balances: "team",
+  accruals: "team",
+  history: "approvals",
+  "company-days": "overview",
+};
 
 function initialTab(value: string | undefined, canManage: boolean): TimeOffTab {
-  if (!canManage) return "overview";
-  // `?tab=admin` là địa chỉ cũ, từ hồi Administration còn là một tab chứa năm
-  // tab con. Người ta đã lưu link dạng đó, nên đưa về mục đầu tiên thay vì im
-  // lặng rơi về "My leave".
-  if (value === "admin") return "balances";
-  return ADMIN_TABS.find((tab) => tab === value) ?? "overview";
+  if (!canManage || !value) return "overview";
+  if (value === "approvals" || value === "team") return value;
+  return LEGACY_TABS[value] ?? "overview";
 }
 
 export default async function TimeOffPage({
@@ -61,6 +54,7 @@ export default async function TimeOffPage({
       canManage={actor.canManage}
       monthKey={monthKey}
       initialTab={initialTab(rawTab, actor.canManage)}
+      initialApprovalView={rawTab === "history" ? "history" : "pending"}
       initialData={data}
     />
   );
