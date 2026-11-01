@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-02 — Provider Finder: gợi ý City / State chỉ lấy từ địa chỉ Valid (đã deploy)
+
+- Ô City của Finder từng gợi ý cả giá trị của dòng gộp nhiều chi nhánh ("Corpus Christi, Cypress, … Sugar Land") —
+  4 dòng, đều Invalid (Street "… Locations", ZIP 77***). Gợi ý City / State của Finder giờ chỉ rút từ dòng
+  `isProviderAddressUsable`. Bộ lọc của tab List không đổi.
+- Finder: ô State đứng trước City; chọn State thì City chỉ gợi ý thành phố của State đó (`citiesByState`), đổi sang
+  State không chứa City đang nhập thì City tự xoá. Giao diện Finder đổi theo kiểu tab List (hàng ô 36px, bảng, nhãn
+  bảo hiểm cùng màu cột List); "Map all" nằm ở đầu cột Map của bảng.
+
 ## 2026-11-02 — Provider List: lưu được dòng có giá trị của cột tuỳ chỉnh đã xoá (đã deploy)
 
 - Lỗi (anh Khang báo): sửa Specialty → "aca_note: unknown column." Form Sửa gửi lại **cả** `custom_values` cũ của dòng,

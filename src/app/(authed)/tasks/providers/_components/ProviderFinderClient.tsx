@@ -9,16 +9,29 @@ import {
   useRef,
   useState,
 } from "react";
-import { Map as MapIcon, Search } from "lucide-react";
+import { Check, ChevronDown, Map as MapIcon, Search, X } from "lucide-react";
 import { ProviderFinderMap } from "./ProviderFinderMap";
 import { useBodyScrollLock } from "../../../_shared/useBodyScrollLock";
+import { MultiValueBadges } from "../../../_shared/MultiValueBadges";
+import { PAGE_PRIMARY_BUTTON_CLASS } from "../../../_shared/page-header-styles";
 import { PROVIDER_SPECIALTY_OPTIONS } from "@/lib/providers/specialties";
+import { tableColumnOptionBadgePalette } from "@/lib/table-config/value-colors";
+import type { TableColumnOption } from "@/lib/table-config/types";
 
 const specialtyOptions = PROVIDER_SPECIALTY_OPTIONS.filter(
   (value) => value !== "Location Closed"
 );
 
-type InsuranceColumn = { key: "obamacare" | "medicare"; label: string };
+/** ACA / Medicare columns as the List tab shows them: its label and option colours. */
+export type FinderPlanColumn = {
+  key: "obamacare" | "medicare";
+  label: string;
+  options: TableColumnOption[];
+};
+
+/** Same field as the List tab's filters (2026-11-02). */
+const FIELD_CLASS =
+  "h-9 w-full rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-medium text-[#172b4d] outline-none transition placeholder:font-normal placeholder:text-[#6b778c] hover:border-[#c1c7d0] focus:border-[#0c66e4] focus:ring-2 focus:ring-[#cce0ff]";
 
 type NearbyColumnKey =
   | "map"
@@ -71,10 +84,6 @@ const minimumNearbyColumnWidths: Record<NearbyColumnKey, number> = {
   medicare: 160,
 };
 
-const visibleInsuranceColumns: InsuranceColumn[] = [
-  { key: "obamacare", label: "Obamacare" },
-  { key: "medicare", label: "Medicare" },
-];
 
 type FormState = {
   street: string;
@@ -127,15 +136,8 @@ const initialForm: FormState = {
 };
 
 function formatDistance(value: number | null) {
-  return value == null ? "-" : value.toFixed(2);
+  return value == null ? "—" : `${value.toFixed(2)} mi`;
 }
-
-const planChipPalettes = [
-  { background: "#d9f0f7", color: "#174b64" },
-  { background: "#ffe1dc", color: "#7a2f2a" },
-  { background: "#d9f1e5", color: "#1f5a43" },
-  { background: "#e9e2f8", color: "#4b3b78" },
-];
 
 function splitPlans(value: string) {
   return value
@@ -154,10 +156,15 @@ export default function ProviderFinderClient({
   carrierOptions = [],
   stateOptions = [],
   cityOptions = [],
+  cityOptionsByState = {},
+  planColumns = [],
 }: {
   carrierOptions?: readonly string[];
   stateOptions?: readonly string[];
   cityOptions?: readonly string[];
+  /** Lowercase state → its cities; picking a State narrows the City list. */
+  cityOptionsByState?: Readonly<Record<string, readonly string[]>>;
+  planColumns?: readonly FinderPlanColumn[];
 }) {
   const [form, setForm] = useState<FormState>(initialForm);
   const [isRunning, setIsRunning] = useState(false);
@@ -168,11 +175,13 @@ export default function ProviderFinderClient({
   const [columnWidths, setColumnWidths] = useState(defaultNearbyColumnWidths);
   const [isColumnResizing, setIsColumnResizing] = useState(false);
 
+  const stateKey = form.state.trim().toLowerCase();
+  const visibleCityOptions = stateKey ? cityOptionsByState[stateKey] ?? [] : cityOptions;
+
   const canRun = useMemo(
     () => hasAddress(form) || form.contract.trim() !== "",
     [form]
   );
-  const tableColumnCount = 8 + visibleInsuranceColumns.length;
   const nearbyTableWidth = nearbyColumnKeys.reduce(
     (total, key) => total + columnWidths[key],
     0
@@ -298,136 +307,93 @@ export default function ProviderFinderClient({
 
   useBodyScrollLock(mapSelection !== null);
   return (
-    <div className="space-y-3">
+    <div className="flex min-w-0 flex-col gap-3">
       <form
         onSubmit={handleSubmit}
         autoComplete="off"
-        className="relative z-20 min-w-0 overflow-visible rounded-xl border border-[#dfe1e6] bg-white shadow-[0_2px_8px_rgba(9,30,66,0.08)]"
+        className="relative z-20 flex min-w-0 flex-wrap items-center gap-2"
       >
-        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-b border-[#ebecf0] bg-[#fbfcfe] px-4 py-3">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#e9f2ff] text-[#0c66e4]">
-              <Search className="h-4 w-4" />
-            </span>
-            <div className="min-w-0">
-              <h2 className="text-sm font-bold text-[#172b4d]">Find nearby providers</h2>
-              <p className="truncate text-xs text-[#7a869a]">Search by address, carrier, or specialty</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="hidden rounded-full bg-[#f2f4f7] px-2.5 py-1 text-[11px] font-semibold text-[#667085] sm:inline-flex">
-              {isRunning ? "Searching" : results.length ? `${results.length} found` : "Ready"}
-            </span>
-            <p className="sr-only">
-              {results.length
-                ? `${results.length} provider(s)`
-                : "Ready to search"}
-            </p>
-            <button
-              type="submit"
-              disabled={!canRun || isRunning}
-              className="h-9 rounded-lg bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-[0_2px_5px_rgba(9,30,66,0.16)] transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:bg-[#b8c4d4] disabled:shadow-none"
-            >
-              {isRunning ? "Running..." : "Run"}
-            </button>
-          </div>
-        </div>
-
-        <div className="grid min-w-0 grid-cols-1 gap-x-3 gap-y-3 overflow-visible px-4 py-4 sm:grid-cols-2 xl:grid-cols-6">
-          <label className="min-w-0">
-            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.06em] text-[#6b778c]">
-              Street
-            </span>
-            <input
-              name="provider-finder-street"
-              autoComplete="new-password"
-              autoCorrect="off"
-              spellCheck={false}
-              value={form.street}
-              onChange={(event) => updateField("street", event.target.value)}
-              placeholder="Street address"
-              className="h-10 w-full rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-medium text-[#172b4d] outline-none transition placeholder:text-[#98a2b3] hover:border-[#b8c4d4] focus:border-[#0c66e4] focus:ring-2 focus:ring-[#deebff]"
-            />
-          </label>
-
-          <SuggestionInput
-            label="City"
-            value={form.city}
-            options={cityOptions}
-            onChange={(value) => updateField("city", value)}
-          />
-
-          <SuggestionInput
-            label="State"
-            value={form.state}
-            options={stateOptions}
-            uppercase
-            onChange={(value) => updateField("state", value)}
-          />
-
-          <label className="min-w-0">
-            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.06em] text-[#6b778c]">
-              Zipcode
-            </span>
-            <input
-              name="provider-finder-zipcode"
-              autoComplete="new-password"
-              autoCorrect="off"
-              spellCheck={false}
-              value={form.zipcode}
-              onChange={(event) => updateField("zipcode", event.target.value)}
-              placeholder="ZIP code"
-              className="h-10 w-full rounded-lg border border-[#dfe1e6] bg-white px-3 text-sm font-medium text-[#172b4d] outline-none transition placeholder:text-[#98a2b3] hover:border-[#b8c4d4] focus:border-[#0c66e4] focus:ring-2 focus:ring-[#deebff]"
-              inputMode="numeric"
-            />
-          </label>
-
-          <SuggestionInput
-            label="Carrier"
-            value={form.contract}
-            options={carrierOptions}
-            uppercase
-            onChange={(value) => updateField("contract", value)}
-          />
-
-          <SuggestionInput
-            label="Specialty"
-            value={form.specialty}
-            options={specialtyOptions}
-            onChange={(value) => updateField("specialty", value)}
-          />
-
-        </div>
+        <input
+          name="provider-finder-street"
+          aria-label="Street"
+          autoComplete="new-password"
+          autoCorrect="off"
+          spellCheck={false}
+          value={form.street}
+          onChange={(event) => updateField("street", event.target.value)}
+          placeholder="Street address"
+          className={`${FIELD_CLASS} !w-auto min-w-[12rem] flex-[2]`}
+        />
+        <SuggestionInput
+          label="State"
+          value={form.state}
+          options={stateOptions}
+          uppercase
+          className="w-[6.5rem]"
+          onChange={(value) => {
+            // A city from another state would only make the search miss.
+            const cities = cityOptionsByState[value.trim().toLowerCase()];
+            const keepCity = !value.trim() || !form.city.trim() ||
+              Boolean(cities?.some((city) => city.toLowerCase() === form.city.trim().toLowerCase()));
+            setError(null);
+            setForm((current) => ({ ...current, state: value, city: keepCity ? current.city : "" }));
+          }}
+        />
+        <SuggestionInput
+          label="City"
+          value={form.city}
+          options={visibleCityOptions}
+          className="w-[10rem]"
+          onChange={(value) => updateField("city", value)}
+        />
+        <input
+          name="provider-finder-zipcode"
+          aria-label="ZIP code"
+          autoComplete="new-password"
+          autoCorrect="off"
+          spellCheck={false}
+          value={form.zipcode}
+          onChange={(event) => updateField("zipcode", event.target.value)}
+          placeholder="ZIP code"
+          className={`${FIELD_CLASS} !w-[7rem]`}
+          inputMode="numeric"
+        />
+        <SuggestionInput
+          label="Carrier"
+          value={form.contract}
+          options={carrierOptions}
+          uppercase
+          className="w-[9.5rem]"
+          onChange={(value) => updateField("contract", value)}
+        />
+        <SuggestionInput
+          label="Specialty"
+          value={form.specialty}
+          options={specialtyOptions}
+          className="w-[11rem]"
+          onChange={(value) => updateField("specialty", value)}
+        />
+        <button type="submit" disabled={!canRun || isRunning} className={PAGE_PRIMARY_BUTTON_CLASS}>
+          <Search className="h-4 w-4" />
+          {isRunning ? "Searching…" : "Search"}
+        </button>
       </form>
 
-      <section className="space-y-4">
-        <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#dfe1e6] bg-white shadow-[0_2px_8px_rgba(9,30,66,0.08)]">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#ebecf0] px-4 py-3">
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#e9f2ff] text-[#0c66e4]">
-                <MapIcon className="h-4 w-4" />
-              </span>
-              <div>
-                <h2 className="text-sm font-bold text-[#172b4d]">Nearby providers</h2>
-                <p className="text-xs text-[#7a869a]">
-                  {results.length ? `Showing the closest ${Math.min(results.length, 10)}` : "Run a search to see matches"}
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              disabled={results.length === 0}
-              onClick={() => setMapSelection("all")}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#b3d4ff] bg-[#f7fbff] px-3 text-sm font-bold text-[#0055cc] transition hover:bg-[#e9f2ff] disabled:cursor-not-allowed disabled:border-[#dfe1e6] disabled:bg-white disabled:text-[#98a2b3]"
-            >
-              <MapIcon className="h-4 w-4" />
-              Map all
-            </button>
-          </div>
+      {error && (
+        <div className="rounded-lg border border-[#ffd5d2] bg-[#ffeceb] px-4 py-3 text-sm font-medium text-[#ae2e24]">
+          {error}
+        </div>
+      )}
 
+      {results.length === 0 ? (
+        <div className="rounded border border-dashed border-[#c1c7d0] bg-[#f4f5f7] px-6 py-12 text-center text-sm font-semibold text-[#6b778c]">
+          {isRunning ? "Searching…" : "Enter an address or a carrier, then Search."}
+        </div>
+      ) : (
+        <div className="min-w-0 overflow-hidden rounded-lg border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]">
           <div className="overflow-x-auto">
             <table
-              className="table-fixed border-collapse text-left text-sm leading-5 [&_td]:border-b [&_td]:border-[#ebecf0] [&_td+td]:border-l [&_td+td]:border-[#ebecf0] [&_th]:border-b [&_th]:border-[#dfe1e6] [&_th+th]:border-l [&_th+th]:border-[#dfe1e6]"
+              className="table-fixed border-collapse text-left text-sm leading-5"
               style={{ width: `${nearbyTableWidth}px`, minWidth: "100%" }}
             >
               <colgroup>
@@ -435,191 +401,155 @@ export default function ProviderFinderClient({
                   <col key={key} style={{ width: `${columnWidths[key]}px` }} />
                 ))}
               </colgroup>
-              <thead className="sticky top-0 z-10 bg-[#fafbfc] text-[11px] font-bold uppercase tracking-[0.06em] text-[#6b778c]">
+              <thead className="sticky top-0 z-10 border-b border-[#dfe1e6] bg-[#fafbfc] text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
                 <tr>
-                  <th className="relative px-3 py-2.5">
-                    <span className="sr-only">Map</span>
+                  <th className="relative px-3 py-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setMapSelection("all")}
+                      title={`Show all ${results.length} on the map`}
+                      className="inline-flex h-7 items-center gap-1 whitespace-nowrap rounded-md border border-[#0c66e4] bg-white px-2 text-xs font-semibold normal-case tracking-normal text-[#0c66e4] transition hover:bg-[#e9f2ff]"
+                    >
+                      <MapIcon className="h-3.5 w-3.5" />
+                      All
+                    </button>
                     {renderResizeHandle("map", "Map")}
                   </th>
-                  <th className="relative px-3 py-2.5 text-right">
+                  <th className="relative px-3 py-2 text-right">
                     Distance
                     {renderResizeHandle("distance", "Distance")}
                   </th>
-                  <th className="relative px-3.5 py-2.5">
+                  <th className="relative px-3 py-2">
                     Name
                     {renderResizeHandle("name", "Name")}
                   </th>
-                  <th className="relative px-3.5 py-2.5">
+                  <th className="relative px-3 py-2">
                     Specialty
                     {renderResizeHandle("specialty", "Specialty")}
                   </th>
-                  <th className="relative px-3.5 py-2.5">
+                  <th className="relative px-3 py-2">
                     NPI
                     {renderResizeHandle("npi", "NPI")}
                   </th>
-                  <th className="relative px-3.5 py-2.5">
+                  <th className="relative px-3 py-2">
                     Street
                     {renderResizeHandle("street", "Street")}
                   </th>
-                  <th className="relative px-3.5 py-2.5">
+                  <th className="relative px-3 py-2">
                     City
                     {renderResizeHandle("city", "City")}
                   </th>
-                  <th className="relative px-3.5 py-2.5">
+                  <th className="relative px-3 py-2">
                     Phone
                     {renderResizeHandle("phone", "Phone")}
                   </th>
-                  {visibleInsuranceColumns.map((column) => (
-                    <th key={column.key} className="relative px-3.5 py-2.5">
+                  {planColumns.map((column) => (
+                    <th key={column.key} className="relative px-3 py-2">
                       {column.label}
                       {renderResizeHandle(column.key, column.label)}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="text-[#42526e]">
-                {results.length === 0 ? (
-                  <tr>
-                    <td colSpan={tableColumnCount} className="px-4 py-12 text-center">
-                      <div className="mx-auto flex max-w-sm flex-col items-center gap-2">
-                        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#f2f4f7] text-[#7a869a]">
-                          <Search className="h-5 w-5" />
-                        </span>
-                        <p className="text-sm font-bold text-[#42526e]">Search for nearby providers</p>
-                        <p className="text-xs text-[#98a2b3]">Enter a street, city, ZIP code, carrier, or specialty above.</p>
-                      </div>
+              <tbody className="font-medium text-[#42526e]">
+                {results.map((provider, index) => (
+                  <tr
+                    key={`${provider.npi}-${index}`}
+                    className={`border-b border-[#ebecf0] transition last:border-b-0 ${
+                      mapSelection === index ? "bg-[#e9f2ff]" : "hover:bg-[#f7f8f9]"
+                    }`}
+                  >
+                    <td className="px-3 py-2.5 align-middle">
+                      <button
+                        type="button"
+                        onClick={() => setMapSelection(index)}
+                        className="inline-flex h-7 items-center rounded-md border border-[#dfe1e6] bg-white px-2 text-xs font-semibold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
+                      >
+                        Map
+                      </button>
                     </td>
-                  </tr>
-                ) : (
-                  results.map((provider, index) => (
-                    <tr
-                      key={`${provider.npi}-${index}`}
-                      className={`min-h-14 transition hover:bg-[#f7f8f9] ${
-                        mapSelection === index ? "bg-[#edf6ff]" : "bg-white"
-                      }`}
-                    >
-                      <td className="px-3 py-3 text-center align-middle">
-                        <button
-                          type="button"
-                          onClick={() => setMapSelection(index)}
-                          className="h-8 rounded-md border border-[#b3d4ff] bg-[#deebff] px-2.5 text-xs font-bold text-[#0055cc] transition hover:bg-[#cce0ff]"
-                        >
-                          Map
-                        </button>
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-3 text-right align-middle font-semibold text-[#172b4d]">
-                        {formatDistance(provider.distanceMiles)}
-                      </td>
-                      <td className="break-words px-3.5 py-3 align-middle font-semibold text-[#172b4d]">
-                        {provider.name || "-"}
-                      </td>
-                      <td className="break-words px-3.5 py-3 align-middle font-medium text-[#42526e]">
-                        {provider.specialty || "-"}
-                      </td>
-                      <td className="whitespace-nowrap px-3.5 py-3 align-middle font-medium text-[#42526e]">
-                        {provider.npi}
-                      </td>
-                      <td className="break-words px-3.5 py-3 align-middle font-medium text-[#42526e]">
-                        {provider.street || "-"}
-                      </td>
-                      <td className="break-words px-3.5 py-3 align-middle font-medium text-[#42526e]">
-                        {provider.city || "-"}
-                      </td>
-                      <td className="break-words px-3.5 py-3 align-middle font-medium text-[#42526e]">
-                        {provider.phone || "-"}
-                      </td>
-                      {visibleInsuranceColumns.map((column) => (
-                        <td
-                          key={column.key}
-                          className="px-3.5 py-3 align-middle"
-                        >
-                          <div className="flex min-w-0 flex-wrap gap-1">
-                            {splitPlans(provider[column.key]).length === 0 ? (
-                              <span className="text-sm font-medium text-[#97a0af]">—</span>
-                            ) : (
-                              splitPlans(provider[column.key]).map((plan, planIndex) => {
-                                const palette = planChipPalettes[planIndex % planChipPalettes.length];
-                                return (
-                                  <span
-                                    key={`${plan}-${planIndex}`}
-                                    title={plan}
-                                    className="rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.025em]"
-                                    style={{
-                                      backgroundColor: palette.background,
-                                      color: palette.color,
-                                    }}
-                                  >
-                                    {plan}
-                                  </span>
+                    <td className="whitespace-nowrap px-3 py-2.5 text-right align-middle font-semibold tabular-nums text-[#172b4d]">
+                      {formatDistance(provider.distanceMiles)}
+                    </td>
+                    <td className="break-words px-3 py-2.5 align-middle font-semibold text-[#172b4d]">
+                      {provider.name || "—"}
+                    </td>
+                    <td className="break-words px-3 py-2.5 align-middle">{provider.specialty || "—"}</td>
+                    <td className="whitespace-nowrap px-3 py-2.5 align-middle tabular-nums">{provider.npi}</td>
+                    <td className="break-words px-3 py-2.5 align-middle">{provider.street || "—"}</td>
+                    <td className="break-words px-3 py-2.5 align-middle">{provider.city || "—"}</td>
+                    <td className="break-words px-3 py-2.5 align-middle tabular-nums">{provider.phone || "—"}</td>
+                    {planColumns.map((column) => {
+                      const plans = splitPlans(provider[column.key]);
+                      return (
+                        <td key={column.key} className="px-3 py-2.5 align-middle">
+                          {plans.length === 0 ? (
+                            <span className="text-[#97a0af]">—</span>
+                          ) : (
+                            <MultiValueBadges
+                              items={plans.map((plan, planIndex) => {
+                                const option = column.options.find(
+                                  (candidate) => candidate.label.toLowerCase() === plan.toLowerCase()
                                 );
-                              })
-                            )}
-                          </div>
+                                const palette = option ? tableColumnOptionBadgePalette(option) : null;
+                                return {
+                                  key: `${plan}-${planIndex}`,
+                                  label: option?.label ?? plan,
+                                  style: palette
+                                    ? { backgroundColor: palette.background, color: palette.foreground }
+                                    : undefined,
+                                };
+                              })}
+                            />
+                          )}
                         </td>
-                      ))}
-                    </tr>
-                  ))
-                )}
+                      );
+                    })}
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
         </div>
+      )}
 
-        {mapSelection !== null && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Provider map"
-          >
-            <button
-              type="button"
-              aria-label="Close provider map"
-              onClick={() => setMapSelection(null)}
-              className="absolute inset-0 bg-[#101828]/45"
-            />
-            <div className="relative z-10 flex max-h-[92vh] w-[min(1120px,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-[#d8dee7] bg-white shadow-2xl">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e6ebf2] px-5 py-4">
-                <div>
-                  <h2 className="text-base font-semibold text-[#16233a]">
-                    Map
-                  </h2>
-                  <p className="mt-0.5 text-sm font-medium text-[#667085]">
-                    {mapTitle}
-                  </p>
+      {mapSelection !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Provider map"
+        >
+          <button
+            type="button"
+            aria-label="Close provider map"
+            onClick={() => setMapSelection(null)}
+            className="absolute inset-0 bg-[#091e42]/40"
+          />
+          <div className="relative z-10 flex max-h-[92vh] w-[min(1120px,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between gap-3 border-b border-[#dfe1e6] px-5 py-4">
+              <h2 className="min-w-0 truncate text-lg font-bold text-[#172b4d]">{mapTitle}</h2>
+              <button
+                type="button"
+                onClick={() => setMapSelection(null)}
+                aria-label="Close"
+                className="rounded-lg p-1.5 text-[#6b778c] transition hover:bg-[#f1f2f4] hover:text-[#172b4d]"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="h-[min(72vh,680px)] min-h-[360px] overflow-hidden bg-[#f4f5f7]">
+              {origin ? (
+                <ProviderFinderMap origin={origin} results={results} selection={mapSelection} />
+              ) : (
+                <div className="flex h-full items-center justify-center px-6 text-center text-sm text-[#6b778c]">
+                  Run a provider search before opening the map.
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setMapSelection(null)}
-                  className="h-8 rounded-md border border-[#cfd7e3] px-3 text-xs font-semibold text-[#344054] transition hover:bg-[#f3f6fa]"
-                >
-                  Close
-                </button>
-              </div>
-              <div className="h-[min(72vh,680px)] min-h-[360px] overflow-hidden bg-[#eef3f7]">
-                {origin ? (
-                  <ProviderFinderMap
-                    origin={origin}
-                    results={results}
-                    selection={mapSelection}
-                  />
-                ) : (
-                  <div className="flex h-full items-center justify-center px-6 text-center text-sm text-[#667085]">
-                    Run a provider search before opening the map.
-                  </div>
-                )}
-              </div>
+              )}
             </div>
           </div>
-        )}
-
-        {error && (
-          <div className="rounded-md border border-[#f2b8b5] bg-[#fff4f2] px-4 py-3 text-sm font-medium text-[#9f2f24]">
-            {error}
-          </div>
-        )}
-
-      </section>
+        </div>
+      )}
     </div>
   );
 }
@@ -629,12 +559,14 @@ function SuggestionInput({
   value,
   options,
   uppercase = false,
+  className = "",
   onChange,
 }: {
   label: string;
   value: string;
   options: readonly string[];
   uppercase?: boolean;
+  className?: string;
   onChange: (value: string) => void;
 }) {
   const listboxId = useId();
@@ -701,10 +633,7 @@ function SuggestionInput({
   }
 
   return (
-    <div ref={rootRef} className="relative min-w-0">
-      <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-[0.06em] text-[#6b778c]">
-        {label}
-      </span>
+    <div ref={rootRef} className={`relative min-w-0 shrink-0 ${className}`}>
       <div className="relative">
         <input
           name={`provider-finder-${label.toLowerCase().replace(/\s+/g, "-")}`}
@@ -713,6 +642,7 @@ function SuggestionInput({
           spellCheck={false}
           value={value}
           placeholder={label}
+          aria-label={label}
           onChange={(event) => {
             updateValue(event.target.value);
             setIsOpen(true);
@@ -748,9 +678,7 @@ function SuggestionInput({
           aria-expanded={isOpen}
           aria-controls={listboxId}
           aria-autocomplete="list"
-          className={`h-10 w-full rounded-lg border border-[#dfe1e6] bg-white px-3 pr-8 text-sm font-medium text-[#172b4d] outline-none transition hover:border-[#b8c4d4] focus:border-[#0c66e4] focus:ring-2 focus:ring-[#deebff] ${
-            uppercase ? "uppercase" : ""
-          }`}
+          className={`${FIELD_CLASS} pr-8 ${uppercase ? "uppercase placeholder:normal-case" : ""}`}
         />
         <button
           type="button"
@@ -760,13 +688,11 @@ function SuggestionInput({
             setQuery("");
             setIsOpen((current) => !current);
           }}
-          className="absolute right-0 top-0 flex h-10 w-9 items-center justify-center"
+          className="absolute right-0 top-0 flex h-9 w-8 items-center justify-center"
         >
-          <span
+          <ChevronDown
             aria-hidden="true"
-            className={`h-2 w-2 border-b-2 border-r-2 border-[#667085] transition ${
-              isOpen ? "rotate-[225deg]" : "rotate-45"
-            }`}
+            className={`h-4 w-4 text-[#667085] transition ${isOpen ? "rotate-180" : ""}`}
           />
         </button>
       </div>
@@ -775,10 +701,10 @@ function SuggestionInput({
         <div
           id={listboxId}
           role="listbox"
-          className="absolute left-0 top-[calc(100%+6px)] z-50 max-h-64 w-full min-w-[190px] overflow-y-auto rounded-lg border border-[#dfe1e6] bg-white py-1 shadow-[0_8px_24px_rgba(9,30,66,0.16)]"
+          className="absolute left-0 top-[calc(100%+4px)] z-50 max-h-64 w-full min-w-[200px] overflow-y-auto rounded-lg border border-[#dfe1e6] bg-white p-1 shadow-[0_8px_24px_rgba(9,30,66,0.16)]"
         >
           {filteredOptions.length === 0 ? (
-            <div className="px-3 py-2 text-sm text-[#667085]">
+            <div className="px-2.5 py-2 text-sm text-[#6b778c]">
               No suggestions
             </div>
           ) : (
@@ -794,21 +720,16 @@ function SuggestionInput({
                   aria-selected={isSelected}
                   onMouseEnter={() => setActiveIndex(index)}
                   onClick={() => selectOption(option)}
-                  className={`flex min-h-9 w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition ${
+                  className={`flex min-h-9 w-full items-center justify-between gap-2 rounded-md px-2.5 py-2 text-left text-sm font-medium transition ${
                     isSelected
-                      ? "bg-[#edf6ff] font-semibold text-[#245a94]"
+                      ? "bg-[#e9f2ff] text-[#0c66e4]"
                       : isActive
-                        ? "bg-[#f3f6fa] text-[#16233a]"
-                        : "text-[#16233a]"
+                        ? "bg-[#f1f2f4] text-[#172b4d]"
+                        : "text-[#172b4d]"
                   }`}
                 >
                   <span className="break-words">{option}</span>
-                  {isSelected && (
-                    <span
-                      aria-hidden="true"
-                      className="h-2.5 w-1.5 shrink-0 rotate-45 border-b-2 border-r-2 border-[#245a94]"
-                    />
-                  )}
+                  {isSelected && <Check aria-hidden="true" className="h-4 w-4 shrink-0" />}
                 </button>
               );
             })

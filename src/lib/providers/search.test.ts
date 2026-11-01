@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  citiesByState,
   DEFAULT_PROVIDER_FILTERS,
   EMPTY_PROVIDER_FILTERS,
   applyProviderFilters,
@@ -312,5 +313,18 @@ describe("keepCitiesInSelectedStates", () => {
   it("không chọn State thì giữ nguyên City", () => {
     const filters = { ...EMPTY_PROVIDER_FILTERS, city: ["Chicago"] };
     expect(keepCitiesInSelectedStates(rows, filters)).toBe(filters);
+  });
+});
+
+describe("citiesByState", () => {
+  it("groups each city under its state once, sorted, so City follows State", () => {
+    const rows = [
+      row({ state: "TX", city: "Houston" }),
+      row({ state: "tx", city: "houston" }),
+      row({ state: "TX", city: "Austin" }),
+      row({ state: "CA", city: "San Jose" }),
+      row({ state: "", city: "Nowhere" }),
+    ];
+    expect(citiesByState(rows)).toEqual({ tx: ["Austin", "Houston"], ca: ["San Jose"] });
   });
 });

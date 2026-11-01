@@ -267,6 +267,25 @@ export function keepCitiesInSelectedStates(
   return city.length === filters.city.length ? filters : { ...filters, city };
 }
 
+/**
+ * City của từng State (khoá State viết thường), mỗi city một lần, đã sắp xếp —
+ * để ô City của Finder chỉ gợi ý thành phố thuộc State đã chọn (2026-11-02).
+ */
+export function citiesByState(rows: ProviderRow[]): Record<string, string[]> {
+  const byState = new Map<string, Map<string, string>>();
+  for (const row of rows) {
+    const state = normalize(row.state);
+    const city = (row.city ?? "").trim();
+    if (!state || !city) continue;
+    const cities = byState.get(state) ?? new Map<string, string>();
+    if (!cities.has(city.toLowerCase())) cities.set(city.toLowerCase(), city);
+    byState.set(state, cities);
+  }
+  return Object.fromEntries(
+    [...byState].map(([state, cities]) => [state, [...cities.values()].sort((a, b) => a.localeCompare(b))])
+  );
+}
+
 export type ProviderSortDir = "asc" | "desc";
 
 export function sortProviders(

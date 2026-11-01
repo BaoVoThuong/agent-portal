@@ -15,6 +15,7 @@ import {
   DEFAULT_PROVIDER_FILTERS,
   applyProviderFilters,
   filterProviders,
+  citiesByState,
   keepCitiesInSelectedStates,
   providerFacetOptions,
   providerFilterOptions,
@@ -22,6 +23,7 @@ import {
   type ProviderFilters,
   type ProviderSortDir,
 } from "@/lib/providers/search";
+import { isProviderAddressUsable } from "@/lib/providers/address";
 import type { ProviderRow } from "@/lib/providers/types";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { providerCarrierOptions } from "@/lib/providers/carriers";
@@ -41,7 +43,7 @@ import { ProviderToolbar, type ProviderView } from "./ProviderToolbar";
 // Dựng lại CHÍNH component của Provider Finder, không chép code sang đây.
 // Trang riêng `/automation/provider-finder` đã bị ẩn (chỉ còn chuyển hướng về
 // đây), nên tab này là lối vào DUY NHẤT của tính năng tìm theo khoảng cách.
-import ProviderFinderClient from "./ProviderFinderClient";
+import ProviderFinderClient, { type FinderPlanColumn } from "./ProviderFinderClient";
 
 /** Opened by + Created date luôn hiện ở tab Backlog: ai gửi, gửi lúc nào. */
 const BACKLOG_INFO_COLUMN_KEYS = new Set(["created_by_email", "created_at"]);
@@ -244,11 +246,25 @@ export function ProviderListClient({
     [layoutColumns, hiddenColumnKeys]
   );
 
-  // Lựa chọn của bộ lọc rút từ chính dữ liệu: provider không có cột dropdown
-  // nào, mọi cột đều là văn bản tự do đến từ Sheet.
-  const filterOptions = useMemo(() => providerFilterOptions(providers), [providers]);
+  // Lựa chọn State / City của tab Finder rút từ chính dữ liệu, nhưng chỉ từ dòng
+  // có địa chỉ Valid: Finder chỉ tìm quanh địa chỉ thật, nên không gợi ý dòng gộp
+  // nhiều chi nhánh kiểu "Houston, Katy, Spring" (2026-11-02).
+  // ACA / Medicare in Finder: same label and badge colours as the List columns.
+  const finderPlanColumns = useMemo<FinderPlanColumn[]>(
+    () =>
+      (["obamacare", "medicare"] as const).flatMap((key) => {
+        const column = columns.find((candidate) => candidate.key === key && !candidate.archived_at);
+        if (!column) return [];
+        return [{ key, label: column.label, options: columnOptions.filter((option) => option.column_id === column.id) }];
+      }),
+    [columns, columnOptions]
+  );
+  const finderPlaceOptions = useMemo(() => {
+    const usable = providers.filter(isProviderAddressUsable);
+    return { ...providerFilterOptions(usable), cityByState: citiesByState(usable) };
+  }, [providers]);
   // Thanh lọc dùng lựa chọn faceted: mỗi ô chỉ còn giá trị có dòng khớp các bộ
-  // lọc còn lại. Tab Finder vẫn cần đủ mọi giá trị nên giữ `filterOptions`.
+  // lọc còn lại. Tab Finder dùng `finderPlaceOptions`.
   const facetOptions = useMemo(
     () => providerFacetOptions(providers, filters),
     [providers, filters]
@@ -581,8 +597,10 @@ export function ProviderListClient({
           ) : (
             <ProviderFinderClient
               carrierOptions={finderCarrierOptions}
-              stateOptions={filterOptions.state}
-              cityOptions={filterOptions.city}
+              stateOptions={finderPlaceOptions.state}
+              cityOptions={finderPlaceOptions.city}
+              cityOptionsByState={finderPlaceOptions.cityByState}
+              planColumns={finderPlanColumns}
             />
           )}
         </div>
