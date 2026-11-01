@@ -42,6 +42,24 @@ export function buildLeadActor(
   };
 }
 
+/**
+ * Export / Import of leads are their own ticks (2026-11-01), like Tasks - Export
+ * / Import: Manage does not grant them. They add to Work or Manage — without
+ * either the Lead page does not open, so the API refuses too. Import still
+ * writes leads for any Agent named in the file, so give it with care.
+ */
+function canOpenLeads(permissions: readonly string[] | undefined): boolean {
+  return can(permissions, PERMISSIONS.LEAD_MANAGE) || can(permissions, PERMISSIONS.LEAD_WORK);
+}
+
+export function canExportLeads(permissions: readonly string[] | undefined): boolean {
+  return canOpenLeads(permissions) && can(permissions, PERMISSIONS.LEAD_EXPORT);
+}
+
+export function canImportLeads(permissions: readonly string[] | undefined): boolean {
+  return canOpenLeads(permissions) && can(permissions, PERMISSIONS.LEAD_IMPORT);
+}
+
 export function canManageLeads(actor: LeadActor): boolean {
   return actor.isManager;
 }

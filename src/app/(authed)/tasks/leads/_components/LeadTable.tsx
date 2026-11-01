@@ -1069,7 +1069,7 @@ function interactionTitle(label: string, occurredAt: string): string {
     : `${label} · ${date.toLocaleString()}`;
 }
 
-function leadColumnValue(
+export function leadColumnValue(
   lead: LeadRow,
   column: TableColumn,
   statuses: ReadonlyMap<string, LeadStatus>,

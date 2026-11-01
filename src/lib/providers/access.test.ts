@@ -11,28 +11,45 @@ import {
 
 const FINDER = "automation.provider_finder";
 const MANAGE = "automation.provider_manage";
+const EXPORT = "automation.provider_export";
+const IMPORT = "automation.provider_import";
 
 describe("provider list access", () => {
-  // Backlog (2026-10-26): a Finder-only user adds and imports, but only into
-  // the Backlog; they cannot review it, delete addresses or export.
-  it("lets a Finder-only user add and import into the Backlog only", () => {
+  // Backlog (2026-10-26): a Finder-only user adds into the Backlog only; they
+  // cannot review it or delete addresses.
+  it("lets a Finder-only user add into the Backlog only", () => {
     const permissions = [FINDER];
     expect(canAddProviders(permissions)).toBe(true);
-    expect(canImportProviders(permissions)).toBe(true);
+    expect(canImportProviders(permissions)).toBe(false);
     expect(providerWritesGoLive(permissions)).toBe(false);
     expect(canReviewProviderBacklog(permissions)).toBe(false);
     expect(canManageProviders(permissions)).toBe(false);
     expect(canExportProviders(permissions)).toBe(false);
   });
 
-  it("lets Manage write straight into the list, review the Backlog and export", () => {
+  it("lets Manage write straight into the list and review the Backlog", () => {
     const permissions = [FINDER, MANAGE];
     expect(canManageProviders(permissions)).toBe(true);
     expect(canAddProviders(permissions)).toBe(true);
-    expect(canImportProviders(permissions)).toBe(true);
     expect(providerWritesGoLive(permissions)).toBe(true);
     expect(canReviewProviderBacklog(permissions)).toBe(true);
-    expect(canExportProviders(permissions)).toBe(true);
+  });
+
+  // Export / Import are their own ticks (2026-11-01), not part of Work or
+  // Manage. Where an import lands still follows Manage: live list or Backlog.
+  it("opens export and import only with their own permission", () => {
+    expect(canExportProviders([FINDER, MANAGE])).toBe(false);
+    expect(canImportProviders([FINDER, MANAGE])).toBe(false);
+    expect(canExportProviders([FINDER, EXPORT])).toBe(true);
+    expect(canImportProviders([FINDER, IMPORT])).toBe(true);
+    expect(providerWritesGoLive([FINDER, IMPORT])).toBe(false);
+    expect(providerWritesGoLive([MANAGE, IMPORT])).toBe(true);
+  });
+
+  it("does not export or import without access to the list", () => {
+    expect(canExportProviders([EXPORT])).toBe(false);
+    expect(canImportProviders([IMPORT])).toBe(false);
+    expect(canExportProviders([MANAGE, EXPORT])).toBe(true);
   });
 
   // Manage covers Work (2026-10-31), like task.manage / task.work: a role
@@ -42,10 +59,8 @@ describe("provider list access", () => {
     expect(canViewProviders(permissions)).toBe(true);
     expect(canManageProviders(permissions)).toBe(true);
     expect(canAddProviders(permissions)).toBe(true);
-    expect(canImportProviders(permissions)).toBe(true);
     expect(providerWritesGoLive(permissions)).toBe(true);
     expect(canReviewProviderBacklog(permissions)).toBe(true);
-    expect(canExportProviders(permissions)).toBe(true);
   });
 
   it("opens nothing without Finder or Manage", () => {
@@ -54,7 +69,7 @@ describe("provider list access", () => {
   });
 
   // No cross-module grant (2026-10-09): Task export / import open nothing in
-  // the Provider List; only Provider List - Manage does.
+  // the Provider List; only the Provider List keys do.
   it("ignores task.export and task.import", () => {
     expect(canExportProviders([FINDER, "task.export"])).toBe(false);
     expect(providerWritesGoLive([FINDER, "task.import"])).toBe(false);

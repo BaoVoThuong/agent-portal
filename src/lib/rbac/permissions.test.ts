@@ -7,6 +7,14 @@ import {
   PERMISSIONS,
   PERMISSION_DEFINITIONS,
 } from "@/lib/rbac/permissions";
+import {
+  ADMIN_KEYS,
+  AUTOMATION_TOOL_KEYS,
+  LEVEL_ROWS,
+  LINE_ROWS,
+  LINE_SCOPES,
+  PLACED_PERMISSION_KEYS,
+} from "@/lib/rbac/permission-matrix";
 
 describe("personal Settings", () => {
   it("does not offer the retired Settings permission for role assignment", () => {
@@ -36,8 +44,10 @@ describe("lead permissions", () => {
   it("declares all lead permission keys and definitions", () => {
     expect(PERMISSIONS.LEAD_MANAGE).toBe("lead.manage");
     expect(PERMISSIONS.LEAD_WORK).toBe("lead.work");
+    expect(PERMISSIONS.LEAD_EXPORT).toBe("lead.export");
+    expect(PERMISSIONS.LEAD_IMPORT).toBe("lead.import");
     expect(PERMISSION_DEFINITIONS.filter((d) => d.groupKey === "leads").map((d) => d.key))
-      .toEqual(["lead.manage", "lead.work"]);
+      .toEqual(["lead.manage", "lead.work", "lead.export", "lead.import"]);
   });
 });
 
@@ -50,16 +60,12 @@ describe("time-off permissions", () => {
   });
 });
 
-describe("notification alert permissions", () => {
-  it("declares the management permission and definition", () => {
-    expect(PERMISSIONS.NOTIFICATION_ALERTS).toBe("management.notification_alerts");
-    expect(PERMISSION_DEFINITIONS).toContainEqual(
-      expect.objectContaining({
-        key: "management.notification_alerts",
-        groupKey: "management",
-        sortOrder: 150,
-      }),
-    );
+describe("notification alerts", () => {
+  // Folded into Account Manager (2026-11-01): no separate key to tick.
+  it("has no permission of its own", () => {
+    expect(Object.values(PERMISSIONS)).not.toContain("management.notification_alerts");
+    expect(PERMISSION_DEFINITIONS.map((permission) => permission.key)).not.toContain("management.notification_alerts");
+    expect(isAssignablePermissionKey("management.notification_alerts")).toBe(false);
   });
 });
 
@@ -73,6 +79,18 @@ describe("provider permissions", () => {
     expect(PERMISSION_DEFINITIONS).toContainEqual(
       expect.objectContaining({ key: "automation.provider_finder", label: "Provider List - Work", groupKey: "provider_list", sortOrder: 200 }),
     );
+    expect(PERMISSION_DEFINITIONS).toContainEqual(
+      expect.objectContaining({ key: "automation.provider_export", label: "Provider List - Export", groupKey: "provider_list" }),
+    );
+    expect(PERMISSION_DEFINITIONS).toContainEqual(
+      expect.objectContaining({ key: "automation.provider_import", label: "Provider List - Import", groupKey: "provider_list" }),
+    );
+  });
+
+  // Export / Import stand alone (2026-11-01): Manage does not include them.
+  it("keeps Export and Import out of Manage-includes-Work", () => {
+    expect(expandImpliedPermissions(["automation.provider_manage"])).not.toContain("automation.provider_export");
+    expect(expandImpliedPermissions(["lead.manage"])).not.toContain("lead.import");
   });
 });
 
@@ -82,6 +100,7 @@ describe("manage includes work", () => {
     expect(
       normalizeExclusivePermissionKeys(["automation.provider_manage", "automation.provider_finder"])
     ).toEqual(["automation.provider_manage"]);
+    expect(normalizeExclusivePermissionKeys(["timeoff.admin", "timeoff.user"])).toEqual(["timeoff.admin"]);
     expect(normalizeExclusivePermissionKeys(["lead.manage", "lead.work", "x"]).sort()).toEqual(
       ["lead.manage", "x"]
     );
@@ -108,5 +127,25 @@ describe("registration view-all", () => {
         groupKey: "customer_registration",
       }),
     );
+  });
+});
+
+describe("permission matrix layout", () => {
+  it("places only keys that exist in the catalog, each at most once", () => {
+    const catalog = new Set<string>(PERMISSION_DEFINITIONS.map((definition) => definition.key));
+    const placed = [
+      ...LEVEL_ROWS.flatMap((row) => [row.low, row.high, ...(row.extras ?? []).map((extra) => extra.key)]),
+      ...AUTOMATION_TOOL_KEYS,
+      ...LINE_ROWS.flatMap((row) => row.keys),
+      ...Object.values(LINE_SCOPES),
+      ...ADMIN_KEYS,
+    ];
+    expect(placed.filter((key) => !catalog.has(key))).toEqual([]);
+    expect(new Set(placed).size).toBe(placed.length);
+    expect(PLACED_PERMISSION_KEYS.size).toBe(placed.length);
+  });
+
+  it("pairs every level row the way Manage-includes-Work does", () => {
+    for (const row of LEVEL_ROWS) expect(normalizeExclusivePermissionKeys([row.high, row.low])).toEqual([row.high]);
   });
 });

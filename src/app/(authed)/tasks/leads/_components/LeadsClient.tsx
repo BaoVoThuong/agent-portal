@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CircleAlert, Plus, Search, Shuffle, Upload, UserPen, X } from "lucide-react";
+import { CircleAlert, Download, Plus, Search, Shuffle, Upload, UserPen, X } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
 import { requestJson } from "@/lib/collaboration/optimistic";
 import type { PendingFile } from "@/lib/tasks/pending-attachments";
@@ -80,7 +80,7 @@ import { LeadImportDialog } from "./LeadImportDialog";
 import { Toast } from "../../../_shared/Toast";
 import { uploadAttachment } from "@/lib/tasks/upload-attachment";
 import { LeadOverview } from "./LeadOverview";
-import { LeadTable } from "./LeadTable";
+import { LeadTable, leadColumnValue } from "./LeadTable";
 import { LeadTableSettingsButton } from "./LeadTableSettingsButton";
 
 type LeadsClientProps = {
@@ -118,6 +118,9 @@ type LeadsClientProps = {
    * kiểm lại, nên nút hiện ra khớp với thứ API chịu nhận.
    */
   canAddLead: boolean;
+  /** Export / Import Leads: own ticks on top of Work or Manage (2026-11-01). */
+  canExport: boolean;
+  canImport: boolean;
   /**
    * Agent mà người này được phép mở Personal lead cho. Manager: cả roster.
    * Worker: chính họ (nếu là Agent) + các Agent họ làm Assistant.
@@ -169,6 +172,8 @@ export function LeadsClient({
   interactionTypes,
   assignees,
   canAddLead,
+  canExport,
+  canImport,
   addLeadAgents,
   collaboratorRoster,
   agentNames,
@@ -1221,6 +1226,29 @@ export function LeadsClient({
     () => visibleLeadListColumns(leadLayoutColumns, hiddenLeadColumnKeys),
     [hiddenLeadColumnKeys, leadLayoutColumns],
   );
+  // Export what is on screen: the current filter, sort and visible columns, as
+  // the table shows them. Badge-only columns (alerts, interaction icons) stay out.
+  const exportLeads = async () => {
+    const XLSX = await import("xlsx");
+    const statusById = new Map([...statuses, ...archivedStatuses].map((status) => [status.id, status]));
+    const optionsByColumnId = new Map<string, TableColumnOption[]>();
+    for (const option of columnOptions) {
+      optionsByColumnId.set(option.column_id, [...(optionsByColumnId.get(option.column_id) ?? []), option]);
+    }
+    const columns = visibleColumns.filter((column) => column.key !== "tag" && column.key !== "interactionHistory");
+    const rows = displayedLeads.map((lead) =>
+      columns.map((column) =>
+        column.key === "key"
+          ? leadDisplayKey(lead.display_number)
+          : leadColumnValue(lead, column, statusById, optionsByColumnId.get(column.id) ?? [], nameByEmail),
+      ),
+    );
+    const sheet = XLSX.utils.aoa_to_sheet([columns.map((column) => column.label), ...rows]);
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, "Leads");
+    XLSX.writeFile(book, `Leads_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+
   const shellClassName =
     view === "list"
       ? "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#f7f9fc] text-[#172b4d]"
@@ -1274,7 +1302,18 @@ export function LeadsClient({
                   <Shuffle className="h-4 w-4" /> Distribute pool
                 </button>
               )}
-              {isManager && (
+              {canExport && view === "list" && (
+                <button
+                  className={pageSecondaryButtonClass()}
+                  type="button"
+                  onClick={() => void exportLeads()}
+                  disabled={displayedLeads.length === 0}
+                  title="Export the leads on screen to Excel"
+                >
+                  <Download className="h-4 w-4" /> Export
+                </button>
+              )}
+              {canImport && (
                 <button
                   className={pageSecondaryButtonClass()}
                   type="button"

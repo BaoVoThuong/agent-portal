@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildLeadActor,
   canEditLead,
+  canExportLeads,
+  canImportLeads,
   canLogInteraction,
   canManageLeads,
   canViewLead,
@@ -184,5 +186,22 @@ describe("personal lead agents for a worker", () => {
         assistedAgentEmails: [],
       }),
     ).toEqual(["agent-a@x.com"]);
+  });
+});
+
+// Export / Import (2026-11-01): own ticks that Manage does not grant, and only
+// on top of Work or Manage.
+describe("lead export / import", () => {
+  it("needs its own permission, not Manage", () => {
+    expect(canExportLeads(["lead.manage"])).toBe(false);
+    expect(canImportLeads(["lead.manage"])).toBe(false);
+    expect(canExportLeads(["lead.work", "lead.export"])).toBe(true);
+    expect(canImportLeads(["lead.manage", "lead.import"])).toBe(true);
+  });
+
+  it("does nothing without access to the Lead page", () => {
+    expect(canExportLeads(["lead.export"])).toBe(false);
+    expect(canImportLeads(["lead.import", "task.manage"])).toBe(false);
+    expect(canImportLeads(undefined)).toBe(false);
   });
 });

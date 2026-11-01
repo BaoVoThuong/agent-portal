@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MoreHorizontal, Search } from "lucide-react";
-import { normalizeExclusivePermissionKeys } from "@/lib/rbac/permissions";
 import type { PermissionRecord, RoleRecord } from "@/lib/rbac/role-management";
 import { Initials } from "../tasks/_components/board-ui";
-import { groupPermissions, includedBy, isPermissionSelected } from "./permission-groups";
+import { isPermissionSelected } from "./permission-groups";
+import { PermissionMatrix } from "./PermissionMatrix";
 
 export type RoleFormState = {
   id: string | null;
@@ -223,126 +223,6 @@ function MembersList({
   );
 }
 
-function PermissionChecklist({
-  form,
-  onChange,
-  permissions,
-  search,
-  locked,
-}: {
-  form: RoleFormState;
-  onChange: RolePanelProps["onChange"];
-  permissions: PermissionRecord[];
-  search: string;
-  locked: boolean;
-}) {
-  const groups = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    const filtered = query
-      ? permissions.filter(
-          (permission) =>
-            permission.label.toLowerCase().includes(query) ||
-            permission.key.toLowerCase().includes(query) ||
-            permission.group_label.toLowerCase().includes(query)
-        )
-      : permissions;
-    return groupPermissions(filtered);
-  }, [search, permissions]);
-
-  const labelByKey = useMemo(
-    () => new Map(permissions.map((permission) => [permission.key, permission.label])),
-    [permissions]
-  );
-
-  function setPermissions(keys: string[], on: boolean) {
-    onChange((current) => {
-      const nextKeys = on
-        ? [...new Set([...current.permissionKeys, ...keys])]
-        : current.permissionKeys.filter((key) => !keys.includes(key));
-      return { ...current, permissionKeys: normalizeExclusivePermissionKeys(nextKeys) };
-    });
-  }
-
-  if (groups.length === 0) {
-    return (
-      <div className="rounded border border-dashed border-[#c1c7d0] bg-[#f4f5f7] px-6 py-10 text-center text-sm font-semibold text-[#6b778c]">
-        No permissions match your search.
-      </div>
-    );
-  }
-
-  return (
-    <div className="gap-3 xl:columns-2">
-      {groups.map((group) => {
-        const keys = group.items.map((item) => item.key);
-        const onCount = keys.filter((key) => isPermissionSelected(key, form.permissionKeys)).length;
-        const allOn = onCount === keys.length;
-
-        return (
-          <section
-            key={group.key}
-            className="mb-3 break-inside-avoid overflow-hidden rounded border border-[#dfe1e6]"
-          >
-            <label className="flex cursor-pointer items-center gap-2.5 border-b border-[#dfe1e6] bg-[#fafbfc] px-3 py-2">
-              <input
-                type="checkbox"
-                aria-label={`Select all ${group.label}`}
-                checked={allOn}
-                ref={(element) => {
-                  if (element) element.indeterminate = onCount > 0 && !allOn;
-                }}
-                disabled={locked}
-                onChange={(event) => setPermissions(keys, event.target.checked)}
-                className={CHECKBOX_CLASS}
-              />
-              <h3 className="text-[11px] font-bold uppercase tracking-wide text-[#6b778c]">
-                {group.label}
-                <span className="ml-1.5 tabular-nums text-[#8590a2]">
-                  {onCount}/{keys.length}
-                </span>
-              </h3>
-            </label>
-            <ul className="divide-y divide-[#f1f2f4]">
-              {group.items.map((permission) => {
-                const includingKey = includedBy(permission.key, form.permissionKeys);
-                const on = isPermissionSelected(permission.key, form.permissionKeys);
-                return (
-                  <li key={permission.key}>
-                    <label
-                      title={
-                        includingKey
-                          ? `Included in ${labelByKey.get(includingKey) ?? includingKey}`
-                          : permission.description ?? undefined
-                      }
-                      className="flex cursor-pointer items-center gap-2.5 px-3 py-2 transition hover:bg-[#f7f8f9]"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={on}
-                        disabled={locked || includingKey !== null}
-                        onChange={(event) => setPermissions([permission.key], event.target.checked)}
-                        className={CHECKBOX_CLASS}
-                      />
-                      <span className={`text-sm font-semibold ${on ? "text-[#172b4d]" : "text-[#44546f]"}`}>
-                        {permission.label}
-                      </span>
-                      {includingKey && (
-                        <span className="shrink-0 rounded bg-[#f4f5f7] px-1.5 py-0.5 text-[10px] font-bold uppercase text-[#626f86]">
-                          Included
-                        </span>
-                      )}
-                    </label>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        );
-      })}
-    </div>
-  );
-}
-
 /**
  * Right panel of the Role Manager. A selected role is always editable (Admin
  * excepted): changes stay local until Save.
@@ -479,7 +359,7 @@ export function RolePanel({
             people={people}
           />
         ) : (
-          <PermissionChecklist
+          <PermissionMatrix
             form={form}
             onChange={onChange}
             permissions={permissions}

@@ -6,13 +6,14 @@ export const PERMISSIONS = {
   AUTOMATION_PC_STATEMENT: "automation.pc_statement",
   AUTOMATION_PROVIDER_FINDER: "automation.provider_finder",
   AUTOMATION_PROVIDER_MANAGE: "automation.provider_manage",
+  AUTOMATION_PROVIDER_EXPORT: "automation.provider_export",
+  AUTOMATION_PROVIDER_IMPORT: "automation.provider_import",
   AGENT_DASHBOARD_HEALTH: "agent_dashboard.health",
   AGENT_DASHBOARD_PC: "agent_dashboard.pc",
   COMPANY_DASHBOARD_HEALTH: "company_dashboard.health",
   COMPANY_DASHBOARD_PC: "company_dashboard.pc",
   COMPANY_VIEW_ALL: "company.view_all",
   ACCOUNT_MANAGER: "management.account_manager",
-  NOTIFICATION_ALERTS: "management.notification_alerts",
   ROLE_MANAGER: "management.role_manager",
   TIME_OFF_USER: "timeoff.user",
   TIME_OFF_ADMIN: "timeoff.admin",
@@ -22,13 +23,19 @@ export const PERMISSIONS = {
   TASK_IMPORT: "task.import",
   LEAD_MANAGE: "lead.manage",
   LEAD_WORK: "lead.work",
+  LEAD_EXPORT: "lead.export",
+  LEAD_IMPORT: "lead.import",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 
-// Keep legacy DB/JWT rows readable while Settings becomes universal to signed-in accounts.
+// Retired keys: their DB/JWT rows stay readable but are never offered or saved.
+// settings.access — Settings is universal to signed-in accounts.
+// management.notification_alerts — folded into Account Manager (2026-11-01).
+const RETIRED_PERMISSION_KEYS: ReadonlySet<string> = new Set(["settings.access", "management.notification_alerts"]);
+
 export function isAssignablePermissionKey(key: string): boolean {
-  return key !== "settings.access";
+  return !RETIRED_PERMISSION_KEYS.has(key);
 }
 
 export type PermissionDefinition = {
@@ -51,6 +58,9 @@ export const IMPLIED_PERMISSIONS: Readonly<Record<string, readonly string[]>> = 
   // Provider List (2026-10-31): Manage bao gồm Finder như Task / Lead — trước
   // đó Manage đòi tick thêm Finder, quên tick là mất lối vào trang mà không báo.
   [PERMISSIONS.AUTOMATION_PROVIDER_MANAGE]: [PERMISSIONS.AUTOMATION_PROVIDER_FINDER],
+  // Time Off (2026-10-31): Admin bao gồm User — canUseTimeOff đã nhận Admin; Role
+  // Manager dạng ma trận cần cặp này để hiện User là "included" dưới Admin.
+  [PERMISSIONS.TIME_OFF_ADMIN]: [PERMISSIONS.TIME_OFF_USER],
 };
 
 /** Bỏ các quyền đã được một quyền khác bao gồm. Dùng khi LƯU quyền của role. */
@@ -129,7 +139,7 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     groupKey: "provider_list",
     groupLabel: "Provider List",
     description:
-      "Everything in Provider List - Work, plus: add straight to the list, review the Backlog, delete addresses, comment, export, and change the Provider List columns.",
+      "Everything in Provider List - Work, plus: add straight to the list, review the Backlog, delete addresses, comment, and change the Provider List columns. Imports land straight in the list.",
     sortOrder: 100,
   },
   {
@@ -138,8 +148,27 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     groupKey: "provider_list",
     groupLabel: "Provider List",
     description:
-      "Open the Provider List and its Finder, edit cells, and add or import addresses into the Backlog for review.",
+      "Open the Provider List and its Finder, edit cells, and add addresses into the Backlog for review.",
     sortOrder: 200,
+  },
+  // Export / Import are their own ticks (2026-11-01), like Tasks - Export /
+  // Import: neither follows Work or Manage.
+  {
+    key: PERMISSIONS.AUTOMATION_PROVIDER_EXPORT,
+    label: "Provider List - Export",
+    groupKey: "provider_list",
+    groupLabel: "Provider List",
+    description: "Export the Provider List to Excel.",
+    sortOrder: 300,
+  },
+  {
+    key: PERMISSIONS.AUTOMATION_PROVIDER_IMPORT,
+    label: "Provider List - Import",
+    groupKey: "provider_list",
+    groupLabel: "Provider List",
+    description:
+      "Import provider addresses from Excel. Without Provider List - Manage the rows wait in the Backlog for review.",
+    sortOrder: 350,
   },
   {
     key: PERMISSIONS.AGENT_DASHBOARD_HEALTH,
@@ -187,17 +216,8 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     groupKey: "management",
     groupLabel: "Management",
     description:
-      "Create accounts, assign roles, update status, reset passwords, and manage Agents and Assistants.",
+      "Create accounts, assign roles, update status, reset passwords, manage Agents and Assistants, and turn notification alerts on or off for each user.",
     sortOrder: 100,
-  },
-  {
-    key: PERMISSIONS.NOTIFICATION_ALERTS,
-    label: "Notification Alerts",
-    groupKey: "management",
-    groupLabel: "Management",
-    description:
-      "Turn notification sounds, pop-ups and push on or off for each user. Mentions and assignments still alert.",
-    sortOrder: 150,
   },
   {
     key: PERMISSIONS.ROLE_MANAGER,
@@ -264,7 +284,7 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     groupKey: "leads",
     groupLabel: "Lead Management",
     description:
-      "Import, assign and manage every lead, Lead settings and the Lead table configuration. Includes Work Leads.",
+      "Assign and manage every lead, Lead settings and the Lead table configuration. Includes Work Leads.",
     sortOrder: 100,
   },
   {
@@ -274,5 +294,21 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     groupLabel: "Lead Management",
     description: "See and log interactions on leads assigned to you.",
     sortOrder: 200,
+  },
+  {
+    key: PERMISSIONS.LEAD_EXPORT,
+    label: "Export Leads",
+    groupKey: "leads",
+    groupLabel: "Lead Management",
+    description: "Export the leads on screen to Excel.",
+    sortOrder: 300,
+  },
+  {
+    key: PERMISSIONS.LEAD_IMPORT,
+    label: "Import Leads",
+    groupKey: "leads",
+    groupLabel: "Lead Management",
+    description: "Import leads from Excel and assign them to Agents.",
+    sortOrder: 350,
   },
 ];

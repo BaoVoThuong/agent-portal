@@ -33,7 +33,6 @@ import { AvatarStack, Initials } from "../tasks/_components/board-ui";
 type AccountManagerClientProps = {
   currentUserEmail: string;
   currentUserPermissions: string[];
-  canManageAlerts: boolean;
   initialUsers: ManagedAccountUser[];
   availableRoles: RoleOption[];
   /** Role Manager → Positions, in display order. */
@@ -115,7 +114,6 @@ function isAdminRole(role: Pick<RoleOption, "name">) {
 export default function AccountManagerClient({
   currentUserEmail,
   currentUserPermissions,
-  canManageAlerts,
   initialUsers,
   availableRoles,
   positions,
@@ -826,7 +824,7 @@ export default function AccountManagerClient({
                   <th className="w-[15%] px-3 py-2">Position</th>
                   <th className="w-[15%] px-3 py-2">Manager</th>
                   <th className="w-[9%] px-3 py-2">Status</th>
-                  {canManageAlerts && <th className="w-[7%] px-3 py-2">Alerts</th>}
+                  <th className="w-[7%] px-3 py-2">Alerts</th>
                   <th className="w-[9%] whitespace-nowrap px-3 py-2 text-right">Created</th>
                   <th className="w-[5%] px-3 py-2">
                     <span className="sr-only">Actions</span>
@@ -903,26 +901,24 @@ export default function AccountManagerClient({
                       <td className="px-3 py-2.5">
                         <StatusBadge active={user.is_active} />
                       </td>
-                      {canManageAlerts && (
-                        <td className="px-3 py-2.5">
-                          <AlertCheckbox
-                            busy={isBusy || alertPendingIds.has(user.id)}
-                            preference={
-                              alertPreferences.get(user.id) ?? {
-                                alertsMuted: user.alertsMuted,
-                                updatedBy: user.alertsUpdatedBy,
-                                updatedAt: user.alertsUpdatedAt,
-                              }
+                      <td className="px-3 py-2.5">
+                        <AlertCheckbox
+                          busy={isBusy || alertPendingIds.has(user.id)}
+                          preference={
+                            alertPreferences.get(user.id) ?? {
+                              alertsMuted: user.alertsMuted,
+                              updatedBy: user.alertsUpdatedBy,
+                              updatedAt: user.alertsUpdatedAt,
                             }
-                            updatedByName={nameOfEmail(
-                              alertPreferences.get(user.id)?.updatedBy ??
-                                user.alertsUpdatedBy ??
-                                "",
-                            )}
-                            onClick={() => void toggleAlerts(user)}
-                          />
-                        </td>
-                      )}
+                          }
+                          updatedByName={nameOfEmail(
+                            alertPreferences.get(user.id)?.updatedBy ??
+                              user.alertsUpdatedBy ??
+                              "",
+                          )}
+                          onClick={() => void toggleAlerts(user)}
+                        />
+                      </td>
                       <td className="whitespace-nowrap px-3 py-2.5 text-right text-xs font-semibold text-[#6b778c]">
                         {new Date(user.created_at).toLocaleDateString()}
                       </td>
@@ -961,7 +957,7 @@ export default function AccountManagerClient({
                   <tr>
                     <td
                       className="px-4 py-12 text-center text-sm font-semibold text-[#6b778c]"
-                      colSpan={canManageAlerts ? 8 : 7}
+                      colSpan={8}
                     >
                       {isFiltering
                         ? "No accounts match your search or filter."

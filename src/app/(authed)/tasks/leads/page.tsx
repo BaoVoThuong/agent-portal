@@ -3,6 +3,8 @@ import { requireAnyPermission } from "@/lib/rbac/server";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import {
   buildLeadActor,
+  canExportLeads,
+  canImportLeads,
   personalLeadAgentEmailsForWorker,
 } from "@/lib/leads/access";
 import { fetchLeadAssignees } from "@/lib/leads/assignees";
@@ -107,6 +109,8 @@ export default async function LeadsPage({
       interactionTypes={vocabulary.types}
       assignees={assignees}
       canAddLead={canAddLead}
+      canExport={canExportLeads(session.user.permissions)}
+      canImport={canImportLeads(session.user.permissions)}
       addLeadAgents={addLeadAgents}
       collaboratorRoster={agentPeople}
       agentNames={displayPeople}

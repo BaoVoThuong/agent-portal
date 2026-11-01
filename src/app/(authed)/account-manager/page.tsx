@@ -3,7 +3,6 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { PORTAL_ACCOUNT_TABLE } from "@/lib/config";
 import type { AccountUser } from "@/lib/domain/account.types";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
-import { can } from "@/lib/rbac/client";
 import {
   fetchRolesWithPermissions,
   type RoleOption,
@@ -108,10 +107,6 @@ export default async function AccountManagerPage() {
   }
 
   const supabase = getSupabaseAdmin();
-  const canManageAlerts = can(
-    session.user.permissions,
-    PERMISSIONS.NOTIFICATION_ALERTS,
-  );
   const [
     { data, error },
     roles,
@@ -127,11 +122,10 @@ export default async function AccountManagerPage() {
       .order("created_at", { ascending: false }),
     fetchRolesWithPermissions(),
     supabase.from("user_roles").select("user_id,role_id"),
-    canManageAlerts
-      ? supabase
-          .from("notification_preferences")
-          .select("email,sound_enabled,updated_by_email,updated_at")
-      : Promise.resolve({ data: [], error: null }),
+    // Notification Alerts belongs to Account Manager (2026-11-01).
+    supabase
+      .from("notification_preferences")
+      .select("email,sound_enabled,updated_by_email,updated_at"),
     loadMembership(supabase),
     fetchPositionOptions(),
     supabase.from("task_assignment_queue_members").select("email,is_enabled"),
@@ -254,7 +248,6 @@ export default async function AccountManagerPage() {
     <AccountManagerClient
       currentUserEmail={session.user.email ?? ""}
       currentUserPermissions={session.user.permissions ?? []}
-      canManageAlerts={canManageAlerts}
       initialUsers={users}
       availableRoles={availableRoles}
       positions={positions}

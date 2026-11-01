@@ -15,7 +15,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
   if (!session || !actorEmail) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  if (!can(session.user.permissions, PERMISSIONS.NOTIFICATION_ALERTS)) {
+  if (!can(session.user.permissions, PERMISSIONS.ACCOUNT_MANAGER)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

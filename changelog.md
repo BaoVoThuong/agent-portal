@@ -6,6 +6,42 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-01 — Notification Alerts gộp vào Account Manager (đã deploy)
+
+- Bỏ key `management.notification_alerts`. Ai có `management.account_manager` là bật/tắt Alerts của từng user:
+  cột Alerts ở Account Manager luôn hiện, API `PATCH /api/admin/users/[id]/notification-alerts` đòi Account Manager.
+- Key này vào danh sách key đã bỏ (`isAssignablePermissionKey`, như `settings.access`): Role Manager không hiện,
+  lưu role không ghi nó — kể cả khi DB còn dòng cũ.
+- Lúc đổi chỉ role Admin có Notification Alerts, Admin cũng có Account Manager → không ai đổi quyền.
+- Rollout `2026-11-01-notification-alerts-into-account-manager.sql` (giữ local): xoá key khỏi `role_permissions` +
+  `permissions`, cập nhật mô tả Account Manager. **Chạy sau khi deploy code.**
+
+## 2026-11-01 — Lead Management / Provider List: quyền Export và Import riêng (đã deploy)
+
+- Key mới, đứng riêng như `task.export` / `task.import` — Work / Manage không còn mở Export / Import:
+  `lead.export`, `lead.import`, `automation.provider_export`, `automation.provider_import`.
+- Là quyền **cộng thêm**: chỉ có tác dụng khi đã có Work hoặc Manage của module đó (helper `canExport*/canImport*`
+  kiểm cả hai, nên trang lẫn API đều chặn người chỉ có Export/Import). Role Manager khoá ô Export/Import khi hàng ở
+  No access, và chọn No access thì gỡ luôn Export/Import.
+- Ô tìm kiếm của Role Manager xét cả nhãn lẫn key của Export/Import, quyền "All agents" và key của mọi quyền.
+- Lead: Import trước đòi `lead.manage` → nay `lead.import` (nút + API `/api/leads/import`). **Export Leads là tính năng
+  mới**: nút Export ở chế độ list, xuất Excel đúng các lead đang hiện với các cột đang hiện (bỏ Tag / Interaction).
+- Provider: Export trước đòi Manage → nay `automation.provider_export`; Import trước Work hoặc Manage → nay
+  `automation.provider_import`. Import đổ vào đâu vẫn theo Manage: có Manage → vào thẳng list, không → Backlog.
+- Role Manager: hai ô Export / Import ở hàng Lead Management và Provider List.
+- Rollout `2026-11-01-export-import-permissions.sql` (giữ local): thêm 4 quyền + cấp cho các role đang có quyền cũ
+  (lead.manage → lead export/import; provider_manage → provider export/import; provider_finder → provider import).
+  **Phải chạy trước khi deploy code** (khoá ngoại) — **đã chạy production 01/11**.
+
+## 2026-10-31 — Role Manager: quyền dạng ma trận "checkbox cộng dồn"; Time Off Admin bao gồm User (đã deploy)
+
+- Tab Permissions của Role Manager thay danh sách checkbox theo nhóm bằng ma trận (`PermissionMatrix`):
+  Modules (No access / Work / Manage + Export / Import; hàng **Statement Tool**: tick 1 ô là cấp cả Health Statement + P&C Statement, vẫn lưu 2 key cũ),
+  Data Accessibility (Registration / Agent dashboard / Company dashboard, công tắc Own/All agents ở đầu cột), Administration, và "Other" cho key mới
+  chưa có chỗ. Chọn Manage thì ô Work hiện "included". Chỉ là cách tick — lưu đúng các key cũ.
+- Bố cục ma trận ở `lib/rbac/permission-matrix.ts` (trang role-manager không được nhắc quyền module khác).
+- `IMPLIED_PERMISSIONS`: `timeoff.admin` ⊃ `timeoff.user` (canUseTimeOff vốn đã nhận Admin; chỉ role Admin có Time Off).
+
 ## 2026-10-31 — Provider List: Manage bao gồm Work (như task.manage / task.work) (đã deploy)
 
 - `IMPLIED_PERMISSIONS`: `automation.provider_manage` ⊃ `automation.provider_finder`. Role Manager khoá ô Provider
