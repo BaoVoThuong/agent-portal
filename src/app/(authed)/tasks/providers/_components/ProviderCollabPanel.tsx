@@ -26,7 +26,7 @@ const byCreatedAt = (a: CommentWithAttachments, b: CommentWithAttachments) =>
 
 /**
  * Cột phải của dialog Provider: Comments | Activity, giống drawer Enrollment.
- * Không đính kèm; người không có quyền Manage chỉ đọc.
+ * Không đính kèm; ai mở được Provider List đều comment được.
  */
 export function ProviderCollabPanel({
   providerId,
@@ -205,11 +205,6 @@ export function ProviderCollabPanel({
             onLoadOlder={loadOlder}
             onReload={reload}
           />
-          {!detail.canComment ? (
-            <p className="shrink-0 text-xs text-[#6b778c]">
-              Only Provider List managers can comment.
-            </p>
-          ) : null}
         </div>
       ) : null}
 

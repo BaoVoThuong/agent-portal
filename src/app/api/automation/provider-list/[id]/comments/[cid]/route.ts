@@ -119,7 +119,7 @@ export async function DELETE(_request: Request, { params }: Ctx) {
 /** Chỉ tác giả sửa/xoá được comment của mình — RPC kiểm lại lần nữa dưới database. */
 async function loadAuthorContext(id: string, cid: string) {
   if (!isProviderUuid(cid)) return { error: "Not found", status: 404 } as const;
-  const context = await loadProviderCollabContext(id, { write: true });
+  const context = await loadProviderCollabContext(id);
   if (!context.ok) return { error: context.error, status: context.status } as const;
 
   const { data: comment, error } = await context.supabase

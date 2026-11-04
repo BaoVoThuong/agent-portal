@@ -139,7 +139,7 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     groupKey: "provider_list",
     groupLabel: "Provider List",
     description:
-      "Everything in Provider List - Work, plus: add straight to the list, review the Backlog, delete addresses, comment, and change the Provider List columns. Imports land straight in the list.",
+      "Everything in Provider List - Work, plus: add straight to the list, review the Backlog, delete addresses, and change the Provider List columns. Imports land straight in the list.",
     sortOrder: 100,
   },
   {
@@ -148,7 +148,7 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     groupKey: "provider_list",
     groupLabel: "Provider List",
     description:
-      "Open the Provider List and its Finder, edit cells, and add addresses into the Backlog for review.",
+      "Open the Provider List and its Finder, edit cells, comment, and add addresses into the Backlog for review.",
     sortOrder: 200,
   },
   // Export / Import are their own ticks (2026-11-01), like Tasks - Export /

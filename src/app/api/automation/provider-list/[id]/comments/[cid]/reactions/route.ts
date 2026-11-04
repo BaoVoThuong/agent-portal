@@ -24,7 +24,7 @@ async function readEmoji(request: Request): Promise<string | null> {
 async function mutate(request: Request, context: Ctx, present: boolean) {
   const { id, cid } = await context.params;
   if (!isProviderUuid(cid)) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const access = await loadProviderCollabContext(id, { write: true });
+  const access = await loadProviderCollabContext(id);
   if (!access.ok) {
     return NextResponse.json({ error: access.error }, { status: access.status });
   }

@@ -12,7 +12,7 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export async function POST(request: Request, { params }: Ctx) {
   const { id } = await params;
-  const context = await loadProviderCollabContext(id, { write: true });
+  const context = await loadProviderCollabContext(id);
   if (!context.ok) {
     return NextResponse.json({ error: context.error }, { status: context.status });
   }

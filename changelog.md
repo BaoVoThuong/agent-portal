@@ -6,6 +6,12 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-04 — Provider List: Work cũng comment được (đã deploy)
+
+- `loadProviderCollabContext`: ai mở được Provider List (Work hoặc Manage) đều comment, trả lời, reaction được —
+  trước chỉ Manage. Sửa / xoá vẫn chỉ comment của chính mình (route + hàm SQL kiểm `author_email`).
+- Bỏ dòng "Only Provider List managers can comment." và tham số `write` không còn dùng.
+
 ## 2026-11-02 — Provider Finder: gợi ý City / State chỉ lấy từ địa chỉ Valid (đã deploy)
 
 - Ô City của Finder từng gợi ý cả giá trị của dòng gộp nhiều chi nhánh ("Corpus Christi, Cypress, … Sugar Land") —
@@ -43,7 +49,7 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
   lưu role không ghi nó — kể cả khi DB còn dòng cũ.
 - Lúc đổi chỉ role Admin có Notification Alerts, Admin cũng có Account Manager → không ai đổi quyền.
 - Rollout `2026-11-01-notification-alerts-into-account-manager.sql` (giữ local): xoá key khỏi `role_permissions` +
-  `permissions`, cập nhật mô tả Account Manager. **Chạy sau khi deploy code.**
+  `permissions`, cập nhật mô tả Account Manager. **Chạy sau khi deploy code** — **đã chạy production 02/11**.
 
 ## 2026-11-01 — Lead Management / Provider List: quyền Export và Import riêng (đã deploy)
 

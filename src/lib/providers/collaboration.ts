@@ -10,7 +10,7 @@ import type { CommentWithAttachments } from "@/lib/tasks/detail";
 import type { TaskAssignee } from "@/lib/tasks/assignees";
 import { sendBroadcastMessages } from "@/lib/tasks/realtime";
 import { nextCommentPageCursor, type CommentCursor } from "@/lib/collaboration/comment-pagination";
-import { canManageProviders, canViewProviders } from "./access";
+import { canViewProviders } from "./access";
 import type { ProviderActivityRow, ProviderActivityType } from "./activity";
 import { providerReactionTopic, providerRoomTopic } from "./realtime-topics";
 import { PROVIDER_TABLE } from "./types";
@@ -19,8 +19,9 @@ import { PROVIDER_TABLE } from "./types";
  * Comments + Activity của Provider List (2026-10-25). Cùng khuôn Enrollment
  * (lib/enrollment/detail.ts) nhưng không có đính kèm.
  *
- * Quyền: ai xem được Provider List (`automation.provider_finder`) thì đọc
- * được; chỉ tầng Manage viết — comment, trả lời, sửa/xoá, reaction.
+ * Quyền: ai xem được Provider List (Work hoặc Manage) thì đọc và viết —
+ * comment, trả lời, reaction; sửa/xoá chỉ comment của chính mình. Trước
+ * 2026-11-04 chỉ tầng Manage viết được.
  */
 
 export const PROVIDER_ACTIVITY_LIMIT = 250;
@@ -41,13 +42,12 @@ export type ProviderCollabContext = {
 };
 
 /**
- * Người đang gọi + provider đang mở. `write: true` đòi tầng Manage.
+ * Người đang gọi + provider đang mở. Ai mở được Provider List đều viết được.
  * Provider đã archive coi như không còn: comment vào dòng đã xoá là comment
  * không ai thấy.
  */
 export async function loadProviderCollabContext(
-  providerId: string,
-  options: { write?: boolean } = {}
+  providerId: string
 ): Promise<
   | ({ ok: true } & ProviderCollabContext)
   | { ok: false; error: string; status: number }
@@ -73,10 +73,7 @@ export async function loadProviderCollabContext(
   if (!canViewProviders(permissions)) {
     return { ok: false, error: "Forbidden", status: 403 };
   }
-  const canComment = canManageProviders(permissions);
-  if (options.write && !canComment) {
-    return { ok: false, error: "Only Provider List managers can comment.", status: 403 };
-  }
+  const canComment = true;
   if (!validId) {
     return { ok: false, error: "Invalid provider id.", status: 400 };
   }
