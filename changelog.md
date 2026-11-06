@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-06 — Enrollment: Caller / Responsible Enroll sửa được hết (đã deploy)
+
+- `resolveEnrollmentCapabilities` (`lib/enrollment/access.ts`): với hồ sơ mình là Caller hoặc Responsible Enroll, worker
+  được thêm `canEditContent` (Client name, FUB, Description), `canReviewQC`, `canAssignPeople`, `canTransferAgent`.
+  Lý do: Responsible Enroll báo không sửa được 3 ô trên của hồ sơ không thuộc Agent mình làm Assistant.
+- Không đổi: `canArchive` vẫn chỉ chủ record (Agent / Assistant) và Manager. Áp cho cả 4 chương trình, UI và API dùng chung
+  hàm này.
+
 ## 2026-11-04 — Provider List: Work cũng comment được (đã deploy)
 
 - `loadProviderCollabContext`: ai mở được Provider List (Work hoặc Manage) đều comment, trả lời, reaction được —

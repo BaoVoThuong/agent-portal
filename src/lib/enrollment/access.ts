@@ -90,7 +90,9 @@ export function resolveEnrollmentCapabilities(
 
   return {
     canView: true,
-    canEditContent: isOwner || Boolean(flags.isCreator),
+    // Caller / Responsible sửa được hết như chủ record (yêu cầu 2026-11-06);
+    // chỉ Archive vẫn dành cho chủ record.
+    canEditContent: isOwner || isDoingTheWork || Boolean(flags.isCreator),
     // Worker nào đã qua ranh giới phạm vi (enrollment/scope.ts) đều xem được
     // record này, nên đều sửa được trường của nó (yêu cầu 2026-10-31).
     canEditFields: true,
@@ -99,12 +101,10 @@ export function resolveEnrollmentCapabilities(
     canEditDueDate: true,
     canChangeStage: isOwner || isDoingTheWork,
     canReopen: isOwner || isDoingTheWork,
-    canReviewQC: isOwner,
-    canAssignPeople: isOwner,
+    canReviewQC: isOwner || isDoingTheWork,
+    canAssignPeople: isOwner || isDoingTheWork,
     canArchive: isOwner,
-    // Mirrors CS: agent ownership transfer is a content decision reserved for
-    // managers, agent-owner/assistants, and the original creator.
-    canTransferAgent: isOwner || Boolean(flags.isCreator),
+    canTransferAgent: isOwner || isDoingTheWork || Boolean(flags.isCreator),
   };
 }
 

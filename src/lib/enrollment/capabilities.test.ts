@@ -58,16 +58,16 @@ describe("resolveEnrollmentCapabilities", () => {
   });
 
   for (const role of ["isCaller", "isResponsible"] as const) {
-    it(`lets ${role} edit workflow fields but not perform owner actions`, () => {
+    it(`lets ${role} edit everything but not archive`, () => {
       const capabilities = resolveEnrollmentCapabilities(worker, { [role]: true });
-      expect(capabilities.canEditContent).toBe(false);
+      expect(capabilities.canEditContent).toBe(true);
       expect(capabilities.canEditFields).toBe(true);
       expect(capabilities.canChangeStage).toBe(true);
       expect(capabilities.canReopen).toBe(true);
-      expect(capabilities.canReviewQC).toBe(false);
-      expect(capabilities.canAssignPeople).toBe(false);
+      expect(capabilities.canReviewQC).toBe(true);
+      expect(capabilities.canAssignPeople).toBe(true);
       expect(capabilities.canArchive).toBe(false);
-      expect(capabilities.canTransferAgent).toBe(false);
+      expect(capabilities.canTransferAgent).toBe(true);
     });
   }
 
