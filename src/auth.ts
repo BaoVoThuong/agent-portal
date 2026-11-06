@@ -65,6 +65,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           .from(PORTAL_ACCOUNT_TABLE)
           .select("id,email,name,agent_id,password_hash,is_active")
           .eq("email", email)
+          .abortSignal(AbortSignal.timeout(8000))
           .single();
 
         // Always run a comparison (against a dummy hash when the account is
@@ -109,6 +110,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           .from(PORTAL_ACCOUNT_TABLE)
           .select("id,is_active")
           .eq("email", user.email)
+          .abortSignal(AbortSignal.timeout(8000))
           .single();
 
         if (existingUser) return existingUser.is_active !== false;

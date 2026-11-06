@@ -48,8 +48,12 @@ export async function getUserAccessByEmail(email: string): Promise<UserAccess> {
       "id,is_active,agent_id,user_roles(roles(id,is_active,role_permissions(permission_key)))"
     )
     .eq("email", email)
+    .abortSignal(AbortSignal.timeout(8000))
     .maybeSingle();
 
+  if (error) {
+    console.error("RBAC lookup failed", { code: error.code, message: error.message });
+  }
   if (error || !data) {
     return { userId: null, permissions: [], isActive: false, agentId: null };
   }

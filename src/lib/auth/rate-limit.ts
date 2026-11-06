@@ -19,7 +19,8 @@ export async function isLoginRateLimited(email: string): Promise<boolean> {
     .select("id", { count: "exact", head: true })
     .eq("email", email)
     .eq("success", false)
-    .gte("created_at", since);
+    .gte("created_at", since)
+    .abortSignal(AbortSignal.timeout(5000));
 
   if (error) return false;
   return (count ?? 0) >= MAX_FAILED_ATTEMPTS;
@@ -31,5 +32,6 @@ export async function recordLoginAttempt(
   success: boolean
 ) {
   const supabase = getSupabaseAdmin();
-  await supabase.from("login_attempts").insert({ email, ip, success });
+  await supabase.from("login_attempts").insert({ email, ip, success })
+    .abortSignal(AbortSignal.timeout(3000));
 }

@@ -60,7 +60,9 @@ export async function GET(req: Request) {
   if (!access.isActive) return respond({ error: "Unauthorized" }, 401);
   const viewerActor = buildTaskActor(access.permissions, email);
 
-  const supabase = getSupabaseAdmin();
+  // GETs are background reads; a stalled PostgREST request must not occupy a
+  // server function for the full platform timeout or overlap several polls.
+  const supabase = getSupabaseAdmin(8000);
   const searchParams = new URL(req.url).searchParams;
   const mode = searchParams.get("mode");
 
@@ -69,6 +71,44 @@ export async function GET(req: Request) {
   // and enrichment queries makes polling cheap; the full list is loaded when
   // the user opens the dropdown or a realtime signal arrives.
   if (mode === "summary") {
+    // A single PostgREST request uses one pool slot for the whole summary.
+    // Keep the old path only while the SQL rollout has not reached this DB.
+    const summary = await supabase.rpc("get_notification_summary", {
+      p_email: email,
+      p_unread_since: UNREAD_SINCE,
+    });
+    if (!summary.error) {
+      const data = summary.data as {
+        unread?: number;
+        assignedTaskIds?: string[];
+        latestAt?: string | null;
+      } | null;
+      const assignedTaskIds = Array.isArray(data?.assignedTaskIds)
+        ? data.assignedTaskIds.filter((id): id is string => typeof id === "string")
+        : [];
+      let visibleAssignedIds = new Set<string>();
+      try {
+        visibleAssignedIds = await visibleNotificationTaskIdsById(viewerActor, assignedTaskIds, supabase);
+      } catch (error) {
+        console.warn("Task notification scope lookup failed", {
+          code: error instanceof Error ? error.message : "unknown",
+        });
+      }
+      return respond({
+        unread: Number(data?.unread ?? 0),
+        unreadAssignedTaskIds: assignedTaskIds.filter((id) => visibleAssignedIds.has(id)),
+        latestAt: data?.latestAt ?? null,
+        topic: notifTopic(email),
+      });
+    }
+    if (summary.error.code !== "PGRST202") {
+      console.error("Notification summary lookup failed", {
+        code: summary.error.code,
+        message: summary.error.message,
+      });
+      return respond({ error: summary.error.message }, 500);
+    }
+
     const tCounts = performance.now();
     const [
       unreadRes,

@@ -1,6 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 
-export function getSupabaseAdmin() {
+export function getSupabaseAdmin(dbTimeoutMs?: number) {
   const url = process.env.SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) {
@@ -8,5 +8,6 @@ export function getSupabaseAdmin() {
   }
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
+    ...(dbTimeoutMs ? { db: { timeout: dbTimeoutMs } } : {}),
   });
 }

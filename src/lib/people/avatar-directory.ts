@@ -24,7 +24,8 @@ export const fetchAvatarDirectory = cache(
       .from(PORTAL_ACCOUNT_TABLE)
       .select("email,avatar_url")
       .eq("is_active", true)
-      .not("avatar_url", "is", null);
+      .not("avatar_url", "is", null)
+      .abortSignal(AbortSignal.timeout(3000));
 
     // Ảnh đại diện là thứ trang trí. Truy vấn hỏng — hoặc cột chưa migrate —
     // thì trả danh sách rỗng để mọi người về lại hai chữ viết tắt, chứ không
