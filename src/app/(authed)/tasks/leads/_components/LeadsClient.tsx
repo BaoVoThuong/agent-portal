@@ -1,5 +1,7 @@
 "use client";
 
+import { PhoneFilterToggle, PhoneMoreActions } from "@/app/(authed)/_shared/phone-ui";
+import { useIsPhone } from "@/lib/use-is-phone";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CircleAlert, Download, Plus, Search, Shuffle, Upload, UserPen, X } from "lucide-react";
@@ -148,7 +150,7 @@ const ALL_FILTER = "__all__";
 const UNASSIGNED_FILTER = "";
 
 const FILTER_SELECT_BUTTON_CLASS =
-  "!h-9 !rounded-lg !border !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
+  "max-md:!h-11 !h-9 !rounded-lg !border !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
 
 function sourceNonce(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
@@ -1249,9 +1251,11 @@ export function LeadsClient({
     XLSX.writeFile(book, `Leads_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
+  const [phoneFiltersOpen, setPhoneFiltersOpen] = useState(false);
+  const isPhone = useIsPhone();
   const shellClassName =
     view === "list"
-      ? "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#f7f9fc] text-[#172b4d]"
+      ? "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#f7f9fc] text-[#172b4d] max-md:h-auto max-md:min-h-full max-md:overflow-visible"
       : "flex min-h-full min-w-0 flex-col bg-[#f7f9fc] text-[#172b4d]";
   const alertFilterLabel = activeAlert
     ? {
@@ -1264,7 +1268,7 @@ export function LeadsClient({
 
   return (
     <main className={shellClassName}>
-      <div className="min-w-0 shrink-0 px-6 pb-4 pt-5">
+      <div className="min-w-0 shrink-0 px-6 pb-4 pt-5 max-md:px-3 max-md:pb-3 max-md:pt-3">
         <div className="mx-auto flex max-w-[1760px] flex-col gap-3">
           {/* Có dòng phụ đề nên nhóm nút canh theo dòng tiêu đề (items-start), để
               nút đứng đúng chỗ như ở Enrollment thay vì tụt xuống ngang phụ đề. */}
@@ -1278,6 +1282,8 @@ export function LeadsClient({
               </p>
             </div>
             <div className={PAGE_ACTIONS_CLASS}>
+              {isManager || (canExport && view === "list") || canImport ? (
+              <PhoneMoreActions>
               {isManager && view === "list" && (
                 <button
                   className={pageSecondaryButtonClass(reassignMode ? "pressed" : undefined)}
@@ -1322,6 +1328,8 @@ export function LeadsClient({
                   <Upload className="h-4 w-4" /> Import
                 </button>
               )}
+              </PhoneMoreActions>
+              ) : null}
               {/* Nút chính ở ngoài cùng bên phải, như "New task" bên Task. */}
               {canAddLead && (
                 <button
@@ -1360,7 +1368,7 @@ export function LeadsClient({
                 </div>
 
                 {view === "list" ? (
-                  <div className="relative min-w-[16rem] flex-1">
+                  <div className="relative min-w-[16rem] flex-1 max-md:min-w-full">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7a869a]" />
                     <input
                       className="h-9 w-full rounded-lg border border-[#dfe1e6] bg-white pl-9 pr-8 text-sm outline-none transition focus:border-[#0c66e4] focus:ring-2 focus:ring-[#deebff]"
@@ -1383,6 +1391,7 @@ export function LeadsClient({
                     ) : null}
                   </div>
                 ) : null}
+                {view === "list" ? <PhoneFilterToggle open={phoneFiltersOpen} onToggle={() => setPhoneFiltersOpen((current) => !current)} activeCount={activeFilterCount} /> : null}
                 </div>
               {alertFilterLabel ? (
                 <button
@@ -1398,7 +1407,7 @@ export function LeadsClient({
             </div>
 
             {view === "list" ? (
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <div className={`mobile-filter-grid flex min-w-0 flex-wrap items-center gap-2 ${phoneFiltersOpen ? "" : "max-md:!hidden"}`}>
                 {canViewAll ? (
                   <TaskSelect
                     value={filters.assignedTo ?? ALL_FILTER}
@@ -1459,11 +1468,13 @@ export function LeadsClient({
                   }
                 />
 
-                <LeadTableSettingsButton
-                  columns={leadLayoutColumns}
-                  hiddenColumnKeys={hiddenLeadColumnKeys}
-                  onToggleColumn={toggleLeadListColumn}
-                />
+                {isPhone ? null : (
+                  <LeadTableSettingsButton
+                    columns={leadLayoutColumns}
+                    hiddenColumnKeys={hiddenLeadColumnKeys}
+                    onToggleColumn={toggleLeadListColumn}
+                  />
+                )}
 
                 {activeFilterCount > 0 ? (
                   <button
@@ -1475,7 +1486,7 @@ export function LeadsClient({
                   </button>
                 ) : null}
 
-                <span className="ml-auto shrink-0 text-sm font-medium text-[#626f86]">
+                <span className="mobile-filter-count ml-auto shrink-0 text-sm font-medium text-[#626f86]">
                   {displayedLeads.length.toLocaleString()} of{" "}
                   {leads.length.toLocaleString()} leads
                 </span>
@@ -1486,7 +1497,7 @@ export function LeadsClient({
       </div>
 
       {view === "overview" && canViewAll ? (
-        <div className="min-w-0 flex-1 px-6 pb-6">
+        <div className="min-w-0 flex-1 px-6 pb-6 max-md:px-3">
           <div className="mx-auto max-w-[1760px]">
             <LeadOverview onAlertClick={selectAlert} />
           </div>
@@ -1494,7 +1505,7 @@ export function LeadsClient({
       ) : null}
 
       {view === "list" && isManager && reassignMode && (
-        <div className="min-w-0 shrink-0 px-6 pb-3">
+        <div className="min-w-0 shrink-0 px-6 pb-3 max-md:px-3">
           <div className="mx-auto max-w-[1760px] rounded border border-[#b8d4ff] bg-[#e9f2ff] px-4 py-3 text-sm shadow-[0_1px_2px_rgba(9,30,66,0.08)]">
             <div className="flex flex-wrap items-center gap-3">
               <span className="font-semibold text-[#172b4d]">
@@ -1560,7 +1571,7 @@ export function LeadsClient({
           "20.500 active leads" còn thanh công cụ nói "20.000 of 20.000" — hai
           con số cãi nhau, không lỗi, không cách nào đoán ra vì sao. */}
       {view === "list" && truncated ? (
-        <div className="min-w-0 shrink-0 px-6 pb-3">
+        <div className="min-w-0 shrink-0 px-6 pb-3 max-md:px-3">
           <div className="mx-auto flex max-w-[1760px] items-start gap-2 rounded border border-[#ffc400] bg-[#fffae6] px-4 py-2.5 text-sm font-semibold text-[#974f0c]">
             <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
             <span>
@@ -1573,7 +1584,7 @@ export function LeadsClient({
       ) : null}
 
       {view === "list" && editError ? (
-        <div className="min-w-0 shrink-0 px-6 pb-3">
+        <div className="min-w-0 shrink-0 px-6 pb-3 max-md:px-3">
           <div className="mx-auto flex max-w-[1760px] items-start justify-between gap-3 rounded border border-[#ffbdad] bg-[#fff7f5] px-4 py-2.5 text-sm font-semibold text-[#bf2600]">
             <span>{editError}</span>
             <button
@@ -1589,7 +1600,7 @@ export function LeadsClient({
       ) : null}
 
       {view === "list" && (
-        <div className="min-h-0 flex flex-1 flex-col px-6 pb-6">
+        <div className="min-h-0 flex flex-1 flex-col px-6 pb-6 max-md:px-3 max-md:pb-3">
           <div className="mx-auto flex min-h-0 w-full max-w-[1760px] flex-1 flex-col">
             <LeadTable
               leads={displayedLeads}

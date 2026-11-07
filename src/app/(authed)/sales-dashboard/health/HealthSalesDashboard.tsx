@@ -92,7 +92,7 @@ export function HealthSalesDashboard({
             Portfolio Overview
           </h2>
 
-          <section className="grid gap-8 md:grid-cols-2 xl:grid-cols-4">
+          <section className="grid gap-8 md:grid-cols-2 xl:grid-cols-4 max-md:grid-cols-2 max-md:gap-2">
             <KpiCard
               label="Agent Commission"
               value={formatCurrencyCompact(data.overview.agentReceived)}

@@ -397,9 +397,9 @@ export function LeadDistributeDialog({
           {error ? <p role="alert" className="shrink-0 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700">{error}</p> : null}
         </div>
 
-        <footer className="flex items-center justify-between gap-2 border-t border-[#dfe1e1] px-5 py-3">
+        <footer className="flex items-center justify-between gap-2 border-t border-[#dfe1e1] px-5 py-3 max-md:flex-wrap">
           <button type="button" onClick={() => void resetCursor()} disabled={busy || !eventId} title="Discard the part-finished rotation" className="inline-flex h-9 items-center gap-1.5 rounded px-2 text-sm font-semibold text-[#6b778c] transition hover:text-[#172b4d] disabled:opacity-40"><RotateCcw className="h-3.5 w-3.5" /> Reset rotation</button>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 max-md:flex-wrap">
             {blockedReason && !busy ? <span className="text-xs font-semibold text-[#974f0c]">{blockedReason}</span> : null}
             <button type="button" onClick={() => void save()} disabled={busy || loading || !dirty} className="inline-flex h-9 items-center rounded border border-[#dfe1e1] bg-white px-3 text-sm font-bold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4] disabled:opacity-40">Save Event pool</button>
             <button type="button" onClick={() => void saveThenDistribute()} disabled={Boolean(blockedReason) || busy} className="inline-flex h-9 items-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-40"><Shuffle className="h-4 w-4" />{busy ? "Working…" : dirty ? `Save and distribute ${pool?.pending ?? 0}` : `Distribute ${pool?.pending ?? 0}`}</button>

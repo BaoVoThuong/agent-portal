@@ -69,7 +69,7 @@ export function HealthCommissionMetricTrendChart({
         <h3 className="text-lg font-bold leading-tight text-slate-800">
           Commission Trend by {periodLabel} | {metric.title}
         </h3>
-        <div className="inline-flex overflow-hidden rounded-lg border border-[#cfd7e3] bg-white shadow-[0_1px_2px_rgba(22,35,58,0.08)]">
+        <div className="inline-flex overflow-hidden rounded-lg border border-[#cfd7e3] bg-white shadow-[0_1px_2px_rgba(22,35,58,0.08)] max-md:max-w-full max-md:overflow-x-auto">
           {METRICS.map((item) => {
             const isActive = item.key === selectedMetric;
 
@@ -162,7 +162,7 @@ function CommissionTrendSvg({
   return (
     <div className="overflow-x-auto">
       <svg
-        className="min-w-[1120px]"
+        className="min-w-[1120px] max-md:min-w-[680px]"
         viewBox={`0 0 ${width} ${height}`}
         role="img"
         aria-label={`${periodLabel} ${metric.title} trend`}

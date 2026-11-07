@@ -273,3 +273,140 @@ body {
     box-shadow: 0 0 0 0 rgba(245, 205, 71, 0);
   }
 }
+
+@keyframes phoneSheetIn {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fixed.inset-0.flex.items-center.justify-center > * {
+    animation: none !important;
+  }
+}
+
+/* Phone browsers. iOS Safari zooms the whole page when a focused field's text
+   is under 16px, and the zoom stays after the field loses focus. */
+@media (max-width: 767px) {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  a,
+  button,
+  label,
+  select,
+  summary,
+  [role="button"] {
+    touch-action: manipulation;
+  }
+
+  /* Dashboard filter rows stack one per line; each button fills its line. */
+  .dashboard-filter-button {
+    width: 100%;
+  }
+
+  /* Dense list filters become equal-width pairs instead of a staircase of
+     differently sized buttons on narrow phones. */
+  .mobile-filter-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mobile-filter-grid > .relative {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .mobile-filter-count {
+    grid-column: 1 / -1;
+    justify-self: end;
+    margin-left: 0;
+  }
+
+  /* Dialogs open as a sheet from the bottom: the fields and the Save button sit
+     where a thumb reaches, and the page behind stays visible at the top. */
+  .fixed.inset-0.flex.items-center.justify-center {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .fixed.inset-0.flex.items-center.justify-center > * {
+    width: 100%;
+    max-width: none;
+    max-height: 94dvh;
+    border-bottom-right-radius: 0;
+    border-bottom-left-radius: 0;
+    animation: phoneSheetIn 0.2s ease-out;
+  }
+
+  /* Two KPI cards per row, so the charts start on the second screen. */
+  main:has(.dashboard-filter-button) section.grid article,
+  main:has(.dashboard-filter-button) section.grid .agent-health-panel-soft {
+    min-height: 0;
+    padding: 0.75rem;
+  }
+
+  /* Dashboard tables split the width evenly, which broke words mid-letter on a
+     phone. They keep a readable width and swipe sideways inside their card. */
+  main:has(.dashboard-filter-button) table.table-fixed {
+    min-width: 600px;
+  }
+
+  /* The densest tables size columns by percent; at 600px a header's button was
+     pushed under the next column. */
+  main:has(.dashboard-filter-button) table.table-fixed[class*="text-[11px]"] {
+    min-width: 920px;
+  }
+
+  main:has(.dashboard-filter-button) :has(> table.table-fixed) {
+    overflow-x: auto;
+  }
+
+  /* A scroll box still reports its content's width, so without this the cards
+     around a table grow past the screen instead of letting it scroll. */
+  main:has(.dashboard-filter-button) section,
+  main:has(.dashboard-filter-button) article,
+  main:has(.dashboard-filter-button) .grid > * {
+    min-width: 0;
+  }
+
+  /* Pinned table columns add up to more than a phone's width, which hid every
+     other column behind them. Only the first column stays pinned. */
+  main .sticky[style*="left:"]:not([style*="left:0"]):not([style*="left: 0"]) {
+    left: auto !important;
+  }
+
+  /* Same on dashboard tables: a pinned "Deal Name" was wider than the card and
+     covered every other column. Only the column at the left edge stays pinned;
+     `left: auto` keeps the header sticking to the top. */
+  main:has(.dashboard-filter-button) .sticky[class*="left-"]:not(.left-0) {
+    left: auto;
+  }
+
+  /* These menus open from their button, which can sit anywhere in a row, and
+     ran off the screen. They span the page under the button instead. */
+  main {
+    position: relative;
+  }
+
+  main :has(> .dashboard-filter-menu.absolute) {
+    position: static;
+  }
+
+  .dashboard-filter-menu.absolute {
+    left: 0.75rem;
+    right: 0.75rem;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+  }
+}

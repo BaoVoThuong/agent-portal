@@ -54,9 +54,12 @@ export function useAnchoredMenu({
       const estWidth = 320;
       if (placement === "above-right") {
         const canOpenRight = rect.right + estWidth + 8 <= window.innerWidth;
+        const canOpenLeft = rect.left - estWidth - 8 >= 8;
         const left = canOpenRight
           ? { left: rect.right + 8 }
-          : { right: Math.max(8, window.innerWidth - rect.left + 8) };
+          : canOpenLeft
+            ? { right: Math.max(8, window.innerWidth - rect.left + 8) }
+            : { left: 8 };
         const viewportPadding = 8;
         const menuMaxHeight = Math.min(
           maxHeight,
@@ -78,14 +81,18 @@ export function useAnchoredMenu({
       const spaceBelow = window.innerHeight - rect.bottom;
       const flipUp = spaceBelow < maxHeight && rect.top > spaceBelow;
       // Not enough room to grow rightward → anchor the menu's right edge to the
-      // trigger so it opens leftward and stays inside the viewport.
+      // trigger so it opens leftward and stays inside the viewport. A phone has
+      // room on neither side, so the menu then starts at the screen edge.
       const overflowRight = rect.left + estWidth > window.innerWidth - 8;
+      const fitsLeftward = rect.right - estWidth >= 8;
       setMenuStyle({
         position: "fixed",
         minWidth: rect.width,
         maxHeight,
         ...(overflowRight
-          ? { right: Math.max(8, window.innerWidth - rect.right) }
+          ? fitsLeftward
+            ? { right: Math.max(8, window.innerWidth - rect.right) }
+            : { left: 8 }
           : { left: rect.left }),
         ...(flipUp
           ? { bottom: window.innerHeight - rect.top + 4 }

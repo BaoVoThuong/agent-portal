@@ -174,7 +174,7 @@ function TrendChartSvg({ rows }: { rows: TrendComparisonPeriod[] }) {
   return (
     <div className="overflow-x-auto overflow-y-visible">
       <div
-        className="relative min-w-[1120px]"
+        className="relative min-w-[1120px] max-md:min-w-[680px]"
         onMouseLeave={() => setActiveIndex(null)}
         onMouseMove={updateTooltipPosition}
       >

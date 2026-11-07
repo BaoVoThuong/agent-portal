@@ -1,5 +1,6 @@
 "use client";
 
+import { PhoneMoreActions } from "@/app/(authed)/_shared/phone-ui";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Download, Plus, Upload } from "lucide-react";
@@ -465,8 +466,8 @@ export function ProviderListClient({
   }
 
   return (
-    <main className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#f7f9fc] text-[#172b4d]">
-      <div className="min-w-0 shrink-0 px-6 pb-4 pt-5">
+    <main className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#f7f9fc] text-[#172b4d] max-md:h-auto max-md:min-h-full max-md:overflow-visible">
+      <div className="min-w-0 shrink-0 px-6 pb-4 pt-5 max-md:px-3 max-md:pb-3 max-md:pt-3">
         <div className="mx-auto flex max-w-[1760px] flex-col gap-3">
           <header className={PAGE_HEADER_CLASS}>
             <div>
@@ -477,6 +478,8 @@ export function ProviderListClient({
             <div className={PAGE_ACTIONS_CLASS}>
               {/* Nút này chỉ có nghĩa với bảng; tab tìm theo địa chỉ không thêm
                   dòng. Nút chọn cột đã xuống cuối hàng lọc bên dưới. */}
+              {(view === "list" && canExport) || (view !== "finder" && canImport) ? (
+              <PhoneMoreActions>
               {view === "list" && canExport ? (
                 <button
                   type="button"
@@ -488,7 +491,7 @@ export function ProviderListClient({
                   {exporting ? "Exporting…" : "Export"}
                 </button>
               ) : null}
-              {view !== "finder" && canImport ? (
+              {canImport ? (
                 <button
                   type="button"
                   onClick={() => setImportOpen(true)}
@@ -496,6 +499,8 @@ export function ProviderListClient({
                 >
                   <Upload className="h-4 w-4" /> Import
                 </button>
+              ) : null}
+              </PhoneMoreActions>
               ) : null}
               {view !== "finder" && canAdd ? (
                 <button
@@ -550,7 +555,7 @@ export function ProviderListClient({
       </div>
 
       <div
-        className={`min-h-0 min-w-0 flex-1 px-6 pb-6 ${
+        className={`min-h-0 min-w-0 flex-1 px-6 pb-6 max-md:px-3 max-md:pb-3 ${
           // Bảng tự cuộn bên trong khung của nó; tab tìm theo địa chỉ thì dài
           // hơn màn hình nên cần khung ngoài cuộn được.
           view === "list" ? "" : "overflow-auto"

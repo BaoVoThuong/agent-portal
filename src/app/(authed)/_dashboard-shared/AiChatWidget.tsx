@@ -154,7 +154,7 @@ export function AiChatWidget({ context, scope = "agent" }: AiChatWidgetProps) {
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex h-[34rem] w-[23rem] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+    <div className="fixed bottom-6 right-6 z-50 flex h-[34rem] w-[23rem] flex-col overflow-hidden max-md:inset-x-2 max-md:bottom-2 max-md:h-[min(34rem,calc(100dvh-1rem))] max-md:w-auto rounded-2xl border border-slate-200 bg-white shadow-2xl">
       <header className="flex items-center justify-between bg-[#0f2849] px-4 py-3 text-white">
         <div className="flex items-center gap-2">
           <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10">

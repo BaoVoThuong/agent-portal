@@ -92,12 +92,12 @@ export default async function PcSalesDashboardPage({
               <h1 className="text-3xl font-bold tracking-tight text-slate-900">
                 P&amp;C Sales Dashboard
               </h1>
-              <p className="mt-2 text-sm text-slate-500">
+              <p className="mt-2 text-sm text-slate-500 max-md:hidden">
                 Overview of P&amp;C sales volume, agent commissions, and EPS
                 metrics.
               </p>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-3">
+            <div className="flex flex-wrap items-center justify-end gap-3 max-md:justify-start max-md:[&>*]:w-full">
               <DashboardViewSwitch
                 activeView="sales"
                 basePath="/dashboard/pc"

@@ -132,7 +132,7 @@ export function AgentHealthDashboardChart({
       <div className="agent-health-panel p-3">
         <div className="overflow-x-auto">
           <div
-            className="relative min-w-[980px]"
+            className="relative min-w-[980px] max-md:min-w-[680px]"
             onMouseMove={updateTooltipPosition}
             onMouseLeave={() => setActiveIndex(null)}
           >

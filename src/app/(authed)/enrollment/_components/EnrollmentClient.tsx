@@ -1,5 +1,8 @@
 "use client";
 
+import { PhoneFilterToggle, PhoneMoreActions } from "@/app/(authed)/_shared/phone-ui";
+import { PhoneBadge, PhoneCard, PhoneCardList } from "@/app/(authed)/_shared/phone-ui";
+import { useIsPhone } from "@/lib/use-is-phone";
 import {
   useCallback,
   useEffect,
@@ -301,7 +304,7 @@ const DEFAULT_FILTERS: Filters = {
 };
 
 const FILTER_SELECT_BUTTON_CLASS =
-  "!h-9 !rounded-lg !border !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
+  "max-md:!h-11 !h-9 !rounded-lg !border !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
 const INPUT_CLASS =
   "w-full rounded border-2 border-[#dfe1e6] bg-white px-3 py-2 text-sm text-[#172b4d] outline-none transition hover:border-[#c1c7d0] focus:border-[#0c66e4] disabled:cursor-not-allowed disabled:border-[#dfe1e6] disabled:bg-[#f4f5f7] disabled:text-[#6b778c]";
 const DETAIL_FIELD_BUTTON_CLASS =
@@ -1986,7 +1989,7 @@ export function EnrollmentClient({
   }
 
   const shellClassName =
-    "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#f7f9fc] text-[#172b4d]";
+    "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#f7f9fc] text-[#172b4d] max-md:h-auto max-md:min-h-full max-md:overflow-visible";
 
   return (
     <div className={shellClassName}>
@@ -2025,7 +2028,7 @@ export function EnrollmentClient({
           </button>
         </div>
       ) : null}
-      <div className="min-w-0 shrink-0 px-6 pb-4 pt-5">
+      <div className="min-w-0 shrink-0 px-6 pb-4 pt-5 max-md:px-3 max-md:pb-3 max-md:pt-3">
         <div className="mx-auto flex max-w-[1760px] flex-col gap-3">
           <header className={PAGE_HEADER_CLASS}>
             <div>
@@ -2034,7 +2037,9 @@ export function EnrollmentClient({
               </h1>
             </div>
             <div className={PAGE_ACTIONS_CLASS}>
-              {canExport ? (
+{canExport || canImport ? (
+                <PhoneMoreActions>
+                            {canExport ? (
                 <EnrollmentExportMenu onExport={exportVisibleRecords} />
               ) : null}
               {/* Cùng điều kiện với API: quyền task.import riêng, không suy ra
@@ -2048,6 +2053,8 @@ export function EnrollmentClient({
                   <Upload className="h-4 w-4" />
                   Import
                 </button>
+              ) : null}
+                </PhoneMoreActions>
               ) : null}
               {canCreateRecords ? (
                 <button
@@ -2117,7 +2124,7 @@ export function EnrollmentClient({
           </div>
         </div>
       ) : (
-        <div className="min-h-0 flex flex-1 flex-col px-6 pb-6">
+        <div className="min-h-0 flex flex-1 flex-col px-6 pb-6 max-md:px-3 max-md:pb-3">
           <div className="mx-auto flex min-h-0 w-full max-w-[1760px] flex-1 flex-col">
             <EnrollmentTable
               columns={visibleColumns}
@@ -2371,6 +2378,19 @@ function EnrollmentToolbar({
   // Label source for the filter dropdowns below — built from the already
   // resolved `columns` prop, not a second independent derivation.
   const columnByKey = new Map(columns.map((column) => [column.key, column]));
+  const [phoneFiltersOpen, setPhoneFiltersOpen] = useState(false);
+  const isPhone = useIsPhone();
+  const activeFilterCount = [
+    filters.year.length > 0,
+    filters.stage.length > 0,
+    filters.agent.length > 0,
+    filters.caller.length > 0,
+    filters.responsible.length > 0,
+    filters.carrier.length > 0,
+    filters.attention,
+    filters.qcNeeded,
+    filters.unowned,
+  ].filter(Boolean).length;
   const hasActiveFilters =
     filters.query.trim() !== "" ||
     filters.year.length > 0 ||
@@ -2388,7 +2408,7 @@ function EnrollmentToolbar({
   return (
     <section className="mt-2 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-3 max-md:basis-full max-md:flex-wrap">
           <div className="inline-flex shrink-0 rounded bg-[#f4f5f7] p-0.5">
             {([
               ...(canViewOverview ? (["overview"] as const) : []),
@@ -2409,7 +2429,7 @@ function EnrollmentToolbar({
           </div>
 
           {view === "list" ? (
-            <div className="relative min-w-[18rem] flex-1">
+            <div className="relative min-w-[18rem] flex-1 max-md:min-w-full">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#44546f]" />
               <input
                 value={filters.query}
@@ -2423,7 +2443,8 @@ function EnrollmentToolbar({
           ) : null}
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2 max-md:w-full max-md:flex-wrap">
+          {view === "list" ? <PhoneFilterToggle open={phoneFiltersOpen} onToggle={() => setPhoneFiltersOpen((current) => !current)} activeCount={activeFilterCount} /> : null}
           <DateRangeFilter
             from={view === "overview" ? overviewDateRange.from : filters.createdFrom}
             to={view === "overview" ? overviewDateRange.to : filters.createdTo}
@@ -2440,7 +2461,7 @@ function EnrollmentToolbar({
       </div>
 
       {view === "list" ? (
-      <div className="flex flex-wrap items-center gap-2 xl:flex-nowrap">
+      <div className={`mobile-filter-grid flex flex-wrap items-center gap-2 xl:flex-nowrap ${phoneFiltersOpen ? "" : "max-md:!hidden"}`}>
         {yearColumnKey ? (
           <TaskSelect
             label="Year"
@@ -2557,11 +2578,13 @@ function EnrollmentToolbar({
           />
         ) : null}
 
-        <ColumnVisibilityButton
-          columns={columns}
-          hiddenColumnKeys={hiddenColumnKeys}
-          onToggleColumn={onToggleColumn}
-        />
+        {isPhone ? null : (
+          <ColumnVisibilityButton
+            columns={columns}
+            hiddenColumnKeys={hiddenColumnKeys}
+            onToggleColumn={onToggleColumn}
+          />
+        )}
 
         {hasActiveFilters ? (
           <button
@@ -2573,7 +2596,7 @@ function EnrollmentToolbar({
           </button>
         ) : null}
 
-        <span className="ml-auto shrink-0 text-sm font-medium text-[#626f86]">
+        <span className="mobile-filter-count ml-auto shrink-0 text-sm font-medium text-[#626f86]">
           {visibleCount} of {totalCount} records
         </span>
       </div>
@@ -2721,6 +2744,48 @@ function EnrollmentTable({
   const tableFrameStyle: CSSProperties = {
     maxHeight: "1008px",
   };
+  const isPhone = useIsPhone();
+
+  if (isPhone && records.length > 0) {
+    return (
+      <div className="pb-20">
+        <PhoneCardList
+          items={records}
+          getKey={(record) => record.id}
+          renderItem={(record) => {
+            const stage = record.stage_id ? optionsById.get(record.stage_id) : undefined;
+            const carrier = record.carrier_id ? optionsById.get(record.carrier_id) : undefined;
+            const name = record.client_name?.trim() || "No client name";
+            return (
+              <PhoneCard
+                recordKey={enrollmentDisplayKey(record.display_number, record.program)}
+                title={name}
+                ariaLabel={`Open enrollment ${name}`}
+                onOpen={() => onOpen(record.id)}
+                badges={<PhoneBadge tone={stage ? "blue" : "neutral"}>{stage?.label ?? "No stage"}</PhoneBadge>}
+                fields={[
+                  {
+                    label: "Agent",
+                    value: record.agent_email
+                      ? agentsByEmail.get(record.agent_email) ?? formatEmailAsName(record.agent_email)
+                      : "—",
+                  },
+                  {
+                    label: "Caller",
+                    value: record.caller_email
+                      ? peopleByEmail.get(record.caller_email) ?? formatEmailAsName(record.caller_email)
+                      : "—",
+                  },
+                  { label: "Carrier", value: carrier?.label ?? "—" },
+                  { label: "Due", value: record.due_date ? formatTableDate(record.due_date) : "—" },
+                ]}
+              />
+            );
+          }}
+        />
+      </div>
+    );
+  }
 
   if (records.length === 0) {
     return (
@@ -2732,7 +2797,7 @@ function EnrollmentTable({
 
   return (
     <div
-      className="flex min-h-0 flex-1 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]"
+      className="flex min-h-0 flex-1 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)] max-md:h-[78dvh] max-md:flex-none"
       style={tableFrameStyle}
     >
       <div className="min-h-0 flex-1 overflow-auto">

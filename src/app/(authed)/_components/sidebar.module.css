@@ -83,3 +83,68 @@
   background: #ffffff;
 }
 
+/* Only the phone layout uses these. */
+.closeButton,
+.backdrop {
+  display: none;
+}
+
+/* Phone: the fixed 280px column left about 110px for the page, so the menu
+   becomes a drawer over the page. */
+@media (max-width: 767px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 400;
+    width: min(300px, 86vw);
+    height: 100dvh;
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform 0.2s ease, visibility 0.2s;
+  }
+
+  .sidebarOpen {
+    transform: none;
+    visibility: visible;
+    box-shadow: 0 16px 48px rgba(9, 30, 66, 0.32);
+  }
+
+  .backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 399;
+    border: none;
+    background: rgba(9, 30, 66, 0.4);
+  }
+
+  .logoWrap {
+    height: 56px;
+    padding: 0 4px 0 16px;
+    justify-content: space-between;
+  }
+
+  .logo {
+    max-width: 180px;
+    max-height: 44px;
+  }
+
+  .closeButton {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.78);
+  }
+
+  .navItem {
+    min-height: 44px;
+    white-space: normal;
+  }
+}

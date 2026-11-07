@@ -8,7 +8,12 @@ import { resolveTaskCapabilities } from "@/lib/tasks/access";
 import { sortTasks, type SortDir, type SortKey } from "@/lib/tasks/sorting";
 import type { TaskAgent, TaskAssignee } from "@/lib/tasks/assignees";
 import { applyFrozenOrder } from "@/lib/tasks/frozen-order";
-import { formatEmailAsName } from "@/lib/tasks/people";
+import { formatEmailAsName, personLabel } from "@/lib/tasks/people";
+import { STATUS_LABEL } from "@/lib/tasks/types";
+import { taskDisplayKey } from "@/lib/tasks/sorting";
+import { formatTableDate } from "@/lib/table-config/date-format";
+import { PhoneBadge, PhoneCard, PhoneCardList } from "@/app/(authed)/_shared/phone-ui";
+import { useIsPhone } from "@/lib/use-is-phone";
 import type { TableColumnOption } from "@/lib/table-config/types";
 import {
   LIST_COL,
@@ -117,6 +122,7 @@ export function TaskListView({
   // Set-during-render is React's documented way to adjust state when an input
   // changes: it re-renders before painting, and applyFrozenOrder is stable once
   // membership settles, so this converges in one extra pass.
+  const isPhone = useIsPhone();
   const [frozenIds, setFrozenIds] = useState<string[]>([]);
   const [frozenKey, setFrozenKey] = useState(orderResetKey);
   if (frozenKey !== orderResetKey) {
@@ -155,15 +161,55 @@ export function TaskListView({
     maxHeight: "1008px",
   };
 
+  if (isPhone && rows.length > 0) {
+    return (
+      <div className="px-3 pb-20">
+        <PhoneCardList
+          items={rows}
+          getKey={(task) => task.id}
+          renderItem={(task) => {
+            const overdue = overdueIds.has(task.id);
+            return (
+              <PhoneCard
+                recordKey={taskDisplayKey(task.display_number)}
+                title={task.title}
+                ariaLabel={`Open task ${task.title}`}
+                onOpen={() => onOpen(task.id)}
+                tone={overdue ? "alert" : "default"}
+                badges={
+                  <>
+                    <PhoneBadge tone="blue">{STATUS_LABEL[task.status]}</PhoneBadge>
+                    <PhoneBadge>{task.priority}</PhoneBadge>
+                    {overdue ? <PhoneBadge tone="red">Overdue</PhoneBadge> : null}
+                    {newAssignedTaskIds.has(task.id) ? <PhoneBadge tone="blue">New</PhoneBadge> : null}
+                  </>
+                }
+                fields={[
+                  {
+                    label: "Assignee",
+                    value: task.assignee_email ? personLabel(task.assignee_email, labelByEmail) : "Unassigned",
+                  },
+                  { label: "Agent", value: task.agent_email ? personLabel(task.agent_email, labelByEmail) : "—" },
+                  { label: "Category", value: categoryById.get(task.category_id ?? "")?.name ?? "—" },
+                  { label: "Created", value: formatTableDate(task.created_at) },
+                ]}
+              />
+            );
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-0 flex flex-1 flex-col px-6 pb-6">
+    <div className="min-h-0 flex flex-1 flex-col px-6 pb-6 max-md:px-3">
       {rows.length === 0 ? (
         <div className="rounded border border-dashed border-[#c1c7d0] bg-[#f4f5f7] px-6 py-12 text-center text-sm font-semibold text-[#6b778c]">
           No tasks match the current filters.
         </div>
       ) : (
         <div
-          className="flex min-h-0 flex-1 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden rounded max-md:h-[78dvh] max-md:flex-none border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]"
           style={tableFrameStyle}
         >
           <div className="min-h-0 flex-1 overflow-auto">

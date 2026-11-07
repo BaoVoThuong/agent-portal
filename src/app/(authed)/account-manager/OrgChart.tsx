@@ -804,7 +804,7 @@ export function OrgChart({
             </p>
           )}
 
-          <div data-org-interactive className="absolute left-3 top-3 w-64">
+          <div data-org-interactive className="absolute left-3 top-3 w-64 max-md:w-40">
             <label className="relative block">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6b778c]" />
               <input

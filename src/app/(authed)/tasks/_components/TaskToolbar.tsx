@@ -1,5 +1,7 @@
 "use client";
 
+import { PhoneFilterToggle } from "@/app/(authed)/_shared/phone-ui";
+import { useIsPhone } from "@/lib/use-is-phone";
 import {
   businessDateKey,
   firstDayOfBusinessMonth,
@@ -71,7 +73,7 @@ const PRESETS: { key: QuickFilter; label: string; managerOnly?: boolean }[] = [
 ];
 
 const FILTER_SELECT_BUTTON_CLASS =
-  "!h-9 !rounded-lg !border !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
+  "max-md:!h-11 !h-9 !rounded-lg !border !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
 
 export function TaskToolbar({
   view,
@@ -212,13 +214,24 @@ export function TaskToolbar({
     { key: "list", label: "List" },
   ];
 
+  const [phoneFiltersOpen, setPhoneFiltersOpen] = useState(false);
+  const isPhone = useIsPhone();
+  const activeFilterCount =
+    [
+      showAgent && agentFilter.length > 0,
+      hasVisibleAssigneeFilter && assigneeFilter.length > 0,
+      showTeamTasksToggle && teamTasksEnabled,
+      showCategory && category.length > 0,
+      showStatus && status.length > 0,
+      priority.length > 0,
+    ].filter(Boolean).length + presets.length;
   const showTaskFilters = view !== "overview";
   const showDateRangeFilter = showTaskFilters || view === "overview";
 
   return (
     <section className="mt-2 min-w-0 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3 max-md:basis-full">
           <div className="inline-flex shrink-0 rounded bg-[#f4f5f7] p-0.5">
             {views.map((v) => (
               <button
@@ -240,13 +253,14 @@ export function TaskToolbar({
           {showTaskFilters ? (
             <TaskSearchBox
               labelByEmail={labelByEmail}
-              className="min-w-[18rem] flex-1"
+              className="min-w-[18rem] flex-1 max-md:min-w-full"
             />
           ) : null}
         </div>
 
         {showDateRangeFilter || onOverviewRefresh ? (
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 max-md:w-full max-md:justify-start">
+            {showTaskFilters ? <PhoneFilterToggle open={phoneFiltersOpen} onToggle={() => setPhoneFiltersOpen((current) => !current)} activeCount={activeFilterCount} /> : null}
             {showDateRangeFilter ? (
               <DateRangeFilter
                 from={dateFrom}
@@ -275,7 +289,7 @@ export function TaskToolbar({
       </div>
 
       {showTaskFilters ? (
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className={`mobile-filter-grid flex min-w-0 flex-wrap items-center gap-2 ${phoneFiltersOpen ? "" : "max-md:!hidden"}`}>
           {showAgent ? (
             <TaskSelect
               multi
@@ -307,7 +321,7 @@ export function TaskToolbar({
           ) : null}
 
           {showTeamTasksToggle ? (
-            <div className="inline-flex h-9 shrink-0 rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] p-0.5">
+            <div className="inline-flex h-9 shrink-0 rounded-lg border border-[#dfe1e6] bg-[#f4f5f7] p-0.5 max-md:col-span-2">
               <button
                 type="button"
                 onClick={() => onTeamTasksEnabledChange?.(false)}
@@ -414,7 +428,7 @@ export function TaskToolbar({
             );
           })}
 
-          {view === "list" ? (
+          {view === "list" && !isPhone ? (
             <TaskListColumnSettingsButton
               columns={listColumns}
               hiddenColumnKeys={hiddenListColumnKeys}
@@ -432,7 +446,7 @@ export function TaskToolbar({
             </button>
           ) : null}
 
-          <span className="ml-auto shrink-0 text-sm font-medium text-[#626f86]">
+          <span className="mobile-filter-count ml-auto shrink-0 text-sm font-medium text-[#626f86]">
             {resultCount} of {totalCount} tasks
           </span>
         </div>

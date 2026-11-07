@@ -1,5 +1,6 @@
 "use client";
 
+import { PhoneFilterToggle } from "@/app/(authed)/_shared/phone-ui";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FileDown, Filter } from "lucide-react";
 import * as XLSX from "xlsx";
@@ -139,7 +140,7 @@ export function AgentPcDashboard({
             </p>
           </div>
 
-          <section className="grid gap-8 md:grid-cols-2 xl:grid-cols-4">
+          <section className="grid gap-8 md:grid-cols-2 xl:grid-cols-4 max-md:grid-cols-2 max-md:gap-2">
             <KpiCard
               label="Agent Commission"
               value={formatCurrencyCompact(data.overview.agentCommission)}
@@ -174,7 +175,7 @@ export function AgentPcDashboard({
             />
           </section>
 
-          <section className="grid gap-8 md:grid-cols-2 xl:grid-cols-4">
+          <section className="grid gap-8 md:grid-cols-2 xl:grid-cols-4 max-md:grid-cols-2 max-md:gap-2">
             <KpiCard
               compact
               label="Renewal Rate"
@@ -321,6 +322,7 @@ function AgentPcDashboardFilters({
   onChange: (filters: AgentPcFilterValues) => void;
   options: AgentPcFilterOptions;
 }) {
+  const [phoneFiltersOpen, setPhoneFiltersOpen] = useState(false);
   const [policyNumber, setPolicyNumber] = useState(filters.policyNumber);
 
   function updateFilter(name: keyof AgentPcFilterValues, value: string) {
@@ -341,7 +343,8 @@ function AgentPcDashboardFilters({
   }
 
   return (
-    <div className="mb-8 flex flex-wrap items-center justify-end gap-3">
+    <div className={`mb-8 flex flex-wrap items-center justify-end gap-3 max-md:justify-start max-md:[&>*]:w-full max-md:mb-4 ${phoneFiltersOpen ? "" : "max-md:[&>*:not(:first-child)]:hidden"}`}>
+      <PhoneFilterToggle open={phoneFiltersOpen} onToggle={() => setPhoneFiltersOpen((current) => !current)} activeCount={[filters.agency, filters.paidDate, filters.policyNumber].filter((value) => value.length > 0).length} />
       <FilterSelect
         label="Agency"
         onChange={(value) => updateFilter("agency", value)}
@@ -622,7 +625,7 @@ function AgentPcSalesVolumePremiumTrendChart({
         <div className="overflow-x-auto">
           <svg
             aria-label="P&C agent sales volume and premium trend"
-            className="min-w-[1120px]"
+            className="min-w-[1120px] max-md:min-w-[680px]"
             role="img"
             viewBox={`0 0 ${width} ${height}`}
           >
@@ -839,7 +842,7 @@ function AgentPcCommissionTrendChart({
         <div className="overflow-x-auto">
           <svg
             aria-label="P&C agent commission trend by month"
-            className="min-w-[1120px]"
+            className="min-w-[1120px] max-md:min-w-[680px]"
             role="img"
             viewBox={`0 0 ${width} ${height}`}
           >
@@ -1102,7 +1105,7 @@ function ExpiredPolicyTrendChart({
       <div className="overflow-x-auto">
           <svg
             aria-label="Monthly expired policy"
-            className="min-w-[1120px]"
+            className="min-w-[1120px] max-md:min-w-[680px]"
             role="img"
             viewBox={`0 0 ${width} ${height}`}
           >

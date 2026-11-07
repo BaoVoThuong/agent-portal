@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import { EditableCustomCell } from "../../../_shared/EditableCustomCell";
 import { leadDisplayKey } from "@/lib/leads/display";
+import { PhoneBadge, PhoneCard, PhoneCardList } from "@/app/(authed)/_shared/phone-ui";
+import { useIsPhone } from "@/lib/use-is-phone";
 import { storesInCustomValues } from "@/lib/table-config/system-option-columns";
 import { LEAD_TYPE_LABEL } from "@/lib/leads/lead-type";
 import { ALERT_SEVERITY, type LeadAlert } from "@/lib/leads/alerts";
@@ -167,6 +169,7 @@ export function LeadTable({
 
   // "No status" is a real choice: a lead can sit in the pool before anyone has
   // spoken to it, and an agent must be able to put one back there.
+  const isPhone = useIsPhone();
   const statusChoices = useMemo(
     () => [
       { value: "", label: "No status" },
@@ -219,6 +222,66 @@ export function LeadTable({
     getItemKey: (index) => leads[index].id,
   });
 
+  if (isPhone && leads.length > 0) {
+    return (
+      <div className="pb-20">
+        <PhoneCardList
+          items={leads}
+          getKey={(lead) => lead.id}
+          renderItem={(lead) => {
+            const status = lead.status_id ? statusById.get(lead.status_id) : undefined;
+            const name = lead.full_name?.trim() || "No name";
+            const hasAlert = (alertsByLeadId.get(lead.id) ?? EMPTY_ALERTS).length > 0;
+            return (
+              <PhoneCard
+                recordKey={leadDisplayKey(lead.display_number)}
+                title={name}
+                ariaLabel={`Open lead ${name}`}
+                onOpen={() => onOpenLead(lead)}
+                tone={hasAlert ? "alert" : "default"}
+                leading={
+                  selectable ? (
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-5 w-5 shrink-0 rounded border-[#c1c7d0] text-[#0c66e4]"
+                      aria-label={`Select lead ${lead.display_number}`}
+                      checked={selected.has(lead.id)}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={() => onToggleLead(lead.id)}
+                    />
+                  ) : null
+                }
+                badges={status ? <PhoneBadge tone="blue">{status.label}</PhoneBadge> : <PhoneBadge>No status</PhoneBadge>}
+                fields={[
+                  {
+                    label: "Phone",
+                    value: lead.phone ? (
+                      <a
+                        href={`tel:${lead.phone}`}
+                        className="font-semibold text-[#0c66e4]"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        {lead.phone}
+                      </a>
+                    ) : (
+                      "—"
+                    ),
+                  },
+                  {
+                    label: "Agent",
+                    value: lead.assigned_to_email ? personLabel(lead.assigned_to_email, nameByEmail) : "Unassigned",
+                  },
+                  { label: "Follow-up", value: lead.next_follow_up_at ? formatTableDate(lead.next_follow_up_at) : "—" },
+                  { label: "Event", value: lead.event_name?.trim() || "—" },
+                ]}
+              />
+            );
+          }}
+        />
+      </div>
+    );
+  }
+
   if (leads.length === 0) {
     return (
       <div className="rounded border border-dashed border-[#c1c7d0] bg-[#f4f5f7] px-6 py-12 text-center text-sm font-semibold text-[#6b778c]">
@@ -229,7 +292,7 @@ export function LeadTable({
 
   return (
     <div
-      className="flex min-h-0 flex-1 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]"
+      className="flex min-h-0 flex-1 flex-col overflow-hidden rounded max-md:h-[78dvh] max-md:flex-none border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]"
       style={tableFrameStyle}
     >
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto">

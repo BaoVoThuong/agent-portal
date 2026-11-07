@@ -360,13 +360,13 @@ export function ConfigSlaSection({
   }
 
   return (
-    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm max-md:h-auto max-md:overflow-visible">
       <div className="shrink-0 border-b border-[#dfe1e6] px-6 py-4">
         <h2 className="text-lg font-bold">SLA Times</h2>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 divide-y divide-[#dfe1e6] md:grid-cols-[14rem_minmax(0,1fr)] md:divide-x md:divide-y-0">
-        <section className="flex min-h-0 flex-col overflow-y-auto bg-[#f7f8f9] p-3">
+      <div className="grid min-h-0 flex-1 grid-cols-1 divide-y divide-[#dfe1e6] max-md:flex-none md:grid-cols-[14rem_minmax(0,1fr)] md:divide-x md:divide-y-0">
+        <section className="flex min-h-0 flex-col overflow-y-auto bg-[#f7f8f9] p-3 max-md:max-h-60">
           <span className="mb-2 px-1 text-xs font-bold uppercase text-[#6b778c]">
             Priority
           </span>
@@ -410,7 +410,7 @@ export function ConfigSlaSection({
           </div>
         </section>
 
-        <section className="flex min-h-0 flex-col overflow-y-auto p-4">
+        <section className="flex min-h-0 flex-col overflow-y-auto p-4 max-md:overflow-visible">
           {!available ? (
             <div
               className="mb-3 rounded border border-[#ffab00] bg-[#fff7d6] px-4 py-3 text-sm font-semibold text-[#7f5f00]"

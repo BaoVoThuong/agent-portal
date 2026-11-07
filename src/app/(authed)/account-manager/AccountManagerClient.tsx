@@ -4,6 +4,8 @@ import { Plus, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Toast } from "../_shared/Toast";
+import { PhoneCard, PhoneCardList, PhoneFilterToggle } from "../_shared/phone-ui";
+import { useIsPhone } from "@/lib/use-is-phone";
 import {
   PAGE_ACTIONS_CLASS,
   PAGE_HEADER_CLASS,
@@ -306,6 +308,14 @@ export default function AccountManagerClient({
     sortedUsers,
     statusFilter,
   ]);
+  const isPhone = useIsPhone();
+  const [phoneFiltersOpen, setPhoneFiltersOpen] = useState(false);
+  const activeFilterCount = [
+    positionFilter.length > 0,
+    roleFilter.length > 0,
+    managerFilter.length > 0,
+    statusFilter !== DEFAULT_STATUS_FILTER,
+  ].filter(Boolean).length;
   const isFiltering =
     Boolean(accountSearch.trim()) ||
     positionFilter.length > 0 ||
@@ -641,8 +651,8 @@ export default function AccountManagerClient({
   return (
     // A frame page like the Task board: title and filters stay put, the
     // table scrolls inside its frame.
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="min-w-0 shrink-0 px-6 pb-4 pt-5">
+    <div className="flex h-full min-h-0 flex-col max-md:h-auto max-md:min-h-full max-md:overflow-visible">
+      <div className="min-w-0 shrink-0 px-6 pb-4 pt-5 max-md:px-3 max-md:pb-3 max-md:pt-3">
         <header className={PAGE_HEADER_CLASS}>
           <h1 className={PAGE_TITLE_CLASS}>Account Manager</h1>
           {canCreate && (
@@ -680,7 +690,7 @@ export default function AccountManagerClient({
               ))}
             </div>
             {view === "table" && (
-              <label className="relative block min-w-[18rem] flex-1">
+              <label className="relative block min-w-[18rem] flex-1 max-md:min-w-full">
                 <span className="sr-only">Search accounts</span>
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#6b778c]" aria-hidden />
                 <input
@@ -695,7 +705,8 @@ export default function AccountManagerClient({
             )}
           </div>
           {view === "table" && (
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <div className={`flex min-w-0 flex-wrap items-center gap-2 ${phoneFiltersOpen ? "" : "max-md:[&>*:not(:first-child)]:hidden"}`}>
+              <PhoneFilterToggle open={phoneFiltersOpen} onToggle={() => setPhoneFiltersOpen((current) => !current)} activeCount={activeFilterCount} />
               <TaskSelect
                 multi
                 searchable
@@ -794,8 +805,8 @@ export default function AccountManagerClient({
         </section>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col px-6 pb-6">
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]">
+      <div className="flex min-h-0 flex-1 flex-col px-6 pb-6 max-md:px-3 max-md:pb-3">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded max-md:h-[78dvh] max-md:flex-none border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)]">
           <div className="min-h-0 flex-1 overflow-auto">
             {view === "orgchart" && (
               <OrgChart
@@ -816,7 +827,72 @@ export default function AccountManagerClient({
                 }
               />
             )}
-            <table hidden={view !== "table"} className="w-full table-fixed border-collapse text-left">
+            {view === "table" && isPhone ? (
+              <div className="p-2">
+                {filteredUsers.length === 0 ? (
+                  <p className="px-4 py-12 text-center text-sm font-semibold text-[#6b778c]">
+                    {isFiltering ? "No accounts match your search or filter." : "No accounts yet."}
+                  </p>
+                ) : (
+                  <PhoneCardList
+                    items={filteredUsers}
+                    getKey={(user) => user.id}
+                    renderItem={(user) => {
+                      const isCurrentUser = user.email.toLowerCase() === currentUserEmail.toLowerCase();
+                      const isBusy = busyUserId === user.id;
+                      return (
+                        <PhoneCard
+                          title={<UserCell user={user} isCurrentUser={isCurrentUser} />}
+                          ariaLabel={`Edit account ${user.email}`}
+                          onOpen={() => {
+                            if (canEdit && !isBusy) openEditAccountModal(user);
+                          }}
+                          badges={
+                            <>
+                              <RoleBadges user={user} />
+                              <StatusBadge active={user.is_active} />
+                            </>
+                          }
+                          fields={[
+                            { label: "Position", value: user.position?.name ?? "—" },
+                            { label: "Manager", value: user.managerName ?? "—" },
+                          ]}
+                          actions={
+                            <div className="ml-auto" onClick={(event) => event.stopPropagation()}>
+                              <AccountRowActions
+                                label={`Actions for ${user.email}`}
+                                actions={[
+                                  {
+                                    label: "Edit account",
+                                    disabled: isBusy || !canEdit,
+                                    onSelect: () => openEditAccountModal(user),
+                                  },
+                                  {
+                                    label: "Reset password",
+                                    disabled: isBusy || !canResetPassword,
+                                    onSelect: () => {
+                                      setResetUser(user);
+                                      setResetPassword("");
+                                    },
+                                  },
+                                  {
+                                    label: user.is_active ? "Disable account" : "Enable account",
+                                    tone: user.is_active ? "danger" : "success",
+                                    disabled: isBusy || isCurrentUser || !canEdit,
+                                    onSelect: () => void updateUser(user, { is_active: !user.is_active }),
+                                  },
+                                ]}
+                              />
+                            </div>
+                          }
+                        />
+                      );
+                    }}
+                  />
+                )}
+              </div>
+            ) : null}
+            <table hidden={view !== "table" || isPhone} className="w-full table-fixed border-collapse text-left">
               <thead className="sticky top-0 z-10 bg-[#fafbfc] text-[11px] font-bold uppercase tracking-wide text-[#6b778c] shadow-[0_1px_0_#dfe1e6]">
                 <tr>
                   <th className="w-[25%] px-4 py-2">User</th>

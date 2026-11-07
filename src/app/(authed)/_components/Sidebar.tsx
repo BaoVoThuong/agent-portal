@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useState } from "react";
+import { useMobileNav } from "./MobileNav";
 import styles from "./sidebar.module.css";
 import { can, canAny } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
@@ -233,6 +234,7 @@ export default function Sidebar({
 }: SidebarProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { open: mobileOpen, closeNav } = useMobileNav();
   const [dropdownState, setDropdownState] = useState(() => ({
     pathname,
     openDropdown: groupForPath(pathname),
@@ -307,7 +309,16 @@ export default function Sidebar({
   };
 
   return (
-    <aside className={styles.sidebar}>
+    <>
+    {mobileOpen && (
+      <button
+        type="button"
+        className={styles.backdrop}
+        aria-label="Close menu"
+        onClick={closeNav}
+      />
+    )}
+    <aside className={`${styles.sidebar} ${mobileOpen ? styles.sidebarOpen : ""}`}>
       <div className={styles.logoWrap}>
         <Image
           className={styles.logo}
@@ -317,9 +328,26 @@ export default function Sidebar({
           height={140}
           priority
         />
+        <button
+          type="button"
+          className={styles.closeButton}
+          aria-label="Close menu"
+          onClick={closeNav}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+            <path d="M18 6 6 18M6 6l12 12" />
+          </svg>
+        </button>
       </div>
 
-      <nav className={styles.nav}>
+      {/* A link to the same path with another query (Enrollment programs) does
+          not change the route, so closing here covers every link. */}
+      <nav
+        className={styles.nav}
+        onClick={(event) => {
+          if ((event.target as HTMLElement).closest("a")) closeNav();
+        }}
+      >
         {menuItems.map((item, idx) => {
           if (item.children && item.title) {
             const isOpen = openDropdown === item.title;
@@ -405,5 +433,6 @@ export default function Sidebar({
         })}
       </nav>
     </aside>
+    </>
   );
 }

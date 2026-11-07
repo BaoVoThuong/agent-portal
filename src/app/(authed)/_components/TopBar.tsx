@@ -6,6 +6,7 @@ import Link from "next/link";
 import { signOut } from "next-auth/react";
 import styles from "./topbar.module.css";
 import { NotificationBell } from "./NotificationBell";
+import { useMobileNav } from "./MobileNav";
 
 type TopBarProps = {
   userName: string | null;
@@ -21,6 +22,7 @@ export default function TopBar({ userName, userEmail, agentId }: TopBarProps) {
   const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null);
   const avatarUrl = ownAvatarUrl !== failedAvatarUrl ? ownAvatarUrl : null;
   const [menuOpen, setMenuOpen] = useState(false);
+  const { openNav } = useMobileNav();
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -43,6 +45,16 @@ export default function TopBar({ userName, userEmail, agentId }: TopBarProps) {
 
   return (
     <header className={styles.topbar}>
+      <button
+        type="button"
+        className={styles.menuButton}
+        aria-label="Open menu"
+        onClick={openNav}
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+          <path d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
       <div className={styles.userInfo}>
         <div className={styles.userName}>{userName ?? userEmail}</div>
         <div className={styles.userId}>ID: {agentId || "Not provided"}</div>

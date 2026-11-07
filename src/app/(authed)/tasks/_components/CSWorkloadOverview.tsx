@@ -325,7 +325,7 @@ function AttentionChart({
               type="button"
               key={item.key}
               onClick={() => onRisk(active ? null : item.key)}
-              className={`grid w-full grid-cols-[minmax(7.5rem,9.5rem)_minmax(6rem,1fr)_max-content] items-center gap-2 rounded px-2 py-2 text-left transition hover:bg-[#f8fafc] ${active ? "bg-[#eff6ff]" : ""}`}
+              className={`grid w-full grid-cols-[minmax(7.5rem,9.5rem)_minmax(6rem,1fr)_max-content] max-md:grid-cols-[minmax(0,1fr)_3.5rem_minmax(0,max-content)] items-center gap-2 rounded px-2 py-2 text-left transition hover:bg-[#f8fafc] ${active ? "bg-[#eff6ff]" : ""}`}
               aria-pressed={active}
             >
               <span className="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-xs font-semibold text-[#475467]">
@@ -342,7 +342,7 @@ function AttentionChart({
               <span className="h-5 overflow-hidden rounded bg-[#f2f4f7]">
                 <span className="block h-full rounded" style={{ width: `${(item.taskCount / max) * 100}%`, backgroundColor: RISK_COLOR[item.key] }} />
               </span>
-              <span className="whitespace-nowrap text-right text-xs text-[#667085]">{attentionCountLabel(item)}</span>
+              <span className="whitespace-nowrap text-right text-xs text-[#667085] max-md:whitespace-normal">{attentionCountLabel(item)}</span>
             </button>
           );
         })}

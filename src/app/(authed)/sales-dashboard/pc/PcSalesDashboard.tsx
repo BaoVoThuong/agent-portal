@@ -183,7 +183,7 @@ export function PcSalesDashboard({
             Portfolio Overview
           </h2>
 
-          <section className="grid gap-8 md:grid-cols-2 xl:grid-cols-4">
+          <section className="grid gap-8 md:grid-cols-2 xl:grid-cols-4 max-md:grid-cols-2 max-md:gap-2">
             <KpiCard
               label="Written Premium"
               value={formatCurrencyCompact(data.overview.totalPremium)}
@@ -1248,7 +1248,7 @@ function MonthlySalesTrendChart({
   return (
     <div className="overflow-x-auto">
       <svg
-        className="min-w-[1120px]"
+        className="min-w-[1120px] max-md:min-w-[680px]"
         viewBox={`0 0 ${width} ${height}`}
         role="img"
         aria-label={`${trendLabel} sales volume and premium trend`}
@@ -2984,7 +2984,7 @@ function ExpiredPolicyTrendChart({ rows }: { rows: ExpiredMonthRow[] }) {
   return (
     <ReportPanel title="Monthly Expired Policy">
       <div className="overflow-x-auto">
-        <svg className="min-w-[1120px]" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Monthly expired policy">
+        <svg className="min-w-[1120px] max-md:min-w-[680px]" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Monthly expired policy">
           <g transform="translate(86, 20)">
             <rect x="0" width="34" height="16" fill="#ff8a00" />
             <text x="44" y="13" className="fill-[#40444b] text-[15px] font-semibold">

@@ -1,5 +1,6 @@
 "use client";
 
+import { PhoneFilterToggle } from "@/app/(authed)/_shared/phone-ui";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
@@ -49,7 +50,7 @@ export function HealthSalesHeaderFilters({
   }
 
   return (
-    <div className="flex flex-nowrap items-center justify-end gap-3 overflow-visible">
+    <div className="flex flex-nowrap items-center justify-end gap-3 max-md:flex-wrap max-md:justify-start max-md:[&>*]:w-full overflow-visible">
       <ReportMonthRangeDropdown
         defaultConfig={defaultConfig}
         disabled={isPending}
@@ -93,6 +94,7 @@ export function HealthSalesDashboardFilters({
   onClientFiltersChange?: (filters: ClientFilterValues) => void;
   options: FilterOptions;
 }) {
+  const [phoneFiltersOpen, setPhoneFiltersOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -153,7 +155,8 @@ export function HealthSalesDashboardFilters({
   }
 
   return (
-    <div className="mb-8 flex flex-nowrap items-center justify-end gap-3 overflow-visible pb-1">
+    <div className={`mb-8 flex flex-nowrap items-center justify-end gap-3 max-md:flex-wrap max-md:justify-start max-md:[&>*]:w-full overflow-visible pb-1 max-md:mb-4 ${phoneFiltersOpen ? "" : "max-md:[&>*:not(:first-child)]:hidden"}`}>
+      <PhoneFilterToggle open={phoneFiltersOpen} onToggle={() => setPhoneFiltersOpen((current) => !current)} activeCount={[filters.agent, filters.carrier, filters.primaryMemberId].filter((value) => value.length > 0).length} />
       <MultiSelectDropdown
         allLabel="All agents"
         disabled={isPending}

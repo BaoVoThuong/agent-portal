@@ -1,5 +1,6 @@
 "use client";
 
+import { PhoneFilterToggle } from "@/app/(authed)/_shared/phone-ui";
 import { useMemo, useState, type ReactNode } from "react";
 import {
   AgentHealthDashboardContent,
@@ -61,6 +62,7 @@ export function AgentHealthDashboard({
   selectedPrimaryMemberId: string;
   viewSwitcher?: ReactNode;
 }) {
+  const [phoneFiltersOpen, setPhoneFiltersOpen] = useState(false);
   const [clientCarriers, setClientCarriers] = useState(selectedCarriers);
   const [clientPrimaryMemberId, setClientPrimaryMemberId] = useState(
     selectedPrimaryMemberId
@@ -117,7 +119,7 @@ export function AgentHealthDashboard({
                 : `Showing dashboard for ${agentName || "your account"}.`}
             </p>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-3 max-md:justify-start max-md:[&>*]:w-full">
             {viewSwitcher}
             <AgentHealthReportMonthRangeFilter
               key={`${reportMonthRange.start ?? ""}:${reportMonthRange.end ?? ""}`}
@@ -127,7 +129,8 @@ export function AgentHealthDashboard({
             />
           </div>
         </header>
-        <div className="mb-8 flex flex-wrap items-center justify-end gap-3">
+        <div className={`mb-8 flex flex-wrap items-center justify-end gap-3 max-md:justify-start max-md:[&>*]:w-full max-md:mb-4 ${phoneFiltersOpen ? "" : "max-md:[&>*:not(:first-child)]:hidden"}`}>
+      <PhoneFilterToggle open={phoneFiltersOpen} onToggle={() => setPhoneFiltersOpen((current) => !current)} activeCount={[clientCarriers, draftPrimaryMemberId].filter((value) => value.length > 0).length} />
           <AgentHealthCarrierMultiSelectFilter
             options={carrierOptions}
             onSelectedCarriersChange={updateClientCarriers}
@@ -161,7 +164,7 @@ export function AgentHealthDashboard({
           ) : (
             <AgentHealthDashboardContent>
               <div className="space-y-6">
-                <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
+                <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-4 max-md:grid-cols-2 max-md:gap-2">
                   <ScoreCard
                     label="Active Policies"
                     value={formatInteger(

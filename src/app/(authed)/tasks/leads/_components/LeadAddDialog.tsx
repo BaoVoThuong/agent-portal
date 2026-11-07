@@ -926,7 +926,7 @@ export function LeadAddDialog({
           </div>
           {error ? (
             <p
-              className="m-4 border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700"
+              className="m-4 border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 max-md:sticky max-md:bottom-2 max-md:z-10"
               role="alert"
             >
               {error}

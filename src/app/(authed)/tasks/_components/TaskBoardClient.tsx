@@ -1,5 +1,6 @@
 "use client";
 
+import { PhoneMoreActions } from "@/app/(authed)/_shared/phone-ui";
 import {
   businessDateKey,
   firstDayOfBusinessMonth,
@@ -2087,7 +2088,7 @@ export function TaskBoardClient({
   const canCreateTasks = isManager || canManageOwnAgentGroup;
   const frameView = view === "list";
   const shellClassName = frameView
-    ? "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#f7f9fc] text-[#172b4d]"
+    ? "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#f7f9fc] text-[#172b4d] max-md:h-auto max-md:min-h-full max-md:overflow-visible"
     : "flex min-h-full min-w-0 flex-col bg-[#f7f9fc] text-[#172b4d]";
   const overviewHeader = view === "overview" && isManager;
   const pageTitle = overviewHeader ? "CS Workload Overview" : boardTitle;
@@ -2141,7 +2142,7 @@ export function TaskBoardClient({
           Exporting to Excel…
         </div>
       ) : null}
-      <div className="min-w-0 shrink-0 px-6 pb-4 pt-5">
+      <div className="min-w-0 shrink-0 px-6 pb-4 pt-5 max-md:px-3 max-md:pb-3 max-md:pt-3">
         <div className="mx-auto flex max-w-[1760px] flex-col gap-3">
           <header className={PAGE_HEADER_CLASS}>
             <div>
@@ -2153,7 +2154,9 @@ export function TaskBoardClient({
             {!overviewHeader ? (
               <div className={PAGE_ACTIONS_CLASS}>
                 {canExport ? (
-                  <ExportMenu onExport={exportVisibleTasks} />
+                  <PhoneMoreActions>
+                    <ExportMenu onExport={exportVisibleTasks} />
+                  </PhoneMoreActions>
                 ) : null}
                 {canCreateTasks && (
                   <button

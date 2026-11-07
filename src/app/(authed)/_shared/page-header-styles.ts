@@ -19,16 +19,16 @@ export const PAGE_HEADER_WITH_SUBTITLE_CLASS =
   "flex flex-wrap items-start justify-between gap-3";
 
 export const PAGE_TITLE_CLASS =
-  "text-3xl font-bold leading-tight tracking-normal text-[#172b4d]";
+  "text-3xl font-bold leading-tight tracking-normal text-[#172b4d] max-md:text-2xl";
 
-export const PAGE_ACTIONS_CLASS = "flex flex-wrap items-center justify-end gap-2";
+export const PAGE_ACTIONS_CLASS = "flex flex-wrap items-center justify-end gap-2 max-md:justify-start";
 
 /** Nút chính (New task / New enrollment / Add lead / Add address), luôn đứng cuối bên phải. */
 export const PAGE_PRIMARY_BUTTON_CLASS =
-  "inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex h-9 items-center gap-2 rounded-lg bg-[#0c66e4] px-3 max-md:h-11 text-sm font-bold text-white shadow-sm transition hover:bg-[#0055cc] disabled:cursor-not-allowed disabled:opacity-60";
 
 const SECONDARY_BASE =
-  "inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-sm font-bold shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex h-9 items-center gap-2 rounded-lg border px-3 max-md:h-11 text-sm font-bold shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50";
 
 /**
  * Nút phụ (Export, Import, Reassign, Distribute…).

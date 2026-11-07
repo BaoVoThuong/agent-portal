@@ -1,5 +1,6 @@
 "use client";
 
+import { PhoneFilterToggle } from "@/app/(authed)/_shared/phone-ui";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
@@ -58,7 +59,7 @@ export function PcSalesHeaderFilters({
   }
 
   return (
-    <div className="flex flex-wrap items-center justify-end gap-3">
+    <div className="flex flex-wrap items-center justify-end gap-3 max-md:justify-start max-md:[&>*]:w-full">
       <ReportMonthRangeDropdown
         defaultConfig={defaultConfig}
         disabled={isPending}
@@ -102,6 +103,7 @@ export function PcSalesDashboardFilters({
   onClientFiltersChange?: (filters: ClientFilterValues) => void;
   options: FilterOptions;
 }) {
+  const [phoneFiltersOpen, setPhoneFiltersOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -166,7 +168,8 @@ export function PcSalesDashboardFilters({
   }
 
   return (
-    <div className="mb-8 grid gap-8 lg:grid-cols-3 xl:grid-cols-5">
+    <div className={`mb-8 grid gap-8 lg:grid-cols-3 xl:grid-cols-5 max-md:mb-4 max-md:gap-2 ${phoneFiltersOpen ? "" : "max-md:[&>*:not(:first-child)]:hidden"}`}>
+      <PhoneFilterToggle open={phoneFiltersOpen} onToggle={() => setPhoneFiltersOpen((current) => !current)} activeCount={[filters.agency, filters.agent, filters.paidProducer, filters.statementNumber, filters.policyNumber].filter((value) => value.length > 0).length} />
       <FilterSelect
         disabled={isPending}
         label="Agency"

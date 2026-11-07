@@ -1,6 +1,8 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
+import { PhoneFilterToggle } from "@/app/(authed)/_shared/phone-ui";
+import { useIsPhone } from "@/lib/use-is-phone";
 import { Search } from "lucide-react";
 import { TaskSelect } from "../../../tasks/_components/TaskSelect";
 import type { ProviderFilters } from "@/lib/providers/search";
@@ -11,7 +13,7 @@ import type { ProviderFilters } from "@/lib/providers/search";
  * nhất để ba bảng trông giống nhau thật.
  */
 const FILTER_SELECT_BUTTON_CLASS =
-  "!h-9 !w-full !min-w-0 !rounded-lg !border !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
+  "max-md:!h-11 !h-9 !w-full !min-w-0 !rounded-lg !border !border-[#dfe1e6] !px-3 !text-sm !font-medium !shadow-none";
 
 /**
  * Lọc theo việc địa chỉ có tra cứu được trong Provider Finder không.
@@ -67,11 +69,17 @@ export function ProviderToolbar({
    */
   settingsSlot?: ReactNode;
 }) {
+  const [phoneFiltersOpen, setPhoneFiltersOpen] = useState(false);
+  const isPhone = useIsPhone();
+  const activeFilterCount =
+    [filters.state, filters.city, filters.specialty, filters.acaPlans, filters.medicarePlans].filter(
+      (values) => values.length > 0,
+    ).length + (filters.address === "valid" ? 0 : 1);
   return (
     <section className="mt-2 flex min-w-0 flex-col gap-3">
       {/* Theo bố cục CS Tasks: view switcher đứng cố định bên trái search,
           không bị cuốn theo dãy filter hoặc đổi chỗ khi bảng co chiều ngang. */}
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="flex min-w-0 items-center gap-3 max-md:flex-wrap">
         <nav
           aria-label="Provider List view"
           className="inline-flex shrink-0 rounded-lg bg-[#f4f5f7] p-0.5"
@@ -103,7 +111,7 @@ export function ProviderToolbar({
         </nav>
 
         {view !== "finder" ? (
-          <div className="relative min-w-0 flex-1">
+          <div className="relative min-w-0 flex-1 max-md:min-w-full">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-[#44546f]" />
             <input
               autoComplete="off"
@@ -120,10 +128,10 @@ export function ProviderToolbar({
       </div>
 
       {view === "list" ? (
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2 max-md:flex-wrap">
           {/* Một hàng duy nhất: các ô được thu gọn để thanh lọc không nhảy
               chiều cao và không làm rơi Address xuống dòng. */}
-          <div className="flex min-w-0 flex-1 items-center gap-2">
+          <div className={`mobile-filter-grid flex min-w-0 flex-1 items-center gap-2 max-md:basis-full max-md:flex-wrap ${phoneFiltersOpen ? "" : "max-md:!hidden"}`}>
             <TaskSelect
               multi
               searchable
@@ -196,8 +204,9 @@ export function ProviderToolbar({
             />
           </div>
 
-          <div className="flex shrink-0 items-center justify-end gap-2">
-            {settingsSlot ? <div className="shrink-0">{settingsSlot}</div> : null}
+          <div className="flex shrink-0 items-center justify-end gap-2 max-md:w-full max-md:justify-between">
+            {settingsSlot && !isPhone ? <div className="shrink-0">{settingsSlot}</div> : null}
+            <PhoneFilterToggle open={phoneFiltersOpen} onToggle={() => setPhoneFiltersOpen((current) => !current)} activeCount={activeFilterCount} />
 
             <span
               aria-live="polite"

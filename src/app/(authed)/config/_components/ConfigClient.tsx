@@ -381,11 +381,11 @@ export function ConfigClient({
     isEnrollmentProgram(scope) ? refreshErrors[`enrollment-options:${scope}`] : undefined;
 
   return (
-    <main className="h-full min-h-0 overflow-hidden bg-[#f7f8fa] px-6 pb-6 pt-5 text-[#172b4d]">
-      <div className="mx-auto flex h-full min-h-0 max-w-[1280px] flex-col gap-6">
+    <main className="h-full min-h-0 overflow-hidden bg-[#f7f8fa] px-6 pb-6 pt-5 text-[#172b4d] max-md:h-auto max-md:min-h-full max-md:overflow-visible max-md:px-3 max-md:pt-3">
+      <div className="mx-auto flex h-full min-h-0 max-w-[1280px] flex-col gap-6 max-md:h-auto max-md:gap-3">
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold leading-tight tracking-normal text-[#172b4d]">
+            <h1 className="text-3xl font-bold leading-tight tracking-normal text-[#172b4d] max-md:text-2xl">
               {title}
             </h1>
           </div>
@@ -395,14 +395,14 @@ export function ConfigClient({
               value={scope}
               options={scopeOptions(scopes)}
               onChange={setScope}
-              className="w-[330px]"
+              className="w-[330px] max-md:w-full"
               buttonClassName="h-11 shadow-sm"
             />
           ) : null}
         </header>
 
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex w-fit rounded border border-[#dfe3ea] bg-[#f4f5f7] p-0.5 shadow-sm">
+          <div className="flex w-fit rounded border border-[#dfe3ea] bg-[#f4f5f7] p-0.5 shadow-sm max-md:w-full max-md:flex-wrap">
             {tabs.includes("table") ? (
               <TabButton active={tab === "table"} onClick={() => setTab("table")}>
                 <Settings2 className="h-4 w-4" /> Columns
@@ -426,7 +426,7 @@ export function ConfigClient({
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-hidden max-md:flex-none max-md:overflow-visible">
           {tab === "table" ? (
             <ConfigTableSection
               key={scope}
@@ -740,7 +740,7 @@ function ConfigTableSection({
 
   return (
     <>
-    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm max-md:h-auto">
       <div className="border-b border-[#dfe1e6] px-6 py-4">
         <h2 className="text-lg font-bold">Column settings for {SCOPE_LABEL[scope]}</h2>
       </div>
@@ -798,7 +798,7 @@ function ConfigTableSection({
           value={newLabel}
           onChange={(event) => setNewLabel(event.target.value)}
           placeholder="New column label"
-          className="h-10 min-w-[280px] max-w-[520px] flex-1 rounded border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#172b4d] outline-none placeholder:text-[#97a0af] focus:border-[#0c66e4]"
+          className="h-10 min-w-[280px] max-w-[520px] flex-1 rounded border border-[#dfe1e6] bg-white px-3 text-sm font-semibold text-[#172b4d] outline-none placeholder:text-[#97a0af] focus:border-[#0c66e4] max-md:min-w-0 max-md:max-w-none max-md:basis-full"
         />
         <DropdownSelect
           label="Column type"
@@ -815,7 +815,7 @@ function ConfigTableSection({
           <Plus className="h-4 w-4" /> Add
         </button>
       </form>
-      <div className="min-h-0 min-w-0 flex-1 overflow-x-auto">
+      <div className="min-h-0 min-w-0 flex-1 overflow-x-auto max-md:h-[65dvh] max-md:flex-none">
         <div className="flex h-full min-h-0 min-w-[1016px] flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto">
             <div className="sticky top-0 z-10 grid grid-cols-[112px_minmax(240px,1fr)_120px_104px_104px_104px_112px_120px] border-b border-[#dfe1e6] bg-[#fafbfc] px-4 py-2 text-xs font-bold uppercase tracking-wide text-[#6b778c]">
@@ -1838,7 +1838,7 @@ function ConfigDropdownValuesSection({
   }
 
   return (
-    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-sm max-md:h-auto max-md:overflow-visible">
       <div className="border-b border-[#dfe1e6] px-6 py-4">
         <h2 className="text-lg font-bold">Dropdown values for {SCOPE_LABEL[scope]}</h2>
       </div>
@@ -1848,8 +1848,8 @@ function ConfigDropdownValuesSection({
       {groups.length === 0 ? (
         <div className="px-6 py-10 text-sm font-semibold text-[#6b778c]">No dropdown values yet.</div>
       ) : (
-        <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[200px_minmax(0,1fr)]">
-          <nav className="min-h-0 overflow-y-auto border-b border-[#dfe1e6] bg-[#f7f8fa] p-3 md:border-b-0 md:border-r">
+        <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[200px_minmax(0,1fr)] max-md:flex-none">
+          <nav className="min-h-0 overflow-y-auto border-b border-[#dfe1e6] bg-[#f7f8fa] p-3 max-md:max-h-48 md:border-b-0 md:border-r">
             {groups.map((group) => (
               <button
                 key={group.key}
@@ -1986,8 +1986,8 @@ function ConfigDropdownValuesSection({
                 <Plus className="h-4 w-4" /> Add
               </button>
             </form>
-            <div className="mt-4 min-h-0 min-w-0 flex-1 overflow-y-auto rounded-lg border border-[#dfe1e6]">
-              <table className="w-full table-fixed border-collapse text-sm">
+            <div className="mt-4 min-h-0 min-w-0 flex-1 overflow-y-auto rounded-lg border border-[#dfe1e6] max-md:h-[60dvh] max-md:flex-none max-md:overflow-auto">
+              <table className="w-full table-fixed border-collapse text-sm max-md:min-w-[640px]">
                 <colgroup>
                   <col className={hasRulesColumn ? "w-[28%]" : "w-[40%]"} />
                   <col className={hasRulesColumn ? "w-[32%]" : "w-[45%]"} />

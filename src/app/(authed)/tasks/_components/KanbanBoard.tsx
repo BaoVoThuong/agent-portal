@@ -547,7 +547,7 @@ export function KanbanBoard({
   }
 
   return (
-    <div className="min-w-0 px-4 pb-6 xl:px-6">
+    <div className="min-w-0 px-4 pb-6 max-md:overflow-x-auto max-md:px-3 xl:px-6">
       <DndContext
         id="kanban-board"
         sensors={sensors}
@@ -567,7 +567,7 @@ export function KanbanBoard({
             cho cả bàn vẫn có nền khi CHƯA có task nào.
 
             Vẫn là 5 cột: Billing thế chỗ Cancel vừa bỏ. */}
-        <div className="grid min-w-0 grid-cols-5 gap-3">
+        <div className="grid min-w-0 grid-cols-5 gap-3 max-md:w-[75rem]">
           {KANBAN_COLUMNS.map((column) => renderColumn(column))}
         </div>
 

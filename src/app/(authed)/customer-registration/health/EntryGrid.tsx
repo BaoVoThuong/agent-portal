@@ -683,7 +683,7 @@ export default function EntryGrid({
               Review and manage previously submitted enrollment records.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 max-md:flex-wrap">
             <input
               type="text"
               placeholder="Search policy, name..."
@@ -740,10 +740,10 @@ export default function EntryGrid({
       {/* Edit Modal */}
       {editingEntry && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-lg rounded-xl bg-white p-6 shadow-2xl">
+          <div className="max-h-[calc(100dvh-2rem)] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-2xl max-md:p-4">
             <h3 className="mb-4 text-xl font-bold text-[#15345f]">Edit Registration</h3>
             <form onSubmit={handleUpdate} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-slate-500 uppercase">Carrier</label>
                   <input
@@ -764,7 +764,7 @@ export default function EntryGrid({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-slate-500 uppercase">Zipcode</label>
                   <input
@@ -806,7 +806,7 @@ export default function EntryGrid({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-slate-500 uppercase"># Members</label>
                   <input

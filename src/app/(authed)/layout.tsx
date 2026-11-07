@@ -5,6 +5,7 @@ import TopBar from "./_components/TopBar";
 import { fetchAvatarDirectory } from "@/lib/people/avatar-directory";
 import { AvatarProvider } from "@/lib/people/AvatarProvider";
 import { NewVersionBanner } from "./_components/NewVersionBanner";
+import { MobileNavProvider } from "./_components/MobileNav";
 
 export default async function AuthedLayout({
   children,
@@ -30,7 +31,8 @@ export default async function AuthedLayout({
     // `h-full min-h-0 flex-col`) fill the remaining height and scroll their
     // own table body internally instead of pushing the page taller.
     <AvatarProvider entries={avatarEntries}>
-    <div className="flex h-screen overflow-hidden bg-[#f7f9fc]">
+    <MobileNavProvider>
+    <div className="flex h-screen overflow-hidden bg-[#f7f9fc] max-md:h-dvh">
       <Sidebar
         permissions={session.user.permissions ?? []}
       />
@@ -47,6 +49,7 @@ export default async function AuthedLayout({
         </main>
       </div>
     </div>
+    </MobileNavProvider>
     <NewVersionBanner />
     </AvatarProvider>
   );
