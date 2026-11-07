@@ -269,6 +269,18 @@ export async function uploadAttachment(
   const uploadToken = upload.token;
   const uploadContentType = upload.content_type;
 
+  // The upload path and the confirmation probe both finalize. When they fired
+  // together the route raced itself and Postgres answered 409 for the loser:
+  // 279 times for 480 enrollment attachments in the week to 2026-11-07. Calls
+  // made while one finalize is in flight share it; each gets its own clone.
+  let finalizing: Promise<Response> | null = null;
+  const finalizeShared = (): Promise<Response> => {
+    finalizing ??= post("finalize").finally(() => {
+      finalizing = null;
+    });
+    return finalizing.then((response) => response.clone());
+  };
+
   const confirmation = new AbortController();
   let progressAt = Date.now();
   let maxUploaded = 0;
@@ -311,7 +323,7 @@ export async function uploadAttachment(
       if (failed?.ok) forgetPending(clientRequestId);
       return jsonResponse({ error: storageErrorMessage(storageError) }, 502);
     }
-    const finalized = await finalizeWithRetry(() => post("finalize"));
+    const finalized = await finalizeWithRetry(finalizeShared);
     if (finalized.ok) return finalized;
     // A PUT can report a network error before Storage commits the object.
     // Keep the parallel confirmation probe alive before treating a missing
@@ -329,7 +341,7 @@ export async function uploadAttachment(
     const response = await Promise.race([
       uploadAndFinalize(),
       confirmWhileUploading(
-        () => post("finalize"),
+        finalizeShared,
         confirmation.signal,
         () => progressAt,
         () => uploadSettled || allBytesSent || Date.now() - progressAt >= UPLOAD_STALL_PROBE_MS,

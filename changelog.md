@@ -6,6 +6,27 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-07 — DB nghẽn không còn bị hiểu là "không có quyền"; dọn lỗi lặp của upload (đã deploy, đã chạy rollout)
+
+- Lý do: log Vercel tuần 31/10–07/11 cho thấy cả 141 lỗi 403 và 74 lỗi 401 đều nằm trong 2 đợt Supabase nghẽn: tra quyền
+  timeout → danh sách quyền rỗng → route trả Forbidden/Unauthorized dù role không đổi.
+- `getUserAccessByEmail` trả `unavailable: true` khi DB lỗi (khác với không có tài khoản). Callback `jwt` (`auth.ts`) khi đó
+  dùng lại kết quả đọc thành công gần nhất **trên cùng instance**, tối đa 10 phút (`lib/rbac/access-fallback.ts`);
+  `invalidateRbacLookups` xoá luôn bộ nhớ này nên đổi role không bị ghi đè. Không có bản cũ thì vẫn rỗng quyền (fail closed)
+  nhưng session có `accessUnavailable`, trang `/unauthorized` báo "Portal is busy" thay vì "No Access", và tự chuyển về trang
+  đúng khi tải lại sau khi hết nghẽn.
+- Route tự tra quyền (`/api/tasks/notifications`, `/read`, `/api/notifications/push/subscribe`, người nhận ở
+  `/api/leads/assign`) trả 503 "busy" thay vì 401/400 khi DB lỗi.
+- Đăng nhập bằng mật khẩu: DB lỗi khi đọc tài khoản → báo "The portal is busy", **không** ghi `login_attempts` thất bại (trước
+  báo sai mật khẩu và tính vào giới hạn 5 lần/15 phút). Đổi `.single()` → `.maybeSingle()` để không có tài khoản ≠ lỗi DB.
+- Upload intent mà file không bao giờ lên Storage: quá 1 giờ thì 15 phút mới kiểm lại (trước 15 giây mỗi lần mở chi tiết),
+  quá 24 giờ thì đánh dấu failed "The file never finished uploading. Attach it again." (trước kiểm lại mãi; 2 intent kẹt gây
+  219 lỗi Storage 400 trong tuần).
+- Trình duyệt: đường upload và đường dò xác nhận dùng chung một request `finalize` đang chạy (`upload-attachment.ts`), hết
+  cảnh tự đua nhau gây 409 ở `enrollment_attachments` (279 lần / 480 file trong tuần, vô hại nhưng làm bẩn log).
+- Rollout `2026-11-07-function-search-path.sql` (11 cảnh báo Advisors, không hàm nào SECURITY DEFINER): đã chạy production 07/11,
+  kiểm lại 11/11 hàm đã ghim, Advisors chỉ còn `extension_in_public` (cố ý giữ).
+
 ## 2026-11-07 — Chống treo khi Supabase nghẽn: timeout truy vấn + gộp request chuông (đã deploy, đã chạy rollout)
 
 - Thêm timeout để request không chờ tới hết giới hạn của Vercel: đăng nhập và tra quyền 8 giây, kiểm tra rate limit 5 giây,

@@ -7,6 +7,8 @@ declare module "next-auth" {
     user: {
       permissions?: string[];
       agentId?: string | null;
+      /** The RBAC read failed and no recent read could stand in. */
+      accessUnavailable?: boolean;
     } & DefaultSession["user"];
   }
 
@@ -21,5 +23,6 @@ declare module "next-auth/jwt" {
   interface JWT {
     permissions?: string[];
     agentId?: string | null;
+    accessUnavailable?: boolean;
   }
 }

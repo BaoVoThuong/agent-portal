@@ -9,7 +9,11 @@ export async function POST(req: Request) {
   const session = await auth();
   const email = session?.user?.email;
   if (!email) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!(await getUserAccessByEmail(email)).isActive) {
+  const access = await getUserAccessByEmail(email);
+  if (access.unavailable) {
+    return NextResponse.json({ error: "The portal is busy. Please try again." }, { status: 503 });
+  }
+  if (!access.isActive) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

@@ -60,6 +60,9 @@ export async function POST(request: Request) {
       getUserAccessByEmail(parsed.toEmail),
       fetchTaskAgents(),
     ]);
+    if (targetAccess.unavailable) {
+      return NextResponse.json({ error: "The portal is busy. Please try again." }, { status: 503 });
+    }
     const isAgent = agents.some(
       (agent) => agent.email.trim().toLowerCase() === parsed.toEmail,
     );

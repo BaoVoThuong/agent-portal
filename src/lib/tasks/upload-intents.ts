@@ -161,7 +161,15 @@ export async function recoverUploadIntents(
   for (const intent of (data ?? []) as UploadIntent[]) {
     try {
       if (!(await readTaskFileInfo(intent.storage_path))) {
-        await deferUploadIntent(intent);
+        const ageMs = intentAgeMs(intent);
+        if (ageMs >= UPLOAD_INTENT_EXPIRE_MS) {
+          // The file never reached Storage. Before 2026-11-07 such an intent
+          // was re-checked on every detail open forever (two of them made 219
+          // Storage 400s in a week). Failing it shows "attach again" instead.
+          await failUploadIntent(intent, "The file never finished uploading. Attach it again.");
+          continue;
+        }
+        await deferUploadIntent(intent, ageMs >= UPLOAD_INTENT_SLOW_AFTER_MS ? 15 * 60_000 : 15_000);
         continue;
       }
       if (await finalize(intent)) recovered++;
@@ -177,10 +185,20 @@ export async function recoverUploadIntents(
   return recovered;
 }
 
-async function deferUploadIntent(intent: UploadIntent): Promise<void> {
+/** A 50MB upload finishes in minutes; a day without an object means it never will. */
+export const UPLOAD_INTENT_EXPIRE_MS = 24 * 60 * 60_000;
+/** After an hour, check a missing object every 15 minutes instead of every 15 seconds. */
+const UPLOAD_INTENT_SLOW_AFTER_MS = 60 * 60_000;
+
+function intentAgeMs(intent: UploadIntent): number {
+  const created = intent.created_at ? Date.parse(intent.created_at) : NaN;
+  return Number.isFinite(created) ? Date.now() - created : 0;
+}
+
+async function deferUploadIntent(intent: UploadIntent, delayMs = 15_000): Promise<void> {
   const { error } = await getSupabaseAdmin()
     .from("attachment_upload_intents")
-    .update({ next_check_at: new Date(Date.now() + 15_000).toISOString() })
+    .update({ next_check_at: new Date(Date.now() + delayMs).toISOString() })
     .eq("kind", intent.kind)
     .eq("record_id", intent.record_id)
     .eq("uploaded_by", intent.uploaded_by)

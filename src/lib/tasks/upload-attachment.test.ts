@@ -212,6 +212,32 @@ describe("uploadAttachment", () => {
     expect(sentBodies().map((body) => body.action)).toEqual(["prepare", "finalize", "finalize"]);
   });
 
+  it("shares one finalize when the upload settles while the probe's finalize is in flight", async () => {
+    vi.useFakeTimers();
+    let answerProbe: (response: Response) => void = () => undefined;
+    let finishUpload: () => void = () => undefined;
+    fetchMock
+      .mockResolvedValueOnce(json(TICKET))
+      .mockReturnValueOnce(new Promise<Response>((resolve) => (answerProbe = resolve)))
+      .mockResolvedValue(json({ attachment: { id: "a-2" } }));
+    storage.upload.mockReturnValue(new Promise<void>((resolve) => (finishUpload = resolve)));
+
+    const result = uploadAttachment(ENDPOINT, file, { clientRequestId: REQUEST_ID });
+    await vi.advanceTimersByTimeAsync(0);
+    const reportProgress = storage.upload.mock.calls[0][2] as (uploaded: number, total: number) => void;
+    reportProgress(file.size, file.size);
+    await vi.advanceTimersByTimeAsync(2_100); // probe finalize now in flight
+    finishUpload(); // the upload path finalizes too, while the probe waits
+    await vi.advanceTimersByTimeAsync(0);
+    answerProbe(json({ attachment: { id: "a-1" } }));
+    await vi.advanceTimersByTimeAsync(0);
+
+    const response = await result;
+    expect(response.ok).toBe(true);
+    expect(await response.json()).toEqual({ attachment: { id: "a-1" } });
+    expect(sentBodies().map((body) => body.action)).toEqual(["prepare", "finalize"]);
+  });
+
   it("does not repeatedly finalize while a large upload is making progress", async () => {
     vi.useFakeTimers();
     fetchMock.mockResolvedValueOnce(json(TICKET)).mockResolvedValue(json({ attachment: { id: "a-1" } }));

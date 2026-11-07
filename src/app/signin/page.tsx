@@ -32,7 +32,11 @@ function SignInContent() {
       });
 
       if (result?.error) {
-        setError("Invalid email or password");
+        setError(
+          result.code === "portal_busy"
+            ? "The portal is busy right now. Please try again in a minute."
+            : "Invalid email or password",
+        );
       } else {
         window.location.href = "/";
       }

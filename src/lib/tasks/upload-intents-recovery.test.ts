@@ -55,4 +55,39 @@ describe("recovery after a browser disappears", () => {
       next_check_at: expect.any(String),
     });
   });
+
+  function updateQuery() {
+    let checks = 0;
+    const query = {
+      update: vi.fn(() => query),
+      eq: vi.fn(() => query),
+      is: vi.fn(() => ++checks === 1 ? query : Promise.resolve({ error: null })),
+    };
+    mock.from.mockReturnValueOnce(query);
+    return query;
+  }
+
+  it("fails an intent whose object is still missing after a day", async () => {
+    const old = { ...intent, created_at: new Date(Date.now() - 25 * 60 * 60_000).toISOString() };
+    selectRows([old]);
+    mock.info.mockResolvedValue(null);
+    const query = updateQuery();
+    const finalize = vi.fn();
+    expect(await recoverUploadIntents("task", "task-1", finalize)).toBe(0);
+    expect(finalize).not.toHaveBeenCalled();
+    expect(query.update).toHaveBeenCalledWith({
+      failed_at: expect.any(String),
+      failure_reason: "The file never finished uploading. Attach it again.",
+    });
+  });
+
+  it("checks an hour-old missing object every 15 minutes, not every 15 seconds", async () => {
+    const hourOld = { ...intent, created_at: new Date(Date.now() - 2 * 60 * 60_000).toISOString() };
+    selectRows([hourOld]);
+    mock.info.mockResolvedValue(null);
+    const query = updateQuery();
+    await recoverUploadIntents("task", "task-1", vi.fn());
+    const next = Date.parse((query.update.mock.calls[0] as unknown as [{ next_check_at: string }])[0].next_check_at);
+    expect(next - Date.now()).toBeGreaterThan(14 * 60_000);
+  });
 });

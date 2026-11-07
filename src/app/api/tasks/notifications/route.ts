@@ -57,6 +57,7 @@ export async function GET(req: Request) {
   // Read current RBAC rather than the per-instance JWT lookup: notifications
   // outlive assignments and a disabled account can retain a valid cookie.
   const access = await timing.measure("access", () => getUserAccessByEmail(email));
+  if (access.unavailable) return respond({ error: "The portal is busy. Please try again." }, 503);
   if (!access.isActive) return respond({ error: "Unauthorized" }, 401);
   const viewerActor = buildTaskActor(access.permissions, email);
 

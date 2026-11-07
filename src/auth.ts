@@ -1,4 +1,4 @@
-import NextAuth from "next-auth";
+import NextAuth, { CredentialsSignin } from "next-auth";
 import { authConfig } from "./auth.config";
 import Google from "next-auth/providers/google";
 import Credentials from "next-auth/providers/credentials";
@@ -12,6 +12,13 @@ import {
   recordLoginAttempt,
 } from "@/lib/auth/rate-limit";
 import { createSharedLookup } from "@/lib/shared-lookup";
+import { createAccessFallback } from "@/lib/rbac/access-fallback";
+
+/** The sign-in form shows "busy, try again" for this code instead of "wrong
+ * password"; the attempt is not counted toward the lockout. */
+class PortalBusyError extends CredentialsSignin {
+  code = "portal_busy";
+}
 
 // Fixed valid hash so bcrypt.compare runs at full cost even when the user does
 // not exist — prevents timing-based account enumeration. Keep it lazy so every
@@ -37,8 +44,14 @@ const rbacLookup = createSharedLookup(getUserAccessByEmail, {
   keep: (access) => access.userId !== null,
 });
 
+// A failed RBAC read reuses this instance's last good read for up to 10
+// minutes instead of emptying the permissions (see access-fallback.ts).
+const RBAC_FAILURE_FALLBACK_MS = 10 * 60 * 1000;
+const rbacFallback = createAccessFallback({ maxAgeMs: RBAC_FAILURE_FALLBACK_MS });
+
 export function invalidateRbacLookups(): void {
   rbacLookup.invalidate();
+  rbacFallback.clear();
 }
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
@@ -61,12 +74,19 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         }
 
         const supabase = getSupabaseAdmin();
-        const { data: user } = await supabase
+        const { data: user, error: userError } = await supabase
           .from(PORTAL_ACCOUNT_TABLE)
           .select("id,email,name,agent_id,password_hash,is_active")
           .eq("email", email)
           .abortSignal(AbortSignal.timeout(8000))
-          .single();
+          .maybeSingle();
+
+        // The database did not answer: the password was never checked, so
+        // this is neither a wrong password nor a failed attempt.
+        if (userError) {
+          console.error("[auth] account lookup failed", { code: userError.code, message: userError.message });
+          throw new PortalBusyError();
+        }
 
         // Always run a comparison (against a dummy hash when the account is
         // missing or has no password) to keep response timing constant.
@@ -88,6 +108,8 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         if (!isValid || !user) return null;
 
         const access = await getUserAccessByEmail(user.email);
+        // Signing in with empty permissions would land on "No Access".
+        if (access.unavailable) throw new PortalBusyError();
 
         return {
           id: user.id,
@@ -159,14 +181,24 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         Date.now() - lastRbacRefresh >= RBAC_REFRESH_TTL_MS;
 
       if (token.email && shouldRefreshRbac) {
-        const access = await rbacLookup.get(token.email);
+        const access = rbacFallback.resolve(
+          token.email,
+          await rbacLookup.get(token.email),
+        );
         token.permissions = access.isActive ? access.permissions : [];
         // Tokens issued before 2026-10-09 still carry role names and the
         // legacy admin/agent role. Nothing reads them; drop them from the token
         // so no future code is tempted to. The cookie retains them until sign-in.
         delete token.role;
         delete token.roles;
-        token.agentId = access.agentId;
+        if (access.unavailable) {
+          // No recent read to fall back on: access stays empty (fail closed),
+          // but pages say "busy" rather than "No Access".
+          token.accessUnavailable = true;
+        } else {
+          delete token.accessUnavailable;
+          token.agentId = access.agentId;
+        }
         token.rbacRefreshedAt = Date.now();
       }
 
@@ -178,6 +210,7 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           ? token.permissions
           : [];
         session.user.agentId = (token.agentId as string | null) ?? null;
+        session.user.accessUnavailable = token.accessUnavailable === true;
       }
       return session;
     },

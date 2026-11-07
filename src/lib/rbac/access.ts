@@ -15,6 +15,9 @@ export type UserAccess = {
   permissions: string[];
   isActive: boolean;
   agentId: string | null;
+  /** The read failed (timeout, database stalled). It says nothing about the
+   * account: callers must not answer "no access" or "inactive" because of it. */
+  unavailable?: true;
 };
 
 /**
@@ -53,8 +56,9 @@ export async function getUserAccessByEmail(email: string): Promise<UserAccess> {
 
   if (error) {
     console.error("RBAC lookup failed", { code: error.code, message: error.message });
+    return { userId: null, permissions: [], isActive: false, agentId: null, unavailable: true };
   }
-  if (error || !data) {
+  if (!data) {
     return { userId: null, permissions: [], isActive: false, agentId: null };
   }
   return flattenAccess(data as unknown as AccessRow);
