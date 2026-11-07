@@ -6,7 +6,7 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
-## 2026-11-07 — Chống treo khi Supabase nghẽn: timeout truy vấn + gộp request chuông (đã deploy code, rollout chưa chạy)
+## 2026-11-07 — Chống treo khi Supabase nghẽn: timeout truy vấn + gộp request chuông (đã deploy, đã chạy rollout)
 
 - Thêm timeout để request không chờ tới hết giới hạn của Vercel: đăng nhập và tra quyền 8 giây, kiểm tra rate limit 5 giây,
   ghi `login_attempts` và danh bạ avatar 3 giây, mọi GET của `/api/tasks/notifications` 8 giây (`getSupabaseAdmin(ms)`).
@@ -14,7 +14,7 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
   báo sai mật khẩu và tính một lần thất bại, avatar về chữ viết tắt. `getUserAccessByEmail` giờ có log lỗi.
 - Polling chuông (`mode=summary`) gọi một RPC `get_notification_summary` thay vì 9 request song song. Vẫn lọc task theo quyền
   như cũ. Hàm chưa có trên DB (`PGRST202`) thì tự về đường cũ, nên deploy trước hay chạy SQL trước đều được.
-- Rollout `2026-11-07-notification-summary.sql`: chưa chạy tại thời điểm deploy code này.
+- Rollout `2026-11-07-notification-summary.sql`: đã chạy trên production ngày 07/11, sau khi deploy code.
 
 ## 2026-11-06 — Enrollment: Caller / Responsible Enroll sửa được hết (đã deploy)
 
