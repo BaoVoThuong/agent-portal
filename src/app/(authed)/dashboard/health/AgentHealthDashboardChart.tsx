@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from "react";
 import type { MouseEvent } from "react";
+import { useIsPhone } from "@/lib/use-is-phone";
+import { PhoneTrendChart } from "../../_dashboard-shared/PhoneTrendChart";
 
 export type ChartLevel = "month" | "quarter" | "year";
 
@@ -42,6 +44,7 @@ export function AgentHealthDashboardChart({
 }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState({ left: 0, top: 0 });
+  const isPhone = useIsPhone();
   const periods = periodsByLevel[chartLevel];
 
   const chart = useMemo(() => {
@@ -101,6 +104,47 @@ export function AgentHealthDashboardChart({
         />
         <div className="mt-6 rounded-lg border border-dashed border-[#d8dee7] px-6 py-12 text-center text-sm text-[#667085]">
           No report periods matched these filters.
+        </div>
+      </section>
+    );
+  }
+
+  if (isPhone) {
+    return (
+      <section>
+        <ChartHeader
+          chartLevel={chartLevel}
+          onChartLevelChange={onChartLevelChange}
+        />
+        <div className="agent-health-panel">
+          <PhoneTrendChart
+            ariaLabel="Commission, policies, and clients trend by period"
+            periodLabels={periods.map((period) => period.periodLabel)}
+            bar={{
+              label: "Agent Commission",
+              color: "#d9d9d9",
+              values: periods.map((period) => period.agentReceived),
+              format: formatCurrency,
+            }}
+            barMax={chart.maxMoney}
+            barAxisFormat={formatCompactCount}
+            lines={[
+              {
+                label: "Policies",
+                color: "#2f80ed",
+                values: periods.map((period) => period.policyCount),
+                format: formatInteger,
+              },
+              {
+                label: "Clients",
+                color: "#ff3b30",
+                values: periods.map((period) => period.clientCount),
+                format: formatInteger,
+              },
+            ]}
+            lineMax={chart.maxCount}
+            lineAxisFormat={formatCompactCount}
+          />
         </div>
       </section>
     );

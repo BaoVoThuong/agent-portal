@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useIsPhone } from "@/lib/use-is-phone";
+import { PhoneTrendChart } from "../../_dashboard-shared/PhoneTrendChart";
 
 export type CommissionTrendRow = {
   monthKey: string;
@@ -136,6 +138,7 @@ function CommissionTrendSvg({
   periodLabel: string;
   rows: CommissionTrendRow[];
 }) {
+  const isPhone = useIsPhone();
   const width = 1280;
   const height = 360;
   const left = 76;
@@ -149,6 +152,33 @@ function CommissionTrendSvg({
     10,
     roundAxisMax(maxValue(rows, (row) => percentOf(row[metric.key], row.totalPremium)))
   );
+
+  if (isPhone) {
+    return (
+      <PhoneTrendChart
+        ariaLabel={`${periodLabel} ${metric.title} trend`}
+        periodLabels={rows.map((row) => row.monthKey)}
+        bar={{
+          label: metric.barLabel,
+          color: "#d6d6d6",
+          values: rows.map((row) => row[metric.key]),
+          format: formatCurrency,
+        }}
+        barMax={maxAmount}
+        barAxisFormat={formatAxisMoney}
+        lines={[
+          {
+            label: metric.percentLabel,
+            color: "#d94242",
+            values: rows.map((row) => percentOf(row[metric.key], row.totalPremium)),
+            format: formatPercent,
+          },
+        ]}
+        lineMax={maxRate}
+        lineAxisFormat={formatPercent}
+      />
+    );
+  }
   const groupWidth = plotWidth / Math.max(rows.length, 1);
   const barWidth = Math.min(48, Math.max(20, groupWidth * 0.52));
   const points = rows.map((row, index) => {
@@ -340,6 +370,15 @@ function formatCurrencyShort(value: number) {
     minimumFractionDigits: 0,
     style: "currency",
   }).format(absValue)}`;
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    currency: "USD",
+    maximumFractionDigits: Math.abs(value) >= 1000 ? 0 : 2,
+    minimumFractionDigits: 0,
+    style: "currency",
+  }).format(value);
 }
 
 function formatAxisMoney(value: number) {

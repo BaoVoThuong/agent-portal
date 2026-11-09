@@ -3,6 +3,8 @@
 import { useState } from "react";
 import type { MouseEvent } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
+import { useIsPhone } from "@/lib/use-is-phone";
+import { PhoneTrendChart } from "../../_dashboard-shared/PhoneTrendChart";
 
 export type TrendComparisonChartLevel = "month" | "quarter" | "year";
 
@@ -126,12 +128,46 @@ function updateTrendLevelUrl(
 function TrendChartSvg({ rows }: { rows: TrendComparisonPeriod[] }) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState({ left: 0, top: 0 });
+  const isPhone = useIsPhone();
   const plotWidth = WIDTH - LEFT - RIGHT;
   const plotHeight = HEIGHT - TOP - BOTTOM;
   const maxMoney = roundAxisMax(maxValue(rows, (row) => row.totalMesserPaid));
   const maxCount = roundAxisMax(
     maxValue(rows, (row) => Math.max(row.policyCount, row.clientCount))
   );
+
+  if (isPhone) {
+    return (
+      <PhoneTrendChart
+        ariaLabel="Carrier paid, policies, and clients trend by period"
+        periodLabels={rows.map((row) => row.periodLabel)}
+        bar={{
+          label: "Carrier Paid",
+          color: "#d6d6d6",
+          values: rows.map((row) => row.totalMesserPaid),
+          format: formatCurrency,
+        }}
+        barMax={maxMoney}
+        barAxisFormat={formatAxisNumber}
+        lines={[
+          {
+            label: "Policies",
+            color: "#4186f5",
+            values: rows.map((row) => row.policyCount),
+            format: formatInteger,
+          },
+          {
+            label: "Clients",
+            color: "#ff453f",
+            values: rows.map((row) => row.clientCount),
+            format: formatInteger,
+          },
+        ]}
+        lineMax={maxCount}
+        lineAxisFormat={formatAxisNumber}
+      />
+    );
+  }
   const groupWidth = plotWidth / Math.max(rows.length, 1);
   const barWidth = Math.min(54, Math.max(26, groupWidth * 0.52));
   const points = rows.map((row, index) => {

@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import type { TrendComparisonChartLevel } from "./HealthSalesTrendComparisonChart";
+import { useIsPhone } from "@/lib/use-is-phone";
+import { PhoneTrendChart } from "../../_dashboard-shared/PhoneTrendChart";
 
 export type HealthCommissionTrendRow = {
   periodKey: string;
@@ -113,6 +115,7 @@ function CommissionTrendSvg({
   periodLabel: string;
   rows: HealthCommissionTrendRow[];
 }) {
+  const isPhone = useIsPhone();
   const width = 1280;
   const height = 360;
   const left = 76;
@@ -130,6 +133,33 @@ function CommissionTrendSvg({
   );
   // Đảo ngược thứ tự cột trên trục X.
   const orderedRows = [...rows].reverse();
+
+  if (isPhone) {
+    return (
+      <PhoneTrendChart
+        ariaLabel={`${periodLabel} ${metric.title} trend`}
+        periodLabels={orderedRows.map((row) => row.periodLabel)}
+        bar={{
+          label: metric.barLabel,
+          color: "#d6d6d6",
+          values: orderedRows.map((row) => row[metric.key]),
+          format: formatCurrency,
+        }}
+        barMax={maxAmount}
+        barAxisFormat={formatAxisMoney}
+        lines={[
+          {
+            label: metric.percentLabel,
+            color: "#d94242",
+            values: orderedRows.map((row) => percentOf(row[metric.key], row.totalMesserPaid)),
+            format: formatPercent,
+          },
+        ]}
+        lineMax={maxRate}
+        lineAxisFormat={formatPercent}
+      />
+    );
+  }
   const groupWidth = plotWidth / Math.max(orderedRows.length, 1);
   const barWidth = Math.min(48, Math.max(20, groupWidth * 0.52));
   const points = orderedRows.map((row, index) => {
@@ -326,6 +356,15 @@ function formatCurrencyShort(value: number) {
     minimumFractionDigits: 0,
     style: "currency",
   }).format(absValue)}`;
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    currency: "USD",
+    maximumFractionDigits: Math.abs(value) >= 1000 ? 0 : 2,
+    minimumFractionDigits: 0,
+    style: "currency",
+  }).format(value);
 }
 
 function formatAxisMoney(value: number) {
