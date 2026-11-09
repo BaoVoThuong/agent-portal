@@ -3,9 +3,7 @@
 import { useMemo, type ReactNode } from "react";
 import {
   buildPcLineRows,
-  buildPcScoreCards,
   percentOf,
-  type PcChangeMetric,
   type PcLineRow,
   type PcLineSourceRow,
 } from "./pc-line-of-service";
@@ -19,60 +17,6 @@ const LINE_HEADER_HEIGHT_PX = 54;
 const LINE_ROW_HEIGHT_PX = 46;
 const LINE_TABLE_MAX_HEIGHT =
   LINE_HEADER_HEIGHT_PX + LINE_VISIBLE_ROW_COUNT * LINE_ROW_HEIGHT_PX;
-
-export function PcScoreCards({
-  rows,
-  showPremiumPerPolicy,
-}: {
-  rows: PcLineSourceRow[];
-  showPremiumPerPolicy: boolean;
-}) {
-  const cards = useMemo(() => buildPcScoreCards(rows), [rows]);
-  const monthLabel = cards.latestMonthKey
-    ? formatMonthKey(cards.latestMonthKey)
-    : "";
-
-  return (
-    <section
-      className={`grid gap-8 max-md:grid-cols-2 max-md:gap-2 md:grid-cols-3 xl:gap-4 ${
-        showPremiumPerPolicy ? "xl:grid-cols-6" : "xl:grid-cols-5"
-      }`}
-    >
-      <ScoreCard
-        footerText={formatChangeFooter(cards.newBusiness, monthLabel)}
-        label="New Business"
-        value={formatInteger(cards.newBusiness.total)}
-      />
-      <ScoreCard
-        footerText={formatChangeFooter(cards.renewals, monthLabel)}
-        label="Renewals"
-        value={formatInteger(cards.renewals.total)}
-      />
-      <ScoreCard
-        footerText={formatChangeFooter(cards.cancellations, monthLabel)}
-        label="Cancellation"
-        value={formatInteger(cards.cancellations.total)}
-      />
-      {showPremiumPerPolicy ? (
-        <ScoreCard
-          footerText={`${formatCurrencyShort(cards.premiumPerPolicy.latest)} in ${monthLabel}`}
-          label="Premium per Policy"
-          value={formatCurrencyShort(cards.premiumPerPolicy.total)}
-        />
-      ) : null}
-      <ScoreCard
-        footerText={`${formatInteger(cards.carriers.latest)} in ${monthLabel}`}
-        label="Carrier"
-        value={formatInteger(cards.carriers.total)}
-      />
-      <ScoreCard
-        footerText={`${formatInteger(cards.lines.latest)} in ${monthLabel}`}
-        label="Line of Service"
-        value={formatInteger(cards.lines.total)}
-      />
-    </section>
-  );
-}
 
 export function PcLineOfServiceSection({
   audience,
@@ -93,10 +37,13 @@ export function PcLineOfServiceSection({
   const commissionMax = isCompany ? maxes.totalCommission : maxes.agentCommission;
 
   return (
-    <section className="flex flex-col">
+    <section className="pc-section flex flex-col">
       <h3 className="mb-4 text-lg font-bold leading-tight text-slate-800">
-        Line of Service
+        Line of service
       </h3>
+      <p className="pc-section-note">
+        Policies, premium and commission by line, largest premium first.
+      </p>
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow duration-300 hover:shadow-md">
         <div className="overflow-auto" style={{ maxHeight: LINE_TABLE_MAX_HEIGHT }}>
           <table className="w-full table-fixed text-[11px] max-md:min-w-[880px]">
@@ -185,32 +132,6 @@ export function PcLineOfServiceSection({
   );
 }
 
-function ScoreCard({
-  footerText,
-  label,
-  value,
-}: {
-  footerText: string;
-  label: string;
-  value: string;
-}) {
-  return (
-    <article className="flex min-h-[112px] flex-col rounded-xl border border-slate-200/70 bg-white px-4 py-4 text-center shadow-[0_6px_18px_rgba(15,23,42,0.06)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_12px_28px_rgba(15,23,42,0.1)]">
-      <div className="flex min-h-8 items-center justify-center text-[12px] font-semibold uppercase leading-snug tracking-[0.08em] text-slate-500">
-        {label}
-      </div>
-      <div className="flex flex-1 items-center justify-center py-2">
-        <div className="w-full break-words text-center text-[1.75rem] font-bold leading-none tabular-nums tracking-normal text-slate-900">
-          {value}
-        </div>
-      </div>
-      <div className="min-h-5 truncate text-xs font-medium text-slate-500">
-        {footerText}
-      </div>
-    </article>
-  );
-}
-
 function HeaderCell({
   align = "right",
   children,
@@ -269,21 +190,6 @@ function maxOf(rows: PcLineRow[], getValue: (row: PcLineRow) => number) {
   return Math.max(...rows.map((row) => Math.max(getValue(row), 0)), 1);
 }
 
-function formatChangeFooter(metric: PcChangeMetric, monthLabel: string) {
-  const base = `${formatInteger(metric.latest)} in ${monthLabel}`;
-
-  if (metric.change === null) return base;
-
-  return `${base} (${metric.change > 0 ? "+" : ""}${formatInteger(metric.change)})`;
-}
-
-function formatMonthKey(monthKey: string) {
-  return lineMonthFormatter.format(new Date(`${monthKey}-01T00:00:00Z`));
-}
-
-const lineMonthFormatter = new Intl.DateTimeFormat("en-US", {
-  month: "short", timeZone: "UTC", year: "numeric",
-});
 const lineIntegerFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 const linePercentFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 const lineCurrencyFormatter = new Intl.NumberFormat("en-US", {

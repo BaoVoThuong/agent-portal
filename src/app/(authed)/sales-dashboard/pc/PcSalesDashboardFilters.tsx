@@ -59,7 +59,7 @@ export function PcSalesHeaderFilters({
   }
 
   return (
-    <div className="flex flex-wrap items-center justify-end gap-3 max-md:justify-start max-md:[&>*]:w-full">
+    <div className="dashboard-filter-group flex flex-wrap items-center justify-end gap-3 max-md:justify-start max-md:[&>*]:w-full">
       <ReportMonthRangeDropdown
         defaultConfig={defaultConfig}
         disabled={isPending}
@@ -168,7 +168,7 @@ export function PcSalesDashboardFilters({
   }
 
   return (
-    <div className={`mb-8 grid gap-8 lg:grid-cols-3 xl:grid-cols-5 max-md:mb-4 max-md:gap-2 ${phoneFiltersOpen ? "" : "max-md:[&>*:not(:first-child)]:hidden"}`}>
+    <div className={`dashboard-filter-group grid gap-8 lg:grid-cols-3 xl:grid-cols-5 max-md:gap-2 ${phoneFiltersOpen ? "" : "max-md:[&>*:not(:first-child)]:hidden"}`}>
       <PhoneFilterToggle open={phoneFiltersOpen} onToggle={() => setPhoneFiltersOpen((current) => !current)} activeCount={[filters.agency, filters.agent, filters.paidProducer, filters.statementNumber, filters.policyNumber].filter((value) => value.length > 0).length} />
       <FilterSelect
         disabled={isPending}
@@ -338,22 +338,24 @@ function ReportMonthRangeDropdown({
   }
 
   return (
-    <div ref={containerRef} className="relative shrink-0">
+    <div ref={containerRef} className="dashboard-filter-wide relative shrink-0">
       <button
         type="button"
         onClick={() => setIsOpen((current) => !current)}
         disabled={disabled}
         className="dashboard-filter-button w-[14.5rem]"
         aria-expanded={isOpen}
+        aria-label={`Policy Effective Date: ${label}`}
       >
-        <span className="truncate">{label}</span>
+        <span className="truncate">Policy Effective: {label}</span>
         <span className="text-[#667085]" aria-hidden="true">
           ▾
         </span>
       </button>
 
       {isOpen ? (
-        <div className="dashboard-filter-menu absolute right-0 z-30 mt-2.5 w-[min(27rem,calc(100vw-1rem))] p-3.5">
+        <div className="dashboard-filter-menu absolute z-30 mt-2.5 w-[min(27rem,calc(100vw-1rem))] p-3.5 max-md:right-0 md:left-0">
+          <div className="dashboard-filter-title mb-2.5">Policy Effective Date</div>
           <div className="grid grid-cols-2 gap-4">
             <MonthPanel
               title="Start Month"
@@ -703,7 +705,7 @@ function FilterSelect({
   );
 }
 
-function MultiFilterSelect({
+export function MultiFilterSelect({
   disabled,
   label,
   name,

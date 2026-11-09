@@ -33,6 +33,15 @@ describe("getPcLineLabel", () => {
 });
 
 describe("buildPcScoreCards", () => {
+  it("counts one policy once across its rows", () => {
+    const cards = buildPcScoreCards([
+      row({ policy_number: "A", premium: 600, true_premium: 600 }),
+      row({ policy_number: "A", premium: 400, true_premium: 400 }),
+    ]);
+
+    expect(cards.newBusiness.total).toBe(1);
+  });
+
   it("compares the latest month with the month right before it", () => {
     const cards = buildPcScoreCards([
       row({ policy_number: "A", effective_date: "2026-10-02" }),
@@ -64,6 +73,20 @@ describe("buildPcScoreCards", () => {
     expect(cards.newBusiness.change).toBeNull();
   });
 
+  it("stops the latest month at the given month", () => {
+    const cards = buildPcScoreCards(
+      [
+        row({ policy_number: "A", effective_date: "2026-12-02" }),
+        row({ policy_number: "B", effective_date: "2026-11-02" }),
+        row({ policy_number: "C", effective_date: "2026-10-02" }),
+      ],
+      "2026-11"
+    );
+
+    expect(cards.latestMonthKey).toBe("2026-11");
+    expect(cards.newBusiness).toEqual({ total: 3, latest: 1, change: 0 });
+  });
+
   it("counts a cancelled policy that only has a negative row", () => {
     const cards = buildPcScoreCards([
       row({ policy_number: "A", premium: -500, true_premium: -500, status: "CANCEL" }),
@@ -72,16 +95,6 @@ describe("buildPcScoreCards", () => {
 
     expect(cards.cancellations.total).toBe(1);
     expect(cards.newBusiness.total).toBe(1);
-  });
-
-  it("counts one policy once across its rows", () => {
-    const cards = buildPcScoreCards([
-      row({ policy_number: "A", premium: 600, true_premium: 600 }),
-      row({ policy_number: "A", premium: 400, true_premium: 400 }),
-    ]);
-
-    expect(cards.newBusiness.total).toBe(1);
-    expect(cards.premiumPerPolicy.total).toBe(1000);
   });
 
   it("ignores carriers and lines with no sold premium or no name", () => {

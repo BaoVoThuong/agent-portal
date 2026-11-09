@@ -6,7 +6,23 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
-## 2026-11-09 — Dashboard P&C: score card và thống kê theo Line of Service (chưa deploy)
+## 2026-11-09 — P&C Agent: Personal Overview dùng ECharts (đã deploy)
+
+- Thay các ô KPI bằng 4 thẻ chính có line, 4 thẻ tỉ lệ và dải New Business / Renewals / Cancellation / Carrier / Line of Service.
+- Số lớn vẫn là tổng theo bộ lọc. Line, tháng mới nhất, peak và số so sánh dừng ở tháng hiện tại; hợp đồng hiệu lực tháng sau
+  vẫn được tính vào số tổng. Chênh lệch chỉ hiện khi tháng liền trước có dữ liệu.
+- ECharts (thêm dependency `echarts@5.6.0`) chỉ tải phần line, sau khi trang đã hiện số.
+- Chart Portfolio & Premium Trend (Agent, Company) là combo ECharts: cột stack premium theo line, đường Policies; bấm tên trên legend để
+  ẩn line, tổng trên cột tự tính lại. Umbrella, Motorcycle, Mobile Home, Wind và Unspecified gom vào Other.
+- Chart stack có nút Premium / Volume: Volume đổi cột thành số policy theo line, đường thành Total Premium. Commission Trend và Monthly Expired
+  Policy cũng sang combo ECharts, Expired ghi trục Policy Expired Date.
+- Bản đồ Top 5 Texas cities / Policies by state (dùng chung cho Agent và Company) cũng vẽ bằng ECharts, số liệu và cách xếp hạng giữ nguyên.
+- Company: Premium per Policy thành thẻ có line, tính bằng Written Premium chia Policies Sold như Agent; trước đây chỉ cộng các dòng premium dương.
+- Company dashboard dùng thẻ có line như Agent, đủ 15 chỉ số cũ. Tháng mới nhất và số so sánh dừng ở tháng hiện tại, trước đây lấy tháng có dữ liệu mới nhất kể cả tháng sau.
+- Bộ lọc Paid Date của trang Agent chọn được nhiều ngày; URL ghi lặp `paidDate`, link cũ một ngày vẫn dùng được.
+- Trang P&C ghi rõ các tháng theo Policy Effective Date (trừ chart Expiring Premium & Policies, theo Policy Expired Date) trên bộ lọc tháng, chart và đầu trang.
+
+## 2026-11-09 — Dashboard P&C: score card và thống kê theo Line of Service (đã deploy)
 
 - Áp dụng cho Company và Agent dashboard, theo bộ lọc đang chọn. Agent chỉ thấy Agent Comm, không có Total/EPS Comm.
 - Score card: New Business, Renewals, Cancellation, Carrier, Line of Service; Company có thêm Premium per Policy (Agent đã có

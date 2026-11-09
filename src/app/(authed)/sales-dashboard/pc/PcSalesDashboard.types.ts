@@ -1,5 +1,6 @@
 // Types + constants thuần của PcSalesDashboard (tách nguyên văn từ component).
 import type { CommissionTrendRow } from "./PcCommissionMetricTrendChart";
+import type { PcPremiumTrendPoint } from "../../_dashboard-shared/pc-premium-trend";
 
 export type PcSalesRow = {
   agent_name: string | null;
@@ -162,6 +163,7 @@ export type PolicyDetailRow = {
 };
 
 export type DashboardData = {
+  premiumTrendPoints: PcPremiumTrendPoint[];
   overview: Summary;
   monthlyRows: MonthlySummary[];
   trendRows: MonthlySummary[];

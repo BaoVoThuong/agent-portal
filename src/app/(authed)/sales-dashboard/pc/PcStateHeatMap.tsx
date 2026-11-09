@@ -1,15 +1,18 @@
 "use client";
 
-import { useMemo, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { geoAlbersUsa, geoPath } from "d3-geo";
 import { feature } from "topojson-client";
 import statesTopo from "us-atlas/states-10m.json";
+import { TOOLTIP_STYLE } from "../../_dashboard-shared/combo-chart-format";
+import { loadEchartsEngine } from "../../_dashboard-shared/echarts-engine";
 
 const WIDTH = 960;
 const HEIGHT = 560;
 const MAP_PADDING = 42;
 const TEXAS_STATE = "TX";
 const CITY_ROW_LIMIT = 5;
+const MIN_CITY_MARKER_SIZE = 20;
 const TOP_CITY_MARKER_COLORS = [
   "#1d4e8a",
   "#2f80ed",
@@ -106,12 +109,7 @@ type CityPoint = PcStateMapCityRow & {
   y: number;
 };
 
-type MapTooltip = {
-  title: string;
-  lines: string[];
-  x: number;
-  y: number;
-};
+type GeoMap = { name: string; svg: string };
 
 type ProjectionMap = {
   project: (longitude: number, latitude: number) => [number, number] | null;
@@ -230,6 +228,39 @@ const TEXAS_MAP: ProjectionMap = (() => {
   /* eslint-enable @typescript-eslint/no-explicit-any */
 })();
 
+// Bản đồ đã chiếu sẵn thành path, nên đưa cho ECharts dạng SVG; toạ độ marker là toạ độ của khung 960x560.
+function buildGeoMap(name: string, shapes: StateShape[]): GeoMap {
+  const paths = shapes
+    .filter((shape) => shape.d)
+    .map((shape) => `<path name="${shape.name}" d="${shape.d}"/>`)
+    .join("");
+
+  return {
+    name,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">${paths}</svg>`,
+  };
+}
+
+const US_GEO_MAP = buildGeoMap("pc-us-states", STATE_SHAPES);
+const TEXAS_GEO_MAP = buildGeoMap("pc-texas", TEXAS_MAP.shapes);
+const GEO_LAYOUT = { aspectScale: 1, left: 0, right: 0, top: 0, bottom: 0, roam: false };
+const GEO_TOOLTIP = { ...TOOLTIP_STYLE, trigger: "item" as const };
+const registeredGeoMaps = new Set<string>();
+
+function escapeHtml(value: string) {
+  return value.replace(
+    /[&<>"']/g,
+    (char) => `&#${char.charCodeAt(0)};`
+  );
+}
+
+function geoTooltip(title: string, lines: string[]) {
+  return [
+    `<div style="font-weight:600">${escapeHtml(title)}</div>`,
+    ...lines.map((line) => `<div style="color:#475569">${escapeHtml(line)}</div>`),
+  ].join("");
+}
+
 function heatColor(intensity: number) {
   const alpha = 0.15 + intensity * 0.85;
   return `rgba(29, 78, 138, ${alpha})`;
@@ -306,9 +337,6 @@ export function PcStateHeatMap({
   counts: Record<string, number>;
   groups?: PcStateMapGroup[];
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [hover, setHover] = useState<MapTooltip | null>(null);
-
   const maxCount = useMemo(
     () => Math.max(1, ...Object.values(counts)),
     [counts]
@@ -350,7 +378,10 @@ export function PcStateHeatMap({
       })
       .filter((row): row is CityPoint => row !== null);
   }, [groups]);
-  const topCityRows = texasCities.slice(0, CITY_ROW_LIMIT);
+  const topCityRows = useMemo(
+    () => texasCities.slice(0, CITY_ROW_LIMIT),
+    [texasCities]
+  );
   const maxCityPolicies = useMemo(
     () => Math.max(1, ...topCityRows.map((city) => city.policyCount)),
     [topCityRows]
@@ -363,137 +394,25 @@ export function PcStateHeatMap({
   const outOfStatePolicies = Math.max(totalPolicies - texasPolicies, 0);
   const showTexasCityMap = texasCities.length > 0;
 
-  function handleMove(event: MouseEvent, title: string, lines: string[]) {
-    const rect = containerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    setHover({
-      lines,
-      title,
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-    });
-  }
-
   if (showTexasCityMap) {
     return (
-      <section className="flex flex-col">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <section className="pc-section flex flex-col">
+        <div className="pc-section-head mb-4 flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-lg font-bold leading-tight text-slate-800">
-            Top 5 Texas Cities | Policies & Premium
+            Top 5 Texas cities
           </h3>
           <span className="text-xs font-medium text-slate-500">
             Only the top {topCityRows.length} cities are plotted
           </span>
         </div>
+        <p className="pc-section-note">
+          Policy count and premium for the largest Texas cities.
+        </p>
 
-        <div
-          ref={containerRef}
-          className="relative overflow-hidden rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition-shadow duration-300 hover:shadow-md"
-          onMouseLeave={() => setHover(null)}
-        >
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
             <div className="rounded-lg bg-[#f8fbff] p-4">
-              <svg
-                viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-                className="block w-full"
-                role="img"
-                aria-label="Texas map of top five policy cities"
-              >
-                <defs>
-                  <filter
-                    id="city-marker-shadow"
-                    height="170%"
-                    width="170%"
-                    x="-35%"
-                    y="-35%"
-                  >
-                    <feDropShadow
-                      dx="0"
-                      dy="8"
-                      floodColor="#0f172a"
-                      floodOpacity="0.16"
-                      stdDeviation="7"
-                    />
-                  </filter>
-                </defs>
-                <rect width={WIDTH} height={HEIGHT} rx="18" fill="#f8fbff" />
-                {TEXAS_MAP.shapes.map((shape) => (
-                  <path
-                    key={shape.name}
-                    d={shape.d}
-                    fill="#e8f1fb"
-                    stroke="#cbd9e8"
-                    strokeWidth={1.2}
-                  />
-                ))}
-                {topCityRows.map((city, index) => {
-                  const markerPoint = getCityMarkerPoint(city);
-                  const radius =
-                    13 +
-                    Math.sqrt(city.policyCount / Math.max(maxCityPolicies, 1)) * 18;
-                  const markerColor =
-                    TOP_CITY_MARKER_COLORS[index % TOP_CITY_MARKER_COLORS.length];
-
-                  return (
-                    <g key={`${city.state}-${city.city}`}>
-                      {markerPoint.isOffset ? (
-                        <>
-                          <line
-                            x1={city.x}
-                            x2={markerPoint.x}
-                            y1={city.y}
-                            y2={markerPoint.y}
-                            stroke="#93a7bd"
-                            strokeDasharray="4 5"
-                            strokeWidth={1.4}
-                          />
-                          <circle
-                            cx={city.x}
-                            cy={city.y}
-                            fill="#1d4e8a"
-                            opacity={0.28}
-                            r={3.8}
-                          />
-                        </>
-                      ) : null}
-                      <circle
-                        cx={markerPoint.x}
-                        cy={markerPoint.y}
-                        filter="url(#city-marker-shadow)"
-                        opacity={0.18}
-                        r={radius + 7}
-                        fill={markerColor}
-                      />
-                      <circle
-                        cx={markerPoint.x}
-                        cy={markerPoint.y}
-                        r={radius}
-                        fill={markerColor}
-                        stroke="#ffffff"
-                        strokeWidth={3}
-                        className="cursor-pointer transition-opacity duration-150 hover:opacity-90"
-                        onMouseMove={(event) =>
-                          handleMove(event, `#${index + 1} ${city.city}`, [
-                            `${formatInteger(city.policyCount)} policies`,
-                            `${formatPercent(city.policySharePercent)} of portfolio`,
-                            `${formatCurrencyShort(city.totalPremium)} premium`,
-                            `${formatCurrencyShort(city.totalCommission)} commission`,
-                          ])
-                        }
-                      />
-                      <text
-                        className="pointer-events-none fill-white text-[15px] font-bold"
-                        dominantBaseline="central"
-                        textAnchor="middle"
-                        x={markerPoint.x}
-                        y={markerPoint.y + 1}
-                      >
-                        {index + 1}
-                      </text>
-                    </g>
-                  );
-                })}
-              </svg>
+              <TexasCityMapChart cities={topCityRows} maxPolicies={maxCityPolicies} />
 
               <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-[11px] text-slate-500">
                 <div className="flex items-center gap-2">
@@ -585,57 +504,27 @@ export function PcStateHeatMap({
               </div>
             </aside>
           </div>
-
-          {hover ? <MapTooltipCard hover={hover} /> : null}
         </div>
       </section>
     );
   }
 
   return (
-    <section className="flex flex-col">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+    <section className="pc-section flex flex-col">
+      <div className="pc-section-head mb-4 flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-lg font-bold leading-tight text-slate-800">
-          Policies by State | Customer Concentration
+          Policies by state
         </h3>
         <span className="text-xs font-medium text-slate-500">
           {statesWithPolicies} states with policies
         </span>
       </div>
+      <p className="pc-section-note">
+        Where customers are concentrated, by policy count.
+      </p>
 
-      <div
-        ref={containerRef}
-        className="relative overflow-hidden rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition-shadow duration-300 hover:shadow-md"
-        onMouseLeave={() => setHover(null)}
-      >
-        <svg
-          viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-          className="block w-full"
-          role="img"
-          aria-label="US map of policy counts by state"
-        >
-          {STATE_SHAPES.map((shape) => {
-            const count = counts[shape.abbr] ?? 0;
-
-            return (
-              <path
-                key={shape.name}
-                d={shape.d}
-                fill={count === 0 ? "#eef2f7" : heatColor(count / maxCount)}
-                stroke="#ffffff"
-                strokeWidth={0.75}
-                className="cursor-pointer transition-[fill] duration-150 hover:stroke-[#16233a]"
-                onMouseMove={(event) =>
-                  handleMove(event, shape.name, [
-                    `${count.toLocaleString("en-US")} policies`,
-                  ])
-                }
-              />
-            );
-          })}
-        </svg>
-
-        {hover ? <MapTooltipCard hover={hover} /> : null}
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <UsStateMapChart counts={counts} maxCount={maxCount} />
 
         <div className="mt-3 flex items-center gap-2 text-[11px] text-slate-500">
           <span>0</span>
@@ -667,18 +556,227 @@ function MapStat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function MapTooltipCard({ hover }: { hover: MapTooltip }) {
+function PcGeoChart({
+  ariaLabel,
+  buildOption,
+  map,
+}: {
+  ariaLabel: string;
+  buildOption: (scale: number) => Parameters<import("echarts/core").EChartsType["setOption"]>[0];
+  map: GeoMap;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) return;
+
+    let disposed = false;
+    let cleanup = () => {};
+
+    loadEchartsEngine()
+      .then((core) => {
+        if (disposed) return;
+
+        if (!registeredGeoMaps.has(map.name)) {
+          core.registerMap(map.name, { svg: map.svg });
+          registeredGeoMaps.add(map.name);
+        }
+
+        const chart = core.init(element);
+        const render = () => chart.setOption(buildOption(chart.getWidth() / WIDTH));
+        render();
+
+        const observer = new ResizeObserver(() => {
+          chart.resize();
+          render();
+        });
+        observer.observe(element);
+        cleanup = () => {
+          observer.disconnect();
+          chart.dispose();
+        };
+      })
+      // Tải chart lỗi thì bảng xếp hạng bên cạnh vẫn dùng được.
+      .catch(() => {});
+
+    return () => {
+      disposed = true;
+      cleanup();
+    };
+  }, [buildOption, map]);
+
   return (
     <div
-      className="pointer-events-none absolute z-10 rounded-md border border-[#d8dee7] bg-white px-3 py-1.5 text-xs shadow-lg"
-      style={{ left: hover.x + 14, top: hover.y + 14 }}
-    >
-      <div className="font-semibold text-[#16233a]">{hover.title}</div>
-      {hover.lines.map((line) => (
-        <div key={line} className="text-[#475569]">
-          {line}
-        </div>
-      ))}
-    </div>
+      aria-label={ariaLabel}
+      className="aspect-[960/560] w-full"
+      ref={containerRef}
+      role="img"
+    />
   );
+}
+
+function TexasCityMapChart({
+  cities,
+  maxPolicies,
+}: {
+  cities: CityPoint[];
+  maxPolicies: number;
+}) {
+  const buildOption = useMemo(
+    () => (scale: number) => buildTexasCityOption(cities, maxPolicies, scale),
+    [cities, maxPolicies]
+  );
+
+  return (
+    <PcGeoChart
+      ariaLabel="Texas map of top five policy cities"
+      buildOption={buildOption}
+      map={TEXAS_GEO_MAP}
+    />
+  );
+}
+
+function UsStateMapChart({
+  counts,
+  maxCount,
+}: {
+  counts: Record<string, number>;
+  maxCount: number;
+}) {
+  const buildOption = useMemo(
+    () => () => buildUsStateOption(counts, maxCount),
+    [counts, maxCount]
+  );
+
+  return (
+    <PcGeoChart
+      ariaLabel="US map of policy counts by state"
+      buildOption={buildOption}
+      map={US_GEO_MAP}
+    />
+  );
+}
+
+function buildTexasCityOption(cities: CityPoint[], maxPolicies: number, scale: number) {
+  const markers = cities.map((city, index) => ({
+    city,
+    color: TOP_CITY_MARKER_COLORS[index % TOP_CITY_MARKER_COLORS.length],
+    point: getCityMarkerPoint(city),
+    radius: 13 + Math.sqrt(city.policyCount / Math.max(maxPolicies, 1)) * 18,
+  }));
+  const offsetMarkers = markers.filter((marker) => marker.point.isOffset);
+
+  return {
+    animationDuration: 400,
+    tooltip: GEO_TOOLTIP,
+    geo: {
+      ...GEO_LAYOUT,
+      map: TEXAS_GEO_MAP.name,
+      silent: true,
+      itemStyle: { areaColor: "#e8f1fb", borderColor: "#cbd9e8", borderWidth: 1.2 },
+    },
+    series: [
+      {
+        type: "lines" as const,
+        coordinateSystem: "geo",
+        silent: true,
+        z: 2,
+        lineStyle: { color: "#93a7bd", type: [4, 5], width: 1.4, opacity: 1 },
+        data: offsetMarkers.map(({ city, point }) => ({
+          coords: [
+            [city.x, city.y],
+            [point.x, point.y],
+          ],
+        })),
+      },
+      {
+        type: "scatter" as const,
+        coordinateSystem: "geo",
+        silent: true,
+        z: 3,
+        symbolSize: 7,
+        itemStyle: { color: "#1d4e8a", opacity: 0.28 },
+        data: offsetMarkers.map(({ city }) => [city.x, city.y]),
+      },
+      {
+        type: "scatter" as const,
+        coordinateSystem: "geo",
+        z: 4,
+        // Trên điện thoại bản đồ co lại, marker vẫn phải đủ chỗ cho số thứ hạng.
+        data: markers.map(({ city, color, point, radius }) => ({
+          name: city.city,
+          value: [point.x, point.y],
+          symbolSize: Math.max(radius * 2 * scale, MIN_CITY_MARKER_SIZE),
+          itemStyle: { color },
+        })),
+        itemStyle: {
+          borderColor: "#ffffff",
+          borderWidth: 2,
+          opacity: 1,
+          shadowBlur: 12,
+          shadowColor: "rgba(15,23,42,.22)",
+          shadowOffsetY: 4,
+        },
+        label: {
+          show: true,
+          position: "inside" as const,
+          color: "#ffffff",
+          fontSize: Math.max(11, Math.round(15 * scale)),
+          fontWeight: 700 as const,
+          formatter: (item: { dataIndex: number }) => `${item.dataIndex + 1}`,
+        },
+        tooltip: {
+          formatter: (item: unknown) => {
+            const index = (item as { dataIndex: number }).dataIndex;
+            const city = cities[index];
+
+            return geoTooltip(`#${index + 1} ${city.city}`, [
+              `${formatInteger(city.policyCount)} policies`,
+              `${formatPercent(city.policySharePercent)} of portfolio`,
+              `${formatCurrencyShort(city.totalPremium)} premium`,
+              `${formatCurrencyShort(city.totalCommission)} commission`,
+            ]);
+          },
+        },
+      },
+    ],
+  };
+}
+
+function buildUsStateOption(counts: Record<string, number>, maxCount: number) {
+  return {
+    animationDuration: 400,
+    tooltip: {
+      ...GEO_TOOLTIP,
+      formatter: (item: unknown) => {
+        const { name, value } = item as { name: string; value: number };
+
+        return geoTooltip(name, [`${formatInteger(value)} policies`]);
+      },
+    },
+    series: [
+      {
+        ...GEO_LAYOUT,
+        type: "map" as const,
+        map: US_GEO_MAP.name,
+        selectedMode: false as const,
+        label: { show: false },
+        emphasis: { label: { show: false } },
+        itemStyle: { borderColor: "#ffffff", borderWidth: 0.75 },
+        data: STATE_SHAPES.filter((shape) => shape.d).map((shape) => {
+          const count = counts[shape.abbr] ?? 0;
+          const areaColor = count === 0 ? "#eef2f7" : heatColor(count / maxCount);
+
+          return {
+            name: shape.name,
+            value: count,
+            itemStyle: { areaColor },
+            // Di chuột chỉ viền đậm lên, giữ màu của bang.
+            emphasis: { itemStyle: { areaColor, borderColor: "#16233a", borderWidth: 1.2 } },
+          };
+        }),
+      },
+    ],
+  };
 }

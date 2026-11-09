@@ -32,7 +32,6 @@ export type PcScoreCardData = {
   newBusiness: PcChangeMetric;
   renewals: PcChangeMetric;
   cancellations: PcChangeMetric;
-  premiumPerPolicy: PcPlainMetric;
   carriers: PcPlainMetric;
   lines: PcPlainMetric;
 };
@@ -59,12 +58,20 @@ export function getPcLineLabel(type: string | null) {
   return toTitleCase(key);
 }
 
-export function buildPcScoreCards(rows: PcLineSourceRow[]): PcScoreCardData {
+// maxMonthKey: tháng mới nhất và số so sánh không vượt quá tháng này.
+export function buildPcScoreCards(
+  rows: PcLineSourceRow[],
+  maxMonthKey?: string
+): PcScoreCardData {
   const rowsByMonth = groupBy(
     rows.filter((row) => getMonthKey(row.effective_date)),
     (row) => getMonthKey(row.effective_date)
   );
-  const latestMonthKey = [...rowsByMonth.keys()].sort().at(-1) ?? null;
+  const latestMonthKey =
+    [...rowsByMonth.keys()]
+      .filter((monthKey) => !maxMonthKey || monthKey <= maxMonthKey)
+      .sort()
+      .at(-1) ?? null;
   const overall = summarizeScores(rows);
   const latest = summarizeScores(
     latestMonthKey ? rowsByMonth.get(latestMonthKey) ?? [] : []
@@ -87,10 +94,6 @@ export function buildPcScoreCards(rows: PcLineSourceRow[]): PcScoreCardData {
     newBusiness: changeMetric("newBusiness"),
     renewals: changeMetric("renewals"),
     cancellations: changeMetric("cancellations"),
-    premiumPerPolicy: {
-      total: divide(overall.premium, overall.policyCount),
-      latest: divide(latest.premium, latest.policyCount),
-    },
     carriers: { total: overall.carrierCount, latest: latest.carrierCount },
     lines: { total: overall.lineCount, latest: latest.lineCount },
   };
@@ -128,7 +131,6 @@ function summarizeScores(rows: PcLineSourceRow[]) {
   >();
   const carriers = new Set<string>();
   const lines = new Set<string>();
-  let premium = 0;
 
   rows.forEach((row, index) => {
     const policyId = getPolicyId(row, index);
@@ -149,8 +151,6 @@ function summarizeScores(rows: PcLineSourceRow[]) {
 
     if (rowPremium <= 0) return;
 
-    premium += rowPremium;
-
     const carrier = row.company?.trim();
     if (carrier) carriers.add(carrier);
 
@@ -167,8 +167,6 @@ function summarizeScores(rows: PcLineSourceRow[]) {
     carrierCount: carriers.size,
     lineCount: lines.size,
     newBusiness: sold.filter((policy) => policy.isNew).length,
-    policyCount: sold.length,
-    premium,
     renewals: sold.filter((policy) => policy.renewal).length,
   };
 }
@@ -257,7 +255,7 @@ function getMonthKey(date: string | null) {
   return /^\d{4}-\d{2}$/.test(monthKey) ? monthKey : "";
 }
 
-function getPreviousMonthKey(monthKey: string) {
+export function getPreviousMonthKey(monthKey: string) {
   const year = Number(monthKey.slice(0, 4));
   const month = Number(monthKey.slice(5, 7));
 

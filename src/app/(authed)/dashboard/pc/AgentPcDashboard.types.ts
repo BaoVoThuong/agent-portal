@@ -1,4 +1,6 @@
 // Types + constants thuần của AgentPcDashboard (tách nguyên văn từ component).
+import type { PcPremiumTrendPoint } from "../../_dashboard-shared/pc-premium-trend";
+
 export type AgentPcRow = {
   agent_name: string | null;
   agency_name: string | null;
@@ -32,7 +34,7 @@ export type AgentPcFilterOptions = {
 
 export type AgentPcFilterValues = {
   agency: string;
-  paidDate: string;
+  paidDate: string[];
   policyNumber: string;
 };
 
@@ -105,6 +107,7 @@ export type UnpaidPeriodSummary = {
 };
 
 export type DashboardData = {
+  premiumTrendPointsByLevel: Record<TrendLevel, PcPremiumTrendPoint[]>;
   carrierRows: CarrierSummary[];
   stateGroups: StateGroup[];
   statePolicyCounts: Record<string, number>;

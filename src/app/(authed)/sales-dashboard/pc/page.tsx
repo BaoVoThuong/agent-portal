@@ -105,10 +105,6 @@ export default async function PcSalesDashboardPage({
                 canViewSales
                 searchParams={params}
               />
-              <PcSalesHeaderFilters
-                defaultConfig={monthDefaultConfig}
-                filters={filters}
-              />
             </div>
           </header>
 
@@ -118,6 +114,12 @@ export default async function PcSalesDashboardPage({
                 filters.reportMonthRange.end ?? "all"
               }`}
               currentMonthKey={currentMonthKey}
+              monthFilter={
+                <PcSalesHeaderFilters
+                  defaultConfig={monthDefaultConfig}
+                  filters={filters}
+                />
+              }
               expiredMonthKeys={expiredPolicyWindow.monthKeys}
               expiredWindow={{
                 endDate: expiredPolicyWindow.endDate,

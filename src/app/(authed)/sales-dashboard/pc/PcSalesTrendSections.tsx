@@ -2,6 +2,12 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname } from "next/navigation";
+import {
+  PC_PREMIUM_VIEW_OPTIONS,
+  PcPremiumViewContext,
+  type PcPremiumView,
+} from "../../_dashboard-shared/PcPremiumTrendChart";
+import { PcToolbarOptions } from "../../_dashboard-shared/PcToolbarOptions";
 
 export type PcTrendLevel = "month" | "quarter" | "year";
 
@@ -30,6 +36,7 @@ export function PcSalesTrendSections({
 }) {
   const pathname = usePathname();
   const [trendLevel, setTrendLevel] = useState<PcTrendLevel>(initialLevel);
+  const [premiumView, setPremiumView] = useState<PcPremiumView>("premium");
   const salesTrendByLevel = {
     month: monthSalesTrend,
     quarter: quarterSalesTrend,
@@ -53,56 +60,39 @@ export function PcSalesTrendSections({
 
   return (
     <>
-      <section className="flex flex-col">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <section className="pc-section flex flex-col">
+        <div className="pc-section-head mb-4 flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-lg font-bold leading-tight text-slate-800">
-            {getTrendLevelAdjective(trendLevel)} Portfolio & Premium Trend
+            Premium &amp; policies by line of service
           </h3>
-          <TrendLevelControl
-            trendLevel={trendLevel}
-            onChange={updateTrendLevel}
-          />
+          <div className="pc-section-toolbar">
+            <PcToolbarOptions
+              label="Period"
+              onChange={updateTrendLevel}
+              options={TREND_LEVELS}
+              value={trendLevel}
+            />
+            <PcToolbarOptions
+              label="View"
+              onChange={setPremiumView}
+              options={PC_PREMIUM_VIEW_OPTIONS}
+              value={premiumView}
+            />
+          </div>
         </div>
+        <p className="pc-section-note">
+          {getTrendLevelAdjective(trendLevel)} written premium stacked by line of service, with policy count on the line. Dates are Policy Effective Date. Click a name in the legend to hide it.
+        </p>
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow duration-300 hover:shadow-md">
-          {salesTrendByLevel[trendLevel]}
+          <PcPremiumViewContext.Provider value={premiumView}>
+            {salesTrendByLevel[trendLevel]}
+          </PcPremiumViewContext.Provider>
         </div>
       </section>
       {trendLevel === "month" && monthSections}
       {trendLevel === "quarter" && quarterSections}
       {trendLevel === "year" && yearSections}
     </>
-  );
-}
-
-function TrendLevelControl({
-  trendLevel,
-  onChange,
-}: {
-  trendLevel: PcTrendLevel;
-  onChange: (trendLevel: PcTrendLevel) => void;
-}) {
-  return (
-    <div className="inline-flex h-10 overflow-hidden rounded-lg border border-[#cfd7e3] bg-white shadow-[0_1px_3px_rgba(22,35,58,0.08)]">
-      {TREND_LEVELS.map((level) => {
-        const isActive = level.value === trendLevel;
-
-        return (
-          <button
-            key={level.value}
-            type="button"
-            onClick={() => onChange(level.value)}
-            className={`min-w-[4.75rem] px-3 text-sm font-semibold transition ${
-              isActive
-                ? "bg-[#184e8a] text-white"
-                : "text-[#344054] hover:bg-[#f3f6fa]"
-            }`}
-            aria-pressed={isActive}
-          >
-            {level.label}
-          </button>
-        );
-      })}
-    </div>
   );
 }
 

@@ -4,10 +4,21 @@ import { PhoneFilterToggle } from "@/app/(authed)/_shared/phone-ui";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FileDown, Filter } from "lucide-react";
 import type { WorkSheet } from "xlsx";
+import { PcLineOfServiceSection } from "../../_dashboard-shared/PcLineOfService";
+import { PcOverviewScoreCards } from "../../_dashboard-shared/PcOverviewScoreCards";
+import { PcToolbarOptions } from "../../_dashboard-shared/PcToolbarOptions";
+import { PcComboTrendChart } from "../../_dashboard-shared/PcComboTrendChart";
 import {
-  PcLineOfServiceSection,
-  PcScoreCards,
-} from "../../_dashboard-shared/PcLineOfService";
+  PC_PREMIUM_VIEW_OPTIONS,
+  PcPremiumTrendChart,
+  PcPremiumViewContext,
+  type PcPremiumView,
+} from "../../_dashboard-shared/PcPremiumTrendChart";
+import {
+  buildPcPremiumTrendPoints,
+  type PcPremiumTrendPoint,
+} from "../../_dashboard-shared/pc-premium-trend";
+import { MultiFilterSelect } from "../../sales-dashboard/pc/PcSalesDashboardFilters";
 import { useIncrementalRows } from "../../_dashboard-shared/use-incremental-rows";
 import { PcStateHeatMap } from "../../sales-dashboard/pc/PcStateHeatMap";
 import {
@@ -45,25 +56,40 @@ export {
   type AgentPcRow,
 };
 
+const TREND_LEVEL_OPTIONS: { label: string; value: TrendLevel }[] = [
+  { label: "Month", value: "month" },
+  { label: "Quarter", value: "quarter" },
+  { label: "Year", value: "year" },
+];
+const COMMISSION_VIEW_OPTIONS: { label: string; value: CommissionView }[] = [
+  { label: "Paid", value: "paid" },
+  { label: "Unpaid", value: "unpaid" },
+];
+
 export function AgentPcDashboard({
   agentName,
   canViewAll,
+  currentMonthKey,
   expiredMonthKeys,
   expiredRows: expiredSourceRows,
   filterOptions,
   filters,
+  monthFilter,
   rows,
 }: {
   agentName: string;
   canViewAll: boolean;
+  currentMonthKey: string;
   expiredMonthKeys: string[];
   expiredRows: AgentPcRow[];
   filterOptions: AgentPcFilterOptions;
   filters: AgentPcFilterValues;
+  monthFilter: ReactNode;
   rows: AgentPcRow[] | null;
 }) {
   const [clientFilters, setClientFilters] = useState(filters);
   const [trendLevel, setTrendLevel] = useState<TrendLevel>("month");
+  const [premiumView, setPremiumView] = useState<PcPremiumView>("premium");
   const [commissionView, setCommissionView] =
     useState<CommissionView>("paid");
   const filteredRows = useMemo(
@@ -97,14 +123,13 @@ export function AgentPcDashboard({
   );
   const trendRows = data.periodsByLevel[trendLevel];
   const growthRows = data.growthRowsByLevel[trendLevel];
-  const latestMonth = data.periodsByLevel.month.at(-1) ?? null;
   const commissionTrendRows: CommissionTrendPoint[] =
     commissionView === "unpaid"
       ? data.unpaidPeriodsByLevel[trendLevel]
       : trendRows;
   const overviewDescription = canViewAll
-    ? "Showing agent-facing P&C metrics for all agents."
-    : `Showing P&C dashboard for ${agentName || "your account"}.`;
+    ? "Showing agent-facing P&C metrics for all agents. Months use Policy Effective Date, except Expiring premium & policies (Policy Expired Date)."
+    : `Showing P&C dashboard for ${agentName || "your account"}. Months use Policy Effective Date, except Expiring premium & policies (Policy Expired Date).`;
 
   function updateClientFilters(nextFilters: AgentPcFilterValues) {
     setClientFilters(nextFilters);
@@ -121,11 +146,14 @@ export function AgentPcDashboard({
 
   return (
     <>
-      <AgentPcDashboardFilters
-        filters={clientFilters}
-        onChange={updateClientFilters}
-        options={filterOptions}
-      />
+      <div className="dashboard-sticky-filters">
+        {monthFilter}
+        <AgentPcDashboardFilters
+          filters={clientFilters}
+          onChange={updateClientFilters}
+          options={filterOptions}
+        />
+      </div>
 
       {filteredRows.length === 0 ? (
         <div className="space-y-8">
@@ -135,162 +163,76 @@ export function AgentPcDashboard({
           <ExpiredPolicyTrendChart rows={expiredRows} />
         </div>
       ) : (
-        <div className="space-y-8">
+        <div className="pc-numbered-sections space-y-8">
           <div>
             <h2 className="text-2xl font-bold tracking-tight text-slate-900">
-              Personal Overview
+              Personal overview
             </h2>
             <p className="mt-1 text-sm text-slate-500">
               {overviewDescription}
             </p>
           </div>
 
-          <section className="grid gap-8 md:grid-cols-2 xl:grid-cols-4 max-md:grid-cols-2 max-md:gap-2">
-            <KpiCard
-              label="Agent Commission"
-              value={formatCurrencyCompact(data.overview.agentCommission)}
-              footerText={formatLatestMonthMetric(
-                latestMonth,
-                latestMonth ? formatCurrencyShort(latestMonth.agentCommission) : "-"
-              )}
-            />
-            <KpiCard
-              label="Written Premium"
-              value={formatCurrencyCompact(data.overview.totalPremium)}
-              footerText={formatLatestMonthMetric(
-                latestMonth,
-                latestMonth ? formatCurrencyShort(latestMonth.totalPremium) : "-"
-              )}
-            />
-            <KpiCard
-              label="Policies"
-              value={formatInteger(data.overview.policyCount)}
-              footerText={formatLatestMonthMetric(
-                latestMonth,
-                latestMonth ? formatInteger(latestMonth.policyCount) : "-"
-              )}
-            />
-            <KpiCard
-              label="Active Policies"
-              value={formatInteger(data.overview.activePolicyCount)}
-              footerText={formatLatestMonthMetric(
-                latestMonth,
-                latestMonth ? formatInteger(latestMonth.activePolicyCount) : "-"
-              )}
-            />
-          </section>
+          <PcOverviewScoreCards
+            currentMonthKey={currentMonthKey}
+            overview={data.overview}
+            periods={data.periodsByLevel.month}
+            rows={filteredRows}
+          />
 
-          <section className="grid gap-8 md:grid-cols-2 xl:grid-cols-4 max-md:grid-cols-2 max-md:gap-2">
-            <KpiCard
-              compact
-              label="Renewal Rate"
-              value={formatPercent(
-                percentOf(
-                  data.overview.renewalPolicyCount,
-                  data.overview.policyCount
-                )
-              )}
-              footerText={formatLatestMonthMetric(
-                latestMonth,
-                latestMonth
-                  ? formatPercent(
-                      percentOf(
-                        latestMonth.renewalPolicyCount,
-                        latestMonth.policyCount
-                      )
-                    )
-                  : "-"
-              )}
-            />
-            <KpiCard
-              compact
-              label="Agent Comm Rate"
-              value={formatPercent(
-                percentOf(
-                  data.overview.agentCommission,
-                  data.overview.totalPremium
-                )
-              )}
-              footerText={formatLatestMonthMetric(
-                latestMonth,
-                latestMonth
-                  ? formatPercent(
-                      percentOf(
-                        latestMonth.agentCommission,
-                        latestMonth.totalPremium
-                      )
-                    )
-                  : "-"
-              )}
-            />
-            <KpiCard
-              compact
-              muted
-              label="Average Premium / Policy"
-              value={formatCurrencyCompact(
-                data.overview.policyCount === 0
-                  ? 0
-                  : data.overview.totalPremium / data.overview.policyCount
-              )}
-              footerText={formatLatestMonthMetric(
-                latestMonth,
-                latestMonth
-                  ? formatCurrencyShort(
-                      latestMonth.policyCount === 0
-                        ? 0
-                        : latestMonth.totalPremium / latestMonth.policyCount
-                    )
-                  : "-"
-              )}
-            />
-            <KpiCard
-              compact
-              muted
-              label="Average Commission / Policy"
-              value={formatCurrencyCompact(
-                data.overview.policyCount === 0
-                  ? 0
-                  : data.overview.agentCommission / data.overview.policyCount
-              )}
-              footerText={formatLatestMonthMetric(
-                latestMonth,
-                latestMonth
-                  ? formatCurrencyShort(
-                      latestMonth.policyCount === 0
-                        ? 0
-                        : latestMonth.agentCommission / latestMonth.policyCount
-                    )
-                  : "-"
-              )}
-            />
-          </section>
-
-          <PcScoreCards rows={filteredRows} showPremiumPerPolicy={false} />
-          <PcLineOfServiceSection audience="agent" rows={filteredRows} />
-
-          <section>
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <section className="pc-section">
+            <div className="pc-section-head mb-4 flex flex-wrap items-center justify-between gap-3">
               <h3 className="text-xl font-bold tracking-tight text-slate-900">
-                {trendLevelAdjective(trendLevel)} Portfolio &amp; Premium Trend
+                Premium &amp; policies by line of service
               </h3>
-              <TrendLevelTabs value={trendLevel} onChange={setTrendLevel} />
+              <div className="pc-section-toolbar">
+                <PcToolbarOptions
+                  label="Period"
+                  onChange={setTrendLevel}
+                  options={TREND_LEVEL_OPTIONS}
+                  value={trendLevel}
+                />
+                <PcToolbarOptions
+                  label="View"
+                  onChange={setPremiumView}
+                  options={PC_PREMIUM_VIEW_OPTIONS}
+                  value={premiumView}
+                />
+              </div>
             </div>
-            <AgentPcSalesVolumePremiumTrendChart rows={trendRows} />
-          </section>
-
-          <section>
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <h3 className="text-xl font-bold tracking-tight text-slate-900">
-                Commission Trend by {trendLevelLabel(trendLevel)} |{" "}
-                {commissionView === "unpaid"
-                  ? "Estimate Unpaid Commission"
-                  : "Agent Commission"}
-              </h3>
-              <CommissionViewTabs
-                value={commissionView}
-                onChange={setCommissionView}
+            <p className="pc-section-note">
+              {trendLevelAdjective(trendLevel)} written premium stacked by line of service, with policy count on the line. Dates are Policy Effective Date. Click a name in the legend to hide it.
+            </p>
+            <PcPremiumViewContext.Provider value={premiumView}>
+              <AgentPcSalesVolumePremiumTrendChart
+                points={data.premiumTrendPointsByLevel[trendLevel]}
               />
+            </PcPremiumViewContext.Provider>
+          </section>
+
+          <section className="pc-section">
+            <div className="pc-section-head mb-4 flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-xl font-bold tracking-tight text-slate-900">
+                {commissionView === "unpaid"
+                  ? "Estimated unpaid commission & policies"
+                  : "Agent commission & rate"}
+              </h3>
+              <div className="pc-section-toolbar">
+                <PcToolbarOptions
+                  label="Show"
+                  onChange={setCommissionView}
+                  options={COMMISSION_VIEW_OPTIONS}
+                  value={commissionView}
+                />
+              </div>
             </div>
+            <p className="pc-section-note">
+              {trendLevelAdjective(trendLevel)}{" "}
+              {commissionView === "unpaid"
+                ? "estimated commission on policies not paid yet, with policy count on the line."
+                : "agent commission, with commission as a share of premium on the line."}{" "}
+              Dates are Policy Effective Date.
+            </p>
             <AgentPcCommissionTrendChart
               rows={commissionTrendRows}
               lineMetric={commissionView === "unpaid" ? "policies" : "rate"}
@@ -298,6 +240,8 @@ export function AgentPcDashboard({
           </section>
 
           <PeriodGrowthTable rows={growthRows} trendLevel={trendLevel} />
+
+          <PcLineOfServiceSection audience="agent" rows={filteredRows} />
 
           <section className="grid min-w-0 items-start gap-8 xl:grid-cols-2">
             <CarrierDashboardOverview rows={data.carrierRows} />
@@ -333,25 +277,20 @@ function AgentPcDashboardFilters({
   const [phoneFiltersOpen, setPhoneFiltersOpen] = useState(false);
   const [policyNumber, setPolicyNumber] = useState(filters.policyNumber);
 
-  function updateFilter(name: keyof AgentPcFilterValues, value: string) {
-    const nextFilters = {
-      ...filters,
-      [name]: value,
-    };
-
-    if (name === "policyNumber") {
-      setPolicyNumber(value);
-    }
-
-    onChange(nextFilters);
+  function updateFilter<Name extends keyof AgentPcFilterValues>(
+    name: Name,
+    value: AgentPcFilterValues[Name]
+  ) {
+    onChange({ ...filters, [name]: value });
   }
 
   function applyPolicyNumberFilter() {
+    setPolicyNumber(policyNumber.trim());
     updateFilter("policyNumber", policyNumber.trim());
   }
 
   return (
-    <div className={`mb-8 flex flex-wrap items-center justify-end gap-3 max-md:justify-start max-md:[&>*]:w-full max-md:mb-4 ${phoneFiltersOpen ? "" : "max-md:[&>*:not(:first-child)]:hidden"}`}>
+    <div className={`dashboard-filter-group flex flex-wrap items-center justify-end gap-3 max-md:justify-start max-md:[&>*]:w-full ${phoneFiltersOpen ? "" : "max-md:[&>*:not(:first-child)]:hidden"}`}>
       <PhoneFilterToggle open={phoneFiltersOpen} onToggle={() => setPhoneFiltersOpen((current) => !current)} activeCount={[filters.agency, filters.paidDate, filters.policyNumber].filter((value) => value.length > 0).length} />
       <FilterSelect
         label="Agency"
@@ -360,12 +299,14 @@ function AgentPcDashboardFilters({
         placeholder="All agencies"
         value={filters.agency}
       />
-      <FilterSelect
+      <MultiFilterSelect
+        disabled={false}
         label="Paid Date"
-        onChange={(value) => updateFilter("paidDate", value)}
+        name="paidDate"
+        onChange={(values) => updateFilter("paidDate", values)}
         options={options.paidDates}
-        placeholder="All paid dates"
-        value={filters.paidDate}
+        searchable
+        values={filters.paidDate}
       />
       <label className="block w-[15rem] shrink-0">
         <span className="sr-only">Policy Number</span>
@@ -522,255 +463,22 @@ function FilterSelect({
   );
 }
 
-function TrendLevelTabs({
-  onChange,
-  value,
-}: {
-  onChange: (value: TrendLevel) => void;
-  value: TrendLevel;
-}) {
-  const tabs: TrendLevel[] = ["month", "quarter", "year"];
-
-  return (
-    <div className="inline-flex overflow-hidden rounded-lg border border-[#cfd7e3] bg-white shadow-[0_1px_2px_rgba(22,35,58,0.08)]">
-      {tabs.map((tab) => {
-        const active = tab === value;
-
-        return (
-          <button
-            aria-pressed={active}
-            className={`h-10 min-w-[5.5rem] px-4 text-sm font-semibold transition ${
-              active
-                ? "bg-[#1f5b96] text-white"
-                : "text-[#344054] hover:bg-[#f3f6fa]"
-            }`}
-            key={tab}
-            onClick={() => onChange(tab)}
-            type="button"
-          >
-            {trendLevelLabel(tab)}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function CommissionViewTabs({
-  onChange,
-  value,
-}: {
-  onChange: (value: CommissionView) => void;
-  value: CommissionView;
-}) {
-  const tabs: { key: CommissionView; label: string }[] = [
-    { key: "paid", label: "Paid" },
-    { key: "unpaid", label: "Estimate Unpaid" },
-  ];
-
-  return (
-    <div className="inline-flex overflow-hidden rounded-lg border border-[#cfd7e3] bg-white shadow-[0_1px_2px_rgba(22,35,58,0.08)]">
-      {tabs.map((tab) => {
-        const active = tab.key === value;
-
-        return (
-          <button
-            aria-pressed={active}
-            className={`h-10 min-w-[7rem] px-4 text-sm font-semibold transition ${
-              active
-                ? "bg-[#1f5b96] text-white"
-                : "text-[#344054] hover:bg-[#f3f6fa]"
-            }`}
-            key={tab.key}
-            onClick={() => onChange(tab.key)}
-            type="button"
-          >
-            {tab.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function AgentPcSalesVolumePremiumTrendChart({
-  rows,
+  points,
 }: {
-  rows: PeriodSummary[];
+  points: PcPremiumTrendPoint[];
 }) {
-  const width = 1280;
-  const height = 410;
-  const left = 76;
-  const right = 86;
-  const top = 62;
-  const bottom = 58;
-  const plotWidth = width - left - right;
-  const plotHeight = height - top - bottom;
-  const maxPremium = roundAxisMax(maxValue(rows, (row) => row.totalPremium));
-  const maxPolicies = roundAxisMax(maxValue(rows, (row) => row.policyCount));
-  const groupWidth = plotWidth / Math.max(rows.length, 1);
-  const barWidth = Math.min(54, Math.max(24, groupWidth * 0.55));
-  const points = rows.map((row, index) => {
-    const centerX = left + index * groupWidth + groupWidth / 2;
-    const premiumHeight = (row.totalPremium / maxPremium) * plotHeight;
-
-    return {
-      ...row,
-      centerX,
-      policyY: top + plotHeight - (row.policyCount / maxPolicies) * plotHeight,
-      premiumHeight,
-      premiumY: top + plotHeight - premiumHeight,
-    };
-  });
-
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      {rows.length === 0 ? (
+      {points.length === 0 ? (
         <div className="px-6 py-12 text-center text-sm font-medium text-slate-500">
           No sales trend data.
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <svg
-            aria-label="P&C agent sales volume and premium trend"
-            className="min-w-[1120px] max-md:min-w-[680px]"
-            role="img"
-            viewBox={`0 0 ${width} ${height}`}
-          >
-            <g transform="translate(86, 22)">
-              <line
-                x1="0"
-                x2="34"
-                y1="8"
-                y2="8"
-                stroke="#347cf4"
-                strokeWidth="3"
-              />
-              <circle cx="17" cy="8" r="5" fill="#347cf4" />
-              <text
-                x="44"
-                y="13"
-                className="fill-[#40444b] text-[15px] font-semibold"
-              >
-                Policies Count
-              </text>
-              <rect x="178" width="34" height="16" fill="#fa9d4a" />
-              <text
-                x="222"
-                y="13"
-                className="fill-[#40444b] text-[15px] font-semibold"
-              >
-                Total Premium
-              </text>
-            </g>
-
-            {[0, 0.25, 0.5, 0.75, 1].map((tick) => {
-              const y = top + plotHeight - tick * plotHeight;
-
-              return (
-                <g key={tick}>
-                  <line
-                    stroke="#d6d6d6"
-                    x1={left}
-                    x2={width - right}
-                    y1={y}
-                    y2={y}
-                  />
-                  <text
-                    className="fill-[#4a4f58] text-[12px]"
-                    textAnchor="end"
-                    x={left - 14}
-                    y={y + 5}
-                  >
-                    {formatAxisMoney(maxPremium * tick)}
-                  </text>
-                  <text
-                    className="fill-[#4a4f58] text-[12px]"
-                    x={width - right + 14}
-                    y={y + 5}
-                  >
-                    {formatInteger(maxPolicies * tick)}
-                  </text>
-                </g>
-              );
-            })}
-
-            <text
-              className="fill-[#4d545f] text-[13px] font-semibold"
-              textAnchor="middle"
-              transform={`rotate(-90 22 ${top + plotHeight / 2})`}
-              x={22}
-              y={top + plotHeight / 2}
-            >
-              Total Premium
-            </text>
-            <text
-              className="fill-[#4d545f] text-[13px] font-semibold"
-              textAnchor="middle"
-              transform={`rotate(-90 ${width - 24} ${top + plotHeight / 2})`}
-              x={width - 24}
-              y={top + plotHeight / 2}
-            >
-              Policies Count
-            </text>
-
-            {points.map((point) => (
-              <g key={point.periodKey}>
-                <rect
-                  fill="#fa9d4a"
-                  height={Math.max(point.premiumHeight, 2)}
-                  width={barWidth}
-                  x={point.centerX - barWidth / 2}
-                  y={point.premiumY}
-                />
-                <text
-                  className="fill-[#252a31] text-[15px] font-bold"
-                  textAnchor="middle"
-                  x={point.centerX}
-                  y={Math.max(point.premiumY - 10, top + 16)}
-                >
-                  {formatCurrencyShort(point.totalPremium)}
-                </text>
-                <text
-                  className="fill-[#3e444d] text-[13px] font-semibold"
-                  textAnchor="middle"
-                  x={point.centerX}
-                  y={top + plotHeight + 30}
-                >
-                  {point.periodLabel}
-                </text>
-              </g>
-            ))}
-
-            <path
-              d={points
-                .map(
-                  (point, index) =>
-                    `${index === 0 ? "M" : "L"} ${point.centerX} ${point.policyY}`
-                )
-                .join(" ")}
-              fill="none"
-              stroke="#347cf4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="3"
-            />
-
-            {points.map((point) => (
-              <g key={`${point.periodKey}-policies`}>
-                <circle cx={point.centerX} cy={point.policyY} fill="#347cf4" r="5" />
-                <text
-                  className="fill-[#347cf4] text-[15px] font-bold"
-                  textAnchor="middle"
-                  x={point.centerX}
-                  y={point.policyY - 12}
-                >
-                  {formatInteger(point.policyCount)}
-                </text>
-              </g>
-            ))}
-          </svg>
-        </div>
+        <PcPremiumTrendChart
+          ariaLabel="P&C agent premium by line of service and policies by policy effective date"
+          points={points}
+        />
       )}
     </div>
   );
@@ -791,54 +499,18 @@ function AgentPcCommissionTrendChart({
   rows: CommissionTrendPoint[];
   lineMetric?: "rate" | "policies";
 }) {
-  const width = 1280;
-  const height = 360;
-  const left = 76;
-  const right = 96;
-  const top = 62;
-  const bottom = 58;
-  const plotWidth = width - left - right;
-  const plotHeight = height - top - bottom;
   const showPolicies = lineMetric === "policies";
-  const maxAmount = roundAxisMax(maxValue(rows, (row) => row.agentCommission));
-  const maxLine = showPolicies
-    ? Math.max(1, roundAxisMax(maxValue(rows, (row) => row.policyCount)))
-    : Math.max(
-        10,
-        roundAxisMax(
-          maxValue(rows, (row) =>
-            percentOf(row.agentCommission, row.totalPremium)
-          )
-        )
-      );
-  const groupWidth = plotWidth / Math.max(rows.length, 1);
-  const barWidth = Math.min(48, Math.max(20, groupWidth * 0.52));
-  const points = rows.map((row, index) => {
-    const lineValue = showPolicies
-      ? row.policyCount
-      : percentOf(row.agentCommission, row.totalPremium);
-    const centerX = left + index * groupWidth + groupWidth / 2;
-    const barHeight = (row.agentCommission / maxAmount) * plotHeight;
-    const barY = top + plotHeight - barHeight;
-    const lineY = top + plotHeight - (lineValue / maxLine) * plotHeight;
-    const amountLabelY = resolveAmountLabelY({
-      barHeight,
-      barY,
-      lineY,
-      plotBottom: top + plotHeight,
-      plotTop: top,
-    });
-
-    return {
-      ...row,
-      amountLabelY,
-      barHeight,
-      barY,
-      centerX,
-      lineY,
-      lineValue,
-    };
-  });
+  const points = useMemo(
+    () =>
+      rows.map((row) => ({
+        label: row.periodLabel,
+        bar: row.agentCommission,
+        line: showPolicies
+          ? row.policyCount
+          : percentOf(row.agentCommission, row.totalPremium),
+      })),
+    [rows, showPolicies]
+  );
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -847,132 +519,15 @@ function AgentPcCommissionTrendChart({
           No commission trend data.
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <svg
-            aria-label="P&C agent commission trend by month"
-            className="min-w-[1120px] max-md:min-w-[680px]"
-            role="img"
-            viewBox={`0 0 ${width} ${height}`}
-          >
-            <g transform="translate(86, 22)">
-              <rect width="34" height="14" fill="#d6d6d6" />
-              <text
-                className="fill-[#40444b] text-[14px] font-semibold"
-                x="44"
-                y="13"
-              >
-                Agent Commission
-              </text>
-              <line
-                x1="220"
-                x2="254"
-                y1="8"
-                y2="8"
-                stroke="#d94242"
-                strokeWidth="3"
-              />
-              <circle cx="237" cy="8" r="5" fill="#d94242" />
-              <text
-                className="fill-[#40444b] text-[14px] font-semibold"
-                x="264"
-                y="13"
-              >
-                {showPolicies ? "# Policies" : "Agent Commission / Premium"}
-              </text>
-            </g>
-
-            {[0, 0.25, 0.5, 0.75, 1].map((tick) => {
-              const y = top + plotHeight - tick * plotHeight;
-
-              return (
-                <g key={tick}>
-                  <line
-                    stroke="#d6d6d6"
-                    x1={left}
-                    x2={width - right}
-                    y1={y}
-                    y2={y}
-                  />
-                  <text
-                    className="fill-[#4a4f58] text-[12px]"
-                    textAnchor="end"
-                    x={left - 14}
-                    y={y + 5}
-                  >
-                    {formatAxisMoney(maxAmount * tick)}
-                  </text>
-                  <text
-                    className="fill-[#4a4f58] text-[12px]"
-                    x={width - right + 14}
-                    y={y + 5}
-                  >
-                    {showPolicies
-                      ? formatInteger(maxLine * tick)
-                      : formatPercent(maxLine * tick)}
-                  </text>
-                </g>
-              );
-            })}
-
-            {points.map((point) => (
-              <g key={point.periodKey}>
-                <rect
-                  fill="#d6d6d6"
-                  height={Math.max(point.barHeight, 2)}
-                  width={barWidth}
-                  x={point.centerX - barWidth / 2}
-                  y={point.barY}
-                />
-                <text
-                  className="fill-[#252a31] text-[13px] font-bold"
-                  textAnchor="middle"
-                  x={point.centerX}
-                  y={point.amountLabelY}
-                >
-                  {formatCurrencyShort(point.agentCommission)}
-                </text>
-                <text
-                  className="fill-[#3e444d] text-[12px] font-semibold"
-                  textAnchor="middle"
-                  x={point.centerX}
-                  y={top + plotHeight + 28}
-                >
-                  {point.periodLabel}
-                </text>
-              </g>
-            ))}
-
-            <path
-              d={points
-                .map(
-                  (point, index) =>
-                    `${index === 0 ? "M" : "L"} ${point.centerX} ${point.lineY}`
-                )
-                .join(" ")}
-              fill="none"
-              stroke="#d94242"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2.5"
-            />
-
-            {points.map((point) => (
-              <g key={`${point.periodKey}-line`}>
-                <circle cx={point.centerX} cy={point.lineY} fill="#d94242" r="4" />
-                <text
-                  className="fill-[#d94242] text-[12px] font-bold"
-                  textAnchor="middle"
-                  x={point.centerX}
-                  y={point.lineY - 12}
-                >
-                  {showPolicies
-                    ? formatInteger(point.lineValue)
-                    : formatPercent(point.lineValue)}
-                </text>
-              </g>
-            ))}
-          </svg>
-        </div>
+        <PcComboTrendChart
+          ariaLabel="P&C agent commission trend by policy effective date"
+          barColor="#6250d6"
+          barName="Agent Commission"
+          lineKind={showPolicies ? "count" : "percent"}
+          lineName={showPolicies ? "Policies" : "Agent Comm Rate"}
+          points={points}
+          xAxisName="Policy Effective Date"
+        />
       )}
     </div>
   );
@@ -989,12 +544,15 @@ function PeriodGrowthTable({
   const changeLabel = getChangeLabel(trendLevel);
 
   return (
-    <section>
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+    <section className="pc-section">
+      <div className="pc-section-head mb-2 flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-semibold leading-tight text-[#16233a]">
-          Book &amp; Commission Trend by {periodLabel} | {changeLabel}
+          Book &amp; commission growth
         </h2>
       </div>
+      <p className="pc-section-note">
+        Policies, premium and agent commission by {periodLabel.toLowerCase()}, with {changeLabel} change. Dates are Policy Effective Date.
+      </p>
 
       <article className="agent-health-panel">
         {rows.length === 0 ? (
@@ -1083,155 +641,27 @@ function ExpiredPolicyTrendChart({
 }: {
   rows: AgentPcExpiredMonthRow[];
 }) {
-  const width = 1280;
-  const height = 360;
-  const left = 76;
-  const right = 86;
-  const top = 56;
-  const bottom = 56;
-  const plotWidth = width - left - right;
-  const plotHeight = height - top - bottom;
-  const maxPremium = roundAxisMax(maxValue(rows, (row) => row.totalPremium));
-  const maxPolicies = roundAxisMax(maxValue(rows, (row) => row.policyCount));
-  const groupWidth = plotWidth / Math.max(rows.length, 1);
-  const barWidth = Math.min(80, groupWidth * 0.7);
-  const points = rows.map((row, index) => {
-    const centerX = left + index * groupWidth + groupWidth / 2;
-    const barHeight = (row.totalPremium / maxPremium) * plotHeight;
-
-    return {
-      ...row,
-      barHeight,
-      barY: top + plotHeight - barHeight,
-      centerX,
-      policyY: top + plotHeight - (row.policyCount / maxPolicies) * plotHeight,
-    };
-  });
+  const points = useMemo(
+    () =>
+      rows.map((row) => ({
+        label: row.monthKey,
+        bar: row.totalPremium,
+        line: row.policyCount,
+      })),
+    [rows]
+  );
 
   return (
-    <ReportPanel title="Monthly Expired Policy">
-      <div className="overflow-x-auto">
-          <svg
-            aria-label="Monthly expired policy"
-            className="min-w-[1120px] max-md:min-w-[680px]"
-            role="img"
-            viewBox={`0 0 ${width} ${height}`}
-          >
-            <g transform="translate(86, 20)">
-              <rect fill="#ff8a00" height="16" width="34" x="0" />
-              <text
-                className="fill-[#40444b] text-[15px] font-semibold"
-                x="44"
-                y="13"
-              >
-                Total Premium
-              </text>
-              <line
-                stroke="#347cf4"
-                strokeWidth="3"
-                x1="196"
-                x2="230"
-                y1="8"
-                y2="8"
-              />
-              <circle cx="213" cy="8" fill="#347cf4" r="5" />
-              <text
-                className="fill-[#40444b] text-[15px] font-semibold"
-                x="240"
-                y="13"
-              >
-                # Policy
-              </text>
-            </g>
-
-            {[0, 0.25, 0.5, 0.75, 1].map((tick) => {
-              const y = top + plotHeight - tick * plotHeight;
-
-              return (
-                <g key={tick}>
-                  <line
-                    stroke="#d6d6d6"
-                    x1={left}
-                    x2={width - right}
-                    y1={y}
-                    y2={y}
-                  />
-                  <text
-                    className="fill-[#4a4f58] text-[13px]"
-                    textAnchor="end"
-                    x={left - 14}
-                    y={y + 5}
-                  >
-                    {formatAxisMoney(maxPremium * tick)}
-                  </text>
-                  <text
-                    className="fill-[#4a4f58] text-[13px]"
-                    x={width - right + 14}
-                    y={y + 5}
-                  >
-                    {formatInteger(maxPolicies * tick)}
-                  </text>
-                </g>
-              );
-            })}
-
-            {points.map((point) => (
-              <g key={point.monthKey}>
-                <rect
-                  fill="#ff8a00"
-                  height={Math.max(point.barHeight, 2)}
-                  width={barWidth}
-                  x={point.centerX - barWidth / 2}
-                  y={point.barY}
-                />
-                <text
-                  className="fill-white text-[16px] font-bold"
-                  textAnchor="middle"
-                  x={point.centerX}
-                  y={Math.max(point.barY + 24, top + 20)}
-                >
-                  {formatCurrencyShort(point.totalPremium)}
-                </text>
-                <text
-                  className="fill-[#3e444d] text-[13px] font-semibold"
-                  textAnchor="middle"
-                  x={point.centerX}
-                  y={top + plotHeight + 30}
-                >
-                  {point.monthKey}
-                </text>
-              </g>
-            ))}
-
-            <path
-              d={points
-                .map(
-                  (point, index) =>
-                    `${index === 0 ? "M" : "L"} ${point.centerX} ${point.policyY}`
-                )
-                .join(" ")}
-              fill="none"
-              stroke="#347cf4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="3"
-            />
-
-            {points.map((point) => (
-              <g key={`${point.monthKey}-policy`}>
-                <circle cx={point.centerX} cy={point.policyY} fill="#347cf4" r="5" />
-                <text
-                  className="fill-[#347cf4] text-[16px] font-bold"
-                  textAnchor="middle"
-                  x={point.centerX}
-                  y={point.policyY - 12}
-                >
-                  {formatInteger(point.policyCount)}
-                </text>
-              </g>
-            ))}
-          </svg>
-        </div>
+    <ReportPanel description="Premium and policy count coming up for renewal, by Policy Expired Date." title="Expiring premium & policies">
+      <PcComboTrendChart
+        ariaLabel="Monthly expired policy by policy expired date"
+        barColor="#eb6834"
+        barName="Total Premium"
+        lineKind="count"
+        lineName="Policies"
+        points={points}
+        xAxisName="Policy Expired Date"
+      />
     </ReportPanel>
   );
 }
@@ -1296,7 +726,7 @@ function CarrierDashboardOverview({ rows }: { rows: CarrierSummary[] }) {
   const maxes = buildOverviewMaxes(rows);
 
   return (
-    <ReportPanel title="Carrier Performance">
+    <ReportPanel description="Policies, premium and commission by carrier." title="Carrier performance">
       <div
         className="max-h-[520px] overflow-y-auto overflow-x-hidden"
         style={{ scrollbarGutter: "stable" }}
@@ -1388,7 +818,7 @@ function StateCityPerformanceTable({ groups }: { groups: StateGroup[] }) {
   };
 
   return (
-    <ReportPanel title="State & City Performance">
+    <ReportPanel description="Policies and premium by insured location." title="State & city performance">
       <div
         className="max-h-[520px] overflow-y-auto overflow-x-hidden"
         style={{ scrollbarGutter: "stable" }}
@@ -1655,7 +1085,7 @@ function PolicyDetailsTable({
   }
 
   return (
-    <ReportPanel title="Policy Detail">
+    <ReportPanel description="Every sold policy in the selected filters." title="Policy detail">
       <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
         <p className="text-xs text-slate-500">
           Showing {formatInteger(filteredRows.length)} of {formatInteger(rows.length)} policies
@@ -2034,18 +1464,21 @@ function applyPolicyDetailExportFormats(
 
 function ReportPanel({
   children,
+  description,
   title,
 }: {
   children: ReactNode;
+  description?: string;
   title: string;
 }) {
   return (
-    <section className="flex min-w-0 flex-col">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+    <section className="pc-section flex min-w-0 flex-col">
+      <div className="pc-section-head mb-4 flex flex-wrap items-center justify-between gap-3">
         <h3 className="text-lg font-bold leading-tight text-slate-800">
           {title}
         </h3>
       </div>
+      {description ? <p className="pc-section-note">{description}</p> : null}
       <div className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow duration-300 hover:shadow-md">
         {children}
       </div>
@@ -2519,61 +1952,6 @@ function BodyCell({
   );
 }
 
-function KpiCard({
-  compact = false,
-  footerText,
-  label,
-  muted = false,
-  value,
-}: {
-  compact?: boolean;
-  footerText?: string;
-  label: string;
-  muted?: boolean;
-  value: string;
-}) {
-  return (
-    <article
-      className={`flex flex-col rounded-xl border border-slate-200/70 bg-white text-center shadow-[0_6px_18px_rgba(15,23,42,0.06)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_12px_28px_rgba(15,23,42,0.1)] ${
-        compact ? "min-h-[112px] px-4 py-4" : "min-h-[124px] px-5 py-4"
-      }`}
-    >
-      <div
-        className={`flex min-h-8 items-center justify-center text-[12px] font-semibold uppercase leading-snug tracking-[0.08em] ${
-          muted ? "text-slate-400" : "text-slate-500"
-        }`}
-      >
-        {label}
-      </div>
-      <div className="flex flex-1 items-center justify-center py-2">
-        <div
-          className={`w-full break-words text-center font-bold leading-none tracking-normal tabular-nums ${
-            compact ? "text-[1.75rem] text-slate-900" : "text-[2rem] text-slate-950"
-          }`}
-        >
-          {value}
-        </div>
-      </div>
-      <div
-        className={`min-h-5 truncate font-medium text-slate-500 ${
-          compact ? "text-xs" : "text-sm"
-        }`}
-      >
-        {footerText}
-      </div>
-    </article>
-  );
-}
-
-function formatLatestMonthMetric(
-  latestMonth: PeriodSummary | null,
-  value: string
-) {
-  return latestMonth
-    ? `${value} in ${latestMonth.periodLabel}`
-    : `Latest month ${value}`;
-}
-
 function buildDashboardData(rows: AgentPcRow[]): DashboardData {
   const overview = summarizeRows(rows);
   const stateGroups = buildStateGroups(rows, overview);
@@ -2594,6 +1972,11 @@ function buildDashboardData(rows: AgentPcRow[]): DashboardData {
     },
     overview,
     periodsByLevel,
+    premiumTrendPointsByLevel: {
+      month: buildPremiumTrendPoints(rows, periodsByLevel.month, "month"),
+      quarter: buildPremiumTrendPoints(rows, periodsByLevel.quarter, "quarter"),
+      year: buildPremiumTrendPoints(rows, periodsByLevel.year, "year"),
+    },
     policyDetailRows: buildPolicyDetailRows(rows),
     unpaidPeriodsByLevel: {
       month: buildUnpaidPeriodSummaries(rows, "month"),
@@ -2601,6 +1984,23 @@ function buildDashboardData(rows: AgentPcRow[]): DashboardData {
       year: buildUnpaidPeriodSummaries(rows, "year"),
     },
   };
+}
+
+function buildPremiumTrendPoints(
+  rows: AgentPcRow[],
+  periods: PeriodSummary[],
+  trendLevel: TrendLevel
+) {
+  return buildPcPremiumTrendPoints(
+    periods.map((period) => ({
+      key: period.periodKey,
+      label: period.periodLabel,
+      policies: period.policyCount,
+      premium: period.totalPremium,
+    })),
+    rows,
+    (row) => getTrendPeriodKey(getEffectiveMonth(row), trendLevel)
+  );
 }
 
 function resolvePaidDateLabel(row: AgentPcRow) {
@@ -2630,7 +2030,10 @@ function applyClientFilters(rows: AgentPcRow[], filters: AgentPcFilterValues) {
       return false;
     }
 
-    if (filters.paidDate && resolvePaidDateLabel(row) !== filters.paidDate) {
+    if (
+      filters.paidDate.length > 0 &&
+      !filters.paidDate.includes(resolvePaidDateLabel(row))
+    ) {
       return false;
     }
 
@@ -2655,7 +2058,7 @@ function syncClientFilterUrl(filters: AgentPcFilterValues) {
   params.delete("policyNumber");
 
   if (filters.agency) params.set("agency", filters.agency);
-  if (filters.paidDate) params.set("paidDate", filters.paidDate);
+  for (const paidDate of filters.paidDate) params.append("paidDate", paidDate);
   if (filters.policyNumber) params.set("policyNumber", filters.policyNumber);
 
   const query = params.toString();
@@ -3070,27 +2473,6 @@ function trendLevelAdjective(trendLevel: TrendLevel) {
   return "Monthly";
 }
 
-function resolveAmountLabelY({
-  barHeight,
-  barY,
-  lineY,
-  plotBottom,
-  plotTop,
-}: {
-  barHeight: number;
-  barY: number;
-  lineY: number;
-  plotBottom: number;
-  plotTop: number;
-}) {
-  const outsideY = Math.max(barY - 9, plotTop + 16);
-
-  if (Math.abs(outsideY - lineY) >= 18) return outsideY;
-  if (barHeight >= 34) return Math.min(barY + 24, plotBottom - 8);
-
-  return Math.max(lineY + 20, plotTop + 16);
-}
-
 function formatMonthLabel(monthKey: string) {
   const [year, month] = monthKey.split("-");
   const date = new Date(Date.UTC(Number(year), Number(month) - 1, 1));
@@ -3153,14 +2535,6 @@ function maxValue<T>(rows: T[], getValue: (row: T) => number) {
   return Math.max(0, ...rows.map((row) => getValue(row)));
 }
 
-function roundAxisMax(value: number) {
-  if (value <= 0) return 1;
-  const exponent = Math.floor(Math.log10(value));
-  const magnitude = 10 ** exponent;
-
-  return Math.ceil(value / magnitude) * magnitude;
-}
-
 function formatInteger(value: number) {
   return Math.round(value).toLocaleString("en-US");
 }
@@ -3182,20 +2556,6 @@ function formatCurrencyShort(value: number) {
   if (absValue >= 1_000_000) return `${sign}$${(absValue / 1_000_000).toFixed(2)}M`;
   if (absValue >= 1_000) return `${sign}$${(absValue / 1_000).toFixed(1)}K`;
   return `${sign}${formatCurrency(absValue)}`;
-}
-
-function formatCurrencyCompact(value: number) {
-  const absValue = Math.abs(value);
-
-  if (absValue >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-  if (absValue >= 1_000) return `$${(value / 1_000).toFixed(2)}K`;
-  return formatCurrency(value);
-}
-
-function formatAxisMoney(value: number) {
-  if (Math.abs(value) >= 1_000_000) return `$${Math.round(value / 1_000_000)}M`;
-  if (Math.abs(value) >= 1_000) return `$${Math.round(value / 1_000)}K`;
-  return `$${Math.round(value)}`;
 }
 
 function formatPercent(value: number) {

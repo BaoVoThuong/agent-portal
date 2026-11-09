@@ -110,24 +110,27 @@ export default async function PcDashboardPage({
                 canViewSales={canViewSales}
                 searchParams={params}
               />
-              <PcSalesHeaderFilters
-                defaultConfig={monthDefaultConfig}
-                filters={{
-                  agency: filters.agency,
-                  agent: "",
-                  policyNumber: filters.policyNumber,
-                  paidProducer: [],
-                  statementNumber: [],
-                  reportMonthRange,
-                }}
-              />
             </div>
           </header>
 
           <DashboardNavigationContent fallback={<DashboardViewSkeleton />}>
             <AgentPcDashboard
               agentName={agentName}
+              monthFilter={
+                <PcSalesHeaderFilters
+                  defaultConfig={monthDefaultConfig}
+                  filters={{
+                    agency: filters.agency,
+                    agent: "",
+                    policyNumber: filters.policyNumber,
+                    paidProducer: [],
+                    statementNumber: [],
+                    reportMonthRange,
+                  }}
+                />
+              }
               canViewAll={canViewAllAgents}
+              currentMonthKey={getCurrentMonthKey()}
               filterOptions={filterOptions}
               filters={filters}
               expiredMonthKeys={expiredPolicyWindow.monthKeys}
@@ -315,7 +318,7 @@ function parseFilters(
 ): AgentPcFilterValues {
   return {
     agency: parseStringParam(params.agency),
-    paidDate: parseStringParam(params.paidDate),
+    paidDate: parseStringListParam(params.paidDate),
     policyNumber: parseStringParam(params.policyNumber),
   };
 }
@@ -400,6 +403,10 @@ function uniqueSorted(values: string[]) {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b));
 }
 
+
+function getCurrentMonthKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
 
 function getExpiredPolicyWindow(date = new Date()) {
   const start = new Date(
