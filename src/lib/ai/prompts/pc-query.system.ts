@@ -102,6 +102,10 @@ FILTERS (filters object) — only include what the user actually constrains
 - monthStart / monthEnd: "YYYY-MM" inclusive range on effective_date.
 - type, company, agency, state, city: exact text match, ONLY if the user names one
   (e.g. state="TX", company="GEICO", type="AUTO"). 2-letter US state codes.
+- type holds exactly one of: AUTO, HOME, DWELLING, COMMERCIAL, FLOOD, RENTERS, UMBRELLA,
+  MOTORCYCLE, MOBILE HOME, WIND. Translate the user's wording to these: car -> AUTO;
+  HO3, homeowner -> HOME; DP, DP3, dwelling fire, landlord, vacant -> DWELLING;
+  BOP, GL, commercial auto -> COMMERCIAL; renter -> RENTERS; windstorm -> WIND.
 - agent: an AGENT (salesperson) name, for that agent's book: "how many policies does
   NAM NGUYEN have/sell", "FIONA's commission". (Server still enforces who is visible.)
 - insuredName: a CUSTOMER / insured person's name (partial match): "customer Thuan
@@ -145,4 +149,5 @@ HARD RULES
 6. If the question is not about P&C policy data, set unsupported = true and metric = "list".
    This includes HEALTH-insurance questions (health plans, health members/clients,
    health carriers) — that is a different product; do NOT map "health" to a P&C type.
-   "type" here is a P&C line of business (AUTO, HOME, DP, ...), never "Health".`;
+   "type" here is a P&C line of business (AUTO, HOME, DWELLING, COMMERCIAL, FLOOD,
+   RENTERS, UMBRELLA, MOTORCYCLE, MOBILE HOME, WIND), never "Health".`;

@@ -509,12 +509,19 @@ as $$
       upper(btrim(split_part(agency, '-', 1))) as agency,
       insured_name,
       public.parse_health_int(max(zipcode)::text) as zipcode,
+      -- Line of Service chuẩn. Giá trị lạ (kể cả tên hãng ghi nhầm vào cột Type)
+      -- thành null và hiện là "Unspecified"; line mới phải thêm vào đây.
       case
         when upper(btrim(type)) in ('AUTO', 'ATUO', 'CAR') then 'AUTO'
-        when upper(btrim(type)) in ('COMMERCIAL', 'COMMERICAL', 'COMERCIAL', 'COMM') then 'COMMERCIAL'
-        when upper(btrim(type)) in ('HOME', 'HOMEOWNER', 'DWELLING', 'DWELLING FIRE') then 'HOME'
-        when upper(btrim(type)) in ('DP', 'DP3') then 'DP'
-        else upper(btrim(type))
+        when upper(btrim(type)) in ('HOME', 'HO3', 'HOB', 'HOMEOWNER') then 'HOME'
+        when upper(btrim(type)) in ('DWELLING', 'DWELING', 'DWELLING FIRE', 'DF', 'DP', 'DP3', 'TDP 3', 'LANDLORD', 'VACANT', 'RENTAL') then 'DWELLING'
+        when upper(btrim(type)) in ('COMMERCIAL', 'COMERCIAL', 'COMERICAL', 'COMMERICAL', 'COMM', 'BOP', 'GL', 'AUTO COMERCIAL') then 'COMMERCIAL'
+        when upper(btrim(type)) = 'FLOOD' then 'FLOOD'
+        when upper(btrim(type)) = 'RENTER' then 'RENTERS'
+        when upper(btrim(type)) in ('UMBRELLA', 'UMBREALLA') then 'UMBRELLA'
+        when upper(btrim(type)) in ('MOTORCYCLE', 'MOTOCYCLE') then 'MOTORCYCLE'
+        when upper(btrim(type)) in ('MOBILE HOME', 'MOBI HOME') then 'MOBILE HOME'
+        when upper(btrim(type)) = 'TXWIND' then 'WIND'
       end as type,
       case
         when upper(btrim(company)) ~ 'ARI|AMERICAN\s*RISK' then 'AMERICAN RISK'
