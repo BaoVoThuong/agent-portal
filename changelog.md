@@ -12,10 +12,14 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
   dùng), trùng tiêu đề "ID" mà Export ghi cho uuid hồ sơ. File xuất ra có hai cột "ID"; Import đọc cột "ID" nào cũng thành
   uuid nên mã member gõ vào → "Invalid ID" → bỏ cả dòng.
 - Export ghi uuid với tiêu đề **"Record ID"**. Import: "Record ID" là uuid; "ID" là cột của chương trình nếu chương trình có cột
-  tên "ID", còn không thì vẫn là uuid (file cũ của Medicare/Medicaid). File Export cũ của ACA (hai cột "ID"): cột đầu là uuid,
-  cột sau là mã member; một cột "ID" mà toàn uuid thì vẫn là uuid.
+  tên "ID", còn không thì vẫn là uuid (file cũ của Medicare/Medicaid). File Export cũ của ACA (hai cột "ID"): cột "ID" nào có
+  ô uuid mới là uuid hồ sơ, cột "ID" còn lại có dữ liệu là mã member (không đoán theo vị trí: lần thử thật gõ "1" vào cột ID
+  đầu của file cũ và bị bỏ dòng). Cột "ID" thừa mà trống thì bỏ qua lặng lẽ.
 - Đọc file theo vị trí cột (`uniqueImportHeaders`) thay vì `sheet_to_json` dạng object, để hai cột trùng tên giữ ô riêng.
 - Lỗi "Invalid …" nói thêm "Leave it blank to add a new record."; danh sách dòng bị bỏ mở sẵn trong hộp thoại.
+- Chữ bảng hiện ở ô trống ("No payment", "No carrier", "No AC status", "No ACA status", "No platform", "No consent",
+  "No agent", "No caller", "Unassigned", "No FUB link") và mọi "No <nhãn cột>" được đọc là ô trống. Lựa chọn thật trùng tên
+  vẫn thắng; chữ lạ khác vẫn bỏ dòng. Lý do: file thử thật chép "No Payment" từ bảng và bị bỏ dòng.
 
 ## 2026-11-07 — DB nghẽn không còn bị hiểu là "không có quyền"; dọn lỗi lặp của upload (đã deploy, đã chạy rollout)
 

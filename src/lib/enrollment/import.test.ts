@@ -152,12 +152,100 @@ describe("chương trình có cột ID riêng (ACA)", () => {
     expect(matched.idHeader).toBe("ID");
   });
 
-  it("gõ số vào cột uuid thì nói rõ cách sửa", () => {
+  // Lần thử thật 2026-11-09: file Export cũ, gõ "1" vào cột ID ĐẦU (vị trí của
+  // uuid), cột ID cuối để trống. Không có ô uuid nào → đó là mã member.
+  it("file cũ toàn dòng mới: cột ID có dữ liệu là mã member, dù đứng đầu", () => {
     const headers = uniqueImportHeaders(["ID", "Client Name", "ID"]);
     const records = [{ [headers[0]]: "1", "Client Name": "A", [headers[2]]: null }];
     const matched = matchEnrollmentHeaders(headers, ACA_COLUMNS, records);
+    expect(matched.idHeader).toBeNull();
+    expect(matched.ignored).toEqual([]);
+    const parsed = parseEnrollmentImportRows(records, matched, ACA_COLUMNS, CTX);
+    expect(parsed.skipped).toEqual([]);
+    expect(parsed.rows[0]).toMatchObject({ mode: "create", values: { id: "1" } });
+  });
+
+  it("file cũ toàn dòng mới, mã member ở cột ID cuối: lấy cột cuối", () => {
+    const headers = uniqueImportHeaders(["ID", "Client Name", "ID"]);
+    const records = [{ [headers[0]]: null, "Client Name": "A", [headers[2]]: "M06972750" }];
+    const matched = matchEnrollmentHeaders(headers, ACA_COLUMNS, records);
+    expect(matched.byHeader.get(headers[2])).toBe("id");
+    const parsed = parseEnrollmentImportRows(records, matched, ACA_COLUMNS, CTX);
+    expect(parsed.rows[0].values.id).toBe("M06972750");
+  });
+
+  it("cột uuid có ô không phải uuid thì nói rõ cách sửa", () => {
+    const headers = uniqueImportHeaders(["ID", "Client Name", "ID"]);
+    const records = [
+      { [headers[0]]: UUID, "Client Name": "A", [headers[2]]: null },
+      { [headers[0]]: "1", "Client Name": "B", [headers[2]]: null },
+    ];
+    const matched = matchEnrollmentHeaders(headers, ACA_COLUMNS, records);
     const parsed = parseEnrollmentImportRows(records, matched, ACA_COLUMNS, CTX);
     expect(parsed.skipped[0].reason).toBe("Invalid ID: 1. Leave it blank to add a new record.");
+  });
+});
+
+// Lần thử thật 2026-11-09: file chép y chữ bảng hiện ở ô trống.
+describe("chữ của ô trống trên bảng", () => {
+  const COLS = [
+    column("client", "Client Name"),
+    column("payment", "Payment status", "dropdown"),
+    column("carrier", "Carrier", "dropdown"),
+    column("aca", "ACA", "dropdown"),
+    column("agent", "Agent", "person"),
+    column("due", "Due Date", "date"),
+    column("fub", "FUB Link", "link"),
+  ];
+  const ctx: EnrollmentImportContext = {
+    ...CTX,
+    optionIdByLabel: new Map([
+      ["payment", new Map([["paid", "pay-1"]])],
+      ["carrier", new Map([["ambetter", "carrier-1"]])],
+      ["aca", new Map([["active", "aca-1"]])],
+    ]),
+  };
+  const headers = ["Client Name", "Payment status", "Carrier", "ACA", "Agent", "Due Date", "FUB Link"];
+  const matched = matchEnrollmentHeaders(headers, COLS);
+
+  it("No Payment / No Carrier / No AC Status / Unassigned là ô trống", () => {
+    const parsed = parseEnrollmentImportRows(
+      [{
+        "Client Name": "A", "Payment status": "No Payment", Carrier: "No Carrier",
+        ACA: "No AC Status", Agent: "Unassigned", "Due Date": "No Due Date", "FUB Link": "No FUB link",
+      }],
+      matched,
+      COLS,
+      ctx
+    );
+    expect(parsed.skipped).toEqual([]);
+    expect(parsed.rows[0].values).toEqual({
+      client: "A", payment: null, carrier: [], aca: null, agent: null, due: null, fub: null,
+    });
+  });
+
+  it("chữ lạ khác vẫn bỏ dòng, không lặng lẽ xoá giá trị", () => {
+    const parsed = parseEnrollmentImportRows(
+      [{ "Client Name": "A", "Payment status": "Pending" }],
+      matchEnrollmentHeaders(["Client Name", "Payment status"], COLS),
+      COLS,
+      ctx
+    );
+    expect(parsed.skipped[0].reason).toBe('Payment status: unknown value "Pending"');
+  });
+
+  it("lựa chọn thật trùng tên chữ ô trống thì lựa chọn thật thắng", () => {
+    const withReal: EnrollmentImportContext = {
+      ...ctx,
+      optionIdByLabel: new Map([...ctx.optionIdByLabel, ["payment", new Map([["nopayment", "pay-none"]])]]),
+    };
+    const parsed = parseEnrollmentImportRows(
+      [{ "Client Name": "A", "Payment status": "No Payment" }],
+      matchEnrollmentHeaders(["Client Name", "Payment status"], COLS),
+      COLS,
+      withReal
+    );
+    expect(parsed.rows[0].values.payment).toBe("pay-none");
   });
 });
 

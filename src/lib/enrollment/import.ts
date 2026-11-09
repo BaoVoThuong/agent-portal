@@ -98,6 +98,31 @@ export const ENROLLMENT_PERSON_COLUMNS = ["agent", "caller", "responsible"] as c
 /** Cột option chọn được NHIỀU giá trị; ô trong file cách nhau bằng dấu phẩy. */
 export const ENROLLMENT_MULTI_OPTION_COLUMNS = ["carrier"] as const;
 
+/**
+ * Chữ bảng Enrollment hiện ở ô TRỐNG (`emptyLabel` / `placeholder` trong
+ * EnrollmentClient). Người điền file chép y chữ đó — lần thử thật 2026-11-09 bị
+ * bỏ dòng vì "No Payment", "No Carrier", "No AC Status". Đọc như ô trống. Ngoài
+ * danh sách này, "No <nhãn cột>" cũng là ô trống với mọi cột.
+ */
+const EMPTY_PLACEHOLDERS: Record<string, readonly string[]> = {
+  agent: ["No agent", "Unassigned"],
+  caller: ["No caller", "Unassigned"],
+  responsible: ["Unassigned"],
+  payment: ["No payment"],
+  carrier: ["No carrier"],
+  aca: ["No AC status", "No ACA status"],
+  platform: ["No platform"],
+  consent: ["No consent"],
+  fub: ["No FUB link"],
+};
+
+function isEmptyPlaceholder(column: TableColumn, text: string): boolean {
+  const value = normalize(text);
+  if (!value) return false;
+  if (value === normalize(`No ${column.label}`)) return true;
+  return (EMPTY_PLACEHOLDERS[column.key] ?? []).some((label) => normalize(label) === value);
+}
+
 const OPTION_COLUMNS = new Set<string>(ENROLLMENT_OPTION_COLUMNS);
 const MULTI_OPTION_COLUMNS = new Set<string>(ENROLLMENT_MULTI_OPTION_COLUMNS);
 const PERSON_COLUMNS = new Set<string>(ENROLLMENT_PERSON_COLUMNS);
@@ -184,19 +209,16 @@ function iso(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-/** Mọi ô có giá trị của cột đều là uuid, và có ít nhất một ô. */
+/** Có ít nhất một ô là uuid. Mã member không bao giờ có dạng uuid. */
 function holdsRecordIds(
   records: readonly Record<string, unknown>[],
   header: string
 ): boolean {
-  let seen = false;
-  for (const record of records) {
-    const value = String(record[header] ?? "").trim();
-    if (!value) continue;
-    if (!UUID_RE.test(value)) return false;
-    seen = true;
-  }
-  return seen;
+  return records.some((record) => UUID_RE.test(String(record[header] ?? "").trim()));
+}
+
+function hasAnyValue(records: readonly Record<string, unknown>[], header: string): boolean {
+  return records.some((record) => String(record[header] ?? "").trim() !== "");
 }
 
 /**
@@ -204,9 +226,10 @@ function holdsRecordIds(
  *
  * Cột mang uuid hồ sơ là "Record ID". "ID" chỉ còn là uuid khi chương trình
  * KHÔNG có cột nào tên "ID" (file Export cũ của Medicare/Medicaid). Chương
- * trình có cột "ID" riêng (ACA, Other Service) thì "ID" là cột đó — trừ file
- * Export cũ: hai cột "ID" thì cột đầu là uuid (Export luôn ghi nó đầu tiên);
- * một cột "ID" mà toàn uuid thì cũng là uuid.
+ * trình có cột "ID" riêng (ACA, Other Service) thì cột "ID" nào có ô uuid mới là
+ * uuid hồ sơ (file Export cũ có hai cột "ID"); cột "ID" còn lại có dữ liệu là
+ * mã member. Người dùng hay gõ mã vào cột "ID" đầu của file cũ — lần thử thật
+ * 2026-11-09 bị bỏ dòng vì thế — nên không đoán theo vị trí cột.
  */
 export function matchEnrollmentHeaders(
   headers: readonly string[],
@@ -237,11 +260,15 @@ export function matchEnrollmentHeaders(
 
   let idHeader: string | null = recordIdHeader;
   if (!idHeader && legacyIdHeaders.length > 0) {
-    const first = legacyIdHeaders[0];
-    if (!programHasIdColumn || legacyIdHeaders.length >= 2 || holdsRecordIds(records, first)) {
-      idHeader = first;
-    }
+    idHeader = programHasIdColumn
+      ? legacyIdHeaders.find((header) => holdsRecordIds(records, header)) ?? null
+      : legacyIdHeaders[0];
   }
+  // Còn lại nhiều cột "ID" thì lấy cột có dữ liệu cho cột ID của chương trình.
+  const otherIdHeaders = legacyIdHeaders.filter((header) => header !== idHeader);
+  const programIdHeader = programHasIdColumn
+    ? otherIdHeaders.find((header) => hasAnyValue(records, header)) ?? otherIdHeaders[0] ?? null
+    : null;
 
   for (const header of headers) {
     if (!header || header === idHeader) continue;
@@ -249,9 +276,10 @@ export function matchEnrollmentHeaders(
     const normalized = normalizedOf(header);
     if (
       normalized === RECORD_ID_HEADER ||
-      (normalized === LEGACY_ID_HEADER && !programHasIdColumn)
+      (normalized === LEGACY_ID_HEADER && header !== programIdHeader)
     ) {
-      ignored.push(label);
+      // An empty spare "ID" column loses nothing; warning about it only alarms.
+      if (normalized === RECORD_ID_HEADER || hasAnyValue(records, header)) ignored.push(label);
       continue;
     }
     if (managedLookup.has(normalized)) {
@@ -319,6 +347,7 @@ export function parseEnrollmentImportRows(
           const id = UUID_RE.test(item)
             ? item
             : context.optionIdByLabel.get(key)?.get(normalize(item));
+          if (!id && isEmptyPlaceholder(column, item)) continue;
           if (!id) {
             failure = `${label}: unknown value "${item}"`;
             break;
@@ -341,6 +370,10 @@ export function parseEnrollmentImportRows(
           continue;
         }
         const id = context.optionIdByLabel.get(key)?.get(normalize(text));
+        if (!id && isEmptyPlaceholder(column, text)) {
+          values[key] = null;
+          continue;
+        }
         if (!id) {
           // Ghi null ở đây là lặng lẽ xoá một giá trị đang đúng chỉ vì người
           // dùng gõ sai chính tả một nhãn.
@@ -353,7 +386,7 @@ export function parseEnrollmentImportRows(
 
       if (PERSON_COLUMNS.has(key)) {
         const text = String(raw ?? "").trim();
-        if (!text) {
+        if (!text || isEmptyPlaceholder(column, text)) {
           values[key] = null;
           continue;
         }
@@ -372,7 +405,7 @@ export function parseEnrollmentImportRows(
       }
 
       if (column.type === "date") {
-        const parsed = toIsoDate(raw);
+        const parsed = isEmptyPlaceholder(column, String(raw ?? "").trim()) ? null : toIsoDate(raw);
         if (parsed !== null && typeof parsed === "object") {
           failure = `${label}: ${parsed.error}`;
           break;
@@ -388,7 +421,8 @@ export function parseEnrollmentImportRows(
         continue;
       }
 
-      const text = raw === null || raw === undefined ? "" : String(raw).trim();
+      const rawText = raw === null || raw === undefined ? "" : String(raw).trim();
+      const text = isEmptyPlaceholder(column, rawText) ? "" : rawText;
 
       if (!column.is_system) {
         const custom = coerceCustomCell(column, text, context);
