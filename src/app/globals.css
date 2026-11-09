@@ -26,18 +26,6 @@ body {
   font-family: var(--font-sans);
 }
 
-.agent-health-dashboard,
-.agent-health-dashboard *,
-.agent-health-dashboard button,
-.agent-health-dashboard input,
-.agent-health-dashboard select,
-.agent-health-dashboard textarea,
-.agent-health-dashboard table,
-.agent-health-dashboard svg text {
-  font-family: var(--font-sans);
-  letter-spacing: 0;
-}
-
 /* Đánh số các phần của dashboard P&C theo thứ tự xuất hiện. */
 .pc-numbered-sections {
   counter-reset: pc-section;
@@ -99,6 +87,8 @@ body {
 }
 
 .pc-section-toolbar {
+  min-width: 0;
+  max-width: 100%;
   display: flex;
   flex-wrap: wrap;
   align-items: center;

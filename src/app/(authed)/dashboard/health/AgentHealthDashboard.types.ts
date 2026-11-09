@@ -1,3 +1,5 @@
+import type { HealthAgentPeriod } from "../../_dashboard-shared/health-overview-metrics";
+
 // Types + constants thuần của AgentHealthDashboard (tách nguyên văn từ component
 // để giảm kích thước file, KHÔNG đổi định nghĩa). Chỉ dùng nội bộ dashboard này.
 import type { ChartLevel } from "./AgentHealthDashboardChart";
@@ -14,18 +16,6 @@ export type HealthMartRow = {
   agent_received: number | null;
   carriers_messer_paid: number | null;
   num_client: number | null;
-};
-
-export type ScoreCards = {
-  activePolicy: ScoreCardMetric;
-  activeClient: ScoreCardMetric;
-  totalCommission: ScoreCardMetric;
-  totalCommissionInReportYear: ReportYearCommissionMetric;
-};
-
-export type ScoreCardMetric = {
-  value: number;
-  changePercent: number | null;
 };
 
 export type ReportYearCommissionMetric = {
@@ -120,7 +110,8 @@ export type CarrierPaymentStatusBreakdown = {
 };
 
 export type DashboardData = {
-  scoreCards: ScoreCards;
+  reportYearCommission: ReportYearCommissionMetric;
+  overviewPeriods: HealthAgentPeriod[];
   memberPayments: MemberPaymentRow[];
   memberPaymentReportMonths: string[];
   chartPeriodsByLevel: ChartPeriodsByLevel;

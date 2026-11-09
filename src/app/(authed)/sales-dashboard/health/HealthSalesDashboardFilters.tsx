@@ -50,7 +50,7 @@ export function HealthSalesHeaderFilters({
   }
 
   return (
-    <div className="flex flex-nowrap items-center justify-end gap-3 max-md:flex-wrap max-md:justify-start max-md:[&>*]:w-full overflow-visible">
+    <div className="dashboard-filter-group flex flex-wrap items-center justify-end gap-3 max-md:justify-start max-md:[&>*]:w-full">
       <ReportMonthRangeDropdown
         defaultConfig={defaultConfig}
         disabled={isPending}
@@ -155,7 +155,7 @@ export function HealthSalesDashboardFilters({
   }
 
   return (
-    <div className={`mb-8 flex flex-nowrap items-center justify-end gap-3 max-md:flex-wrap max-md:justify-start max-md:[&>*]:w-full overflow-visible pb-1 max-md:mb-4 ${phoneFiltersOpen ? "" : "max-md:[&>*:not(:first-child)]:hidden"}`}>
+    <div className={`dashboard-filter-group flex flex-wrap items-center justify-end gap-3 max-md:justify-start max-md:[&>*]:w-full ${phoneFiltersOpen ? "" : "max-md:[&>*:not(:first-child)]:hidden"}`}>
       <PhoneFilterToggle open={phoneFiltersOpen} onToggle={() => setPhoneFiltersOpen((current) => !current)} activeCount={[filters.agent, filters.carrier, filters.primaryMemberId].filter((value) => value.length > 0).length} />
       <MultiSelectDropdown
         allLabel="All agents"
@@ -456,7 +456,7 @@ function ReportMonthRangeDropdown({
   }
 
   return (
-    <div ref={containerRef} className="relative shrink-0">
+    <div ref={containerRef} className="dashboard-filter-wide relative shrink-0">
       <button
         type="button"
         onClick={() => setIsOpen((current) => !current)}

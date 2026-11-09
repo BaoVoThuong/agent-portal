@@ -45,8 +45,8 @@ export type PcMetricPoint = {
   value: number;
 };
 
-export type PcOverviewMetric = {
-  key: PcOverviewMetricKey;
+export type PcOverviewMetric<Key extends string = PcOverviewMetricKey> = {
+  key: Key;
   label: string;
   kind: PcMetricKind;
   total: number;
@@ -57,8 +57,8 @@ export type PcOverviewMetric = {
   previous: PcMetricPoint | null;
 };
 
-type MetricDefinition<Summary> = {
-  key: PcOverviewMetricKey;
+export type MetricDefinition<Summary, Key extends string = PcOverviewMetricKey> = {
+  key: Key;
   label: string;
   kind: PcMetricKind;
   read: (summary: Summary) => number;
@@ -174,12 +174,12 @@ export function buildPcCompanyOverviewMetrics(
   return buildMetrics(COMPANY_METRICS, overview, periods, currentMonthKey);
 }
 
-function buildMetrics<Summary>(
-  definitions: MetricDefinition<Summary>[],
+export function buildMetrics<Summary, Key extends string>(
+  definitions: MetricDefinition<Summary, Key>[],
   overview: Summary,
   periods: (Summary & { periodKey: string; periodLabel: string })[],
   currentMonthKey: string
-): PcOverviewMetric[] {
+): PcOverviewMetric<Key>[] {
   const shownPeriods = periods.filter(
     (period) => period.periodKey <= currentMonthKey
   );

@@ -122,7 +122,7 @@ export function AgentHealthCarrierMultiSelectFilter({
       <button
         type="button"
         onClick={toggleDropdown}
-        className="dashboard-filter-button min-w-[12.5rem]"
+        className="dashboard-filter-button min-w-[12.5rem] md:min-w-0"
         aria-expanded={isOpen}
       >
         <span className="truncate">{label}</span>

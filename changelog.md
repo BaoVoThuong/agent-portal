@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-09 — Dashboard Health: giao diện và chart như P&C (đã deploy)
+
+- 3 chart Agent commission/policies/clients, Carrier paid và Commission Trend chuyển từ SVG vẽ tay sang combo ECharts. Thứ tự kỳ và cách tính giữ nguyên; tooltip tiền rút gọn như P&C ($12.3K).
+- Điện thoại dùng chung chart ECharts như P&C, bỏ `PhoneTrendChart` vì không còn nơi nào dùng.
+- Agent và Company dùng đúng thẻ của P&C: 4 thẻ chính có line, 4 thẻ tỉ lệ, dải số đếm. Section đánh số, có khung và mô tả; filter và Report Month dính đầu trang.
+- Agent: Active Policies, Active Clients, Monthly Commission vẫn là số của tháng mới nhất (không cộng dồn); năm hiện tại vẫn là tổng năm. Thêm Paid/Unpaid Policies, Paid/Unpaid Clients, Paid Rate, Avg Comm / Policy từ dữ liệu sẵn có; Avg / month chuyển thành thẻ Avg Comm / Month.
+- Company: số lớn vẫn là tổng theo bộ lọc. Thêm dải Policies, Clients, Paid/Unpaid Policies, Active Agents và mức thay đổi so với tháng trước.
+- So sánh tháng trước theo luật P&C: chỉ hiện khi tháng liền trước có dữ liệu; trước đây Agent so với tháng có dữ liệu gần nhất dù cách quãng.
+
 ## 2026-11-09 — P&C Agent: Personal Overview dùng ECharts (đã deploy)
 
 - Thay các ô KPI bằng 4 thẻ chính có line, 4 thẻ tỉ lệ và dải New Business / Renewals / Cancellation / Carrier / Line of Service.

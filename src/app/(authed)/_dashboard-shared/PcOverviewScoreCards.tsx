@@ -19,14 +19,14 @@ import {
 } from "./pc-overview-metrics";
 import { PcOverviewSparkline } from "./PcOverviewSparkline";
 
-type Hue = { text: string; mark: string };
+export type Hue = { text: string; mark: string };
 
 // Màu vạch từ bảng đã kiểm của dataviz; màu chữ là bậc đậm cùng tông, >= 5:1 trên nền trắng.
-const VIOLET: Hue = { text: "#5a48c9", mark: "#6250d6" };
-const ORANGE: Hue = { text: "#b8491b", mark: "#eb6834" };
-const BLUE: Hue = { text: "#256abf", mark: "#2a78d6" };
-const AQUA: Hue = { text: "#0a7a52", mark: "#1baf7a" };
-const CRITICAL: Hue = { text: "#c23333", mark: "#d03b3b" };
+export const VIOLET: Hue = { text: "#5a48c9", mark: "#6250d6" };
+export const ORANGE: Hue = { text: "#b8491b", mark: "#eb6834" };
+export const BLUE: Hue = { text: "#256abf", mark: "#2a78d6" };
+export const AQUA: Hue = { text: "#0a7a52", mark: "#1baf7a" };
+export const CRITICAL: Hue = { text: "#c23333", mark: "#d03b3b" };
 
 const METRIC_HUES: Record<PcOverviewMetricKey, Hue> = {
   active: AQUA,
@@ -49,7 +49,7 @@ const COMPANY_HERO_KEYS: PcOverviewMetricKey[] = ["premium", "totalCommission", 
 const COMPANY_RATIO_KEYS: PcOverviewMetricKey[] = ["avgPremium", "totalCommRate", "epsCommRate", "renewalRate"];
 const COMPANY_COUNT_KEYS: PcOverviewMetricKey[] = ["policies", "active"];
 
-const CARD_CLASS = "rounded-xl border border-slate-200 bg-white shadow-[0_2px_8px_rgba(15,23,42,0.05)]";
+export const CARD_CLASS = "rounded-xl border border-slate-200 bg-white shadow-[0_2px_8px_rgba(15,23,42,0.05)]";
 const LABEL_CLASS = "text-[13px] font-semibold text-slate-600";
 
 export function PcOverviewScoreCards({
@@ -139,13 +139,13 @@ function ScoreCardGrid({
     <div className="grid gap-4 max-md:gap-2">
       <section className="grid grid-cols-4 gap-4 max-xl:grid-cols-2 max-md:gap-2">
         {pick(heroKeys).map((metric) => (
-          <HeroCard key={metric.key} metric={metric} />
+          <HeroCard hue={METRIC_HUES[metric.key]} key={metric.key} metric={metric} />
         ))}
       </section>
 
       <section className="grid grid-cols-4 gap-4 max-xl:grid-cols-2 max-md:gap-2">
         {pick(ratioKeys).map((metric) => (
-          <RatioCard key={metric.key} metric={metric} />
+          <RatioCard hue={METRIC_HUES[metric.key]} key={metric.key} metric={metric} />
         ))}
       </section>
 
@@ -209,9 +209,7 @@ function ScoreCardGrid({
   );
 }
 
-function HeroCard({ metric }: { metric: PcOverviewMetric }) {
-  const hue = METRIC_HUES[metric.key];
-
+export function HeroCard({ hue, metric }: { hue: Hue; metric: PcOverviewMetric<string> }) {
   return (
     <article className={`${CARD_CLASS} flex flex-col px-[18px] pb-3.5 pt-4 max-md:p-3`}>
       <div className={LABEL_CLASS}>{metric.label}</div>
@@ -257,9 +255,7 @@ function HeroCard({ metric }: { metric: PcOverviewMetric }) {
   );
 }
 
-function RatioCard({ metric }: { metric: PcOverviewMetric }) {
-  const hue = METRIC_HUES[metric.key];
-
+export function RatioCard({ hue, metric }: { hue: Hue; metric: PcOverviewMetric<string> }) {
   return (
     <article className={`${CARD_CLASS} px-4 py-3.5 max-md:p-3`}>
       <div className={`${LABEL_CLASS} truncate`} title={metric.label}>
@@ -293,7 +289,7 @@ function RatioCard({ metric }: { metric: PcOverviewMetric }) {
   );
 }
 
-function FlowCell({
+export function FlowCell({
   change,
   goodWhenDown = false,
   hue,
@@ -329,7 +325,7 @@ function FlowCell({
   );
 }
 
-function PeakText({ metric }: { metric: PcOverviewMetric }) {
+function PeakText({ metric }: { metric: PcOverviewMetric<string> }) {
   if (!metric.peak) return null;
 
   return (
@@ -342,7 +338,7 @@ function PeakText({ metric }: { metric: PcOverviewMetric }) {
   );
 }
 
-function MetricDelta({ metric }: { metric: PcOverviewMetric }) {
+function MetricDelta({ metric }: { metric: PcOverviewMetric<string> }) {
   if (!metric.latest || !metric.previous) return null;
 
   const diff = metric.latest.value - metric.previous.value;
@@ -382,7 +378,7 @@ function DeltaText({
   );
 }
 
-function formatDelta(metric: PcOverviewMetric, diff: number, previous: number) {
+function formatDelta(metric: PcOverviewMetric<string>, diff: number, previous: number) {
   if (metric.kind === "int") return `${Math.abs(Math.round(diff))}`;
   if (metric.kind === "pct") return `${Math.abs(diff).toFixed(2)} pt`;
   if (previous === 0) return formatPcMetric("money", Math.abs(diff));

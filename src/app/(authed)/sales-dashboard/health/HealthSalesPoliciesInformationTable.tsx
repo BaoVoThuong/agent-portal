@@ -218,12 +218,12 @@ export function HealthSalesPoliciesInformationTable({
   }
 
   return (
-    <section className="overflow-hidden rounded-lg border border-[#d8dee7] bg-white shadow-[0_2px_8px_rgba(22,35,58,0.08)]">
-      <header className="border-b border-[#edf0f4] px-6 py-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+    <section className="pc-section">
+      <header className="pc-section-head mb-3">
+        <div className="flex w-full flex-wrap items-start justify-between gap-4">
           <div>
             <h2 className="text-lg font-semibold text-[#16233a]">
-              Policies Information
+              Policies information
             </h2>
             <p className="mt-1 text-xs text-[#667085]">
               Showing {formatInteger(filteredRows.length)} of{" "}

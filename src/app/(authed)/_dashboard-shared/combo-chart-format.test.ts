@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { niceAxisScale } from "./combo-chart-format";
+import { niceAxisScale, twoLineLabelPositions } from "./combo-chart-format";
+
+describe("twoLineLabelPositions", () => {
+  it("puts the higher line's number above and the lower line's below", () => {
+    expect(twoLineLabelPositions(30, 20)).toEqual({ first: "top", second: "bottom" });
+    expect(twoLineLabelPositions(20, 30)).toEqual({ first: "bottom", second: "top" });
+  });
+
+  it("still separates the two numbers when the lines meet", () => {
+    expect(twoLineLabelPositions(25, 25)).toEqual({ first: "top", second: "bottom" });
+  });
+});
 
 describe("niceAxisScale", () => {
   it("rounds up to a tick size that divides the axis evenly", () => {

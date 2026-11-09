@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
+import { HealthCompanyOverviewScoreCards } from "../../_dashboard-shared/HealthOverviewScoreCards";
 import { HealthSalesPoliciesInformationTable } from "./HealthSalesPoliciesInformationTable";
 import { HealthSalesDashboardFilters } from "./HealthSalesDashboardFilters";
 import {
@@ -43,11 +44,13 @@ export function HealthSalesDashboard({
   filterOptions,
   filters,
   initialTrendLevel,
+  monthFilter,
   rows,
 }: {
   filterOptions: FilterOptions;
   filters: FilterValues;
   initialTrendLevel: TrendComparisonChartLevel;
+  monthFilter: ReactNode;
   rows: HealthSalesRow[];
 }) {
   const [clientFilters, setClientFilters] = useState<ClientFilterValues>(() => ({
@@ -67,7 +70,14 @@ export function HealthSalesDashboard({
     [activeFilters, rows]
   );
   const data = useMemo(() => buildDashboardData(filteredRows), [filteredRows]);
-  const latestMonth = data.monthlyRows[0] ?? null;
+  const overviewPeriods = useMemo(
+    () =>
+      data.monthlyRows
+        .filter(hasTrendPeriodActivity)
+        .map((row) => ({ ...row, periodKey: row.monthKey, periodLabel: row.monthKey }))
+        .reverse(),
+    [data.monthlyRows]
+  );
 
   function updateClientFilters(nextFilters: ClientFilterValues) {
     setClientFilters(nextFilters);
@@ -76,121 +86,34 @@ export function HealthSalesDashboard({
 
   return (
     <>
-      <HealthSalesDashboardFilters
-        filters={activeFilters}
-        onClientFiltersChange={updateClientFilters}
-        options={filterOptions}
-      />
+      <div className="dashboard-sticky-filters">
+        {monthFilter}
+        <HealthSalesDashboardFilters
+          filters={activeFilters}
+          onClientFiltersChange={updateClientFilters}
+          options={filterOptions}
+        />
+      </div>
 
       {filteredRows.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white px-8 py-16 text-center text-sm font-medium text-slate-500 shadow-sm">
           No Health sales records match these filters.
         </div>
       ) : (
-        <div className="space-y-8">
-          <h2 className="text-2xl font-bold tracking-tight text-slate-900">
-            Portfolio Overview
-          </h2>
+        <div className="pc-numbered-sections space-y-8">
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight text-slate-900">
+              Portfolio overview
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Months use Report Month.
+            </p>
+          </div>
 
-          <section className="grid gap-8 md:grid-cols-2 xl:grid-cols-4 max-md:grid-cols-2 max-md:gap-2">
-            <KpiCard
-              label="Agent Commission"
-              value={formatCurrencyCompact(data.overview.agentReceived)}
-              footerText={formatLatestMonthMetric(
-                latestMonth,
-                latestMonth ? formatCurrencyShort(latestMonth.agentReceived) : "-"
-              )}
-            />
-            <KpiCard
-              label="EPS Commission"
-              value={formatCurrencyCompact(data.overview.epsCommission)}
-              footerText={formatLatestMonthMetric(
-                latestMonth,
-                latestMonth ? formatCurrencyShort(latestMonth.epsCommission) : "-"
-              )}
-            />
-            <KpiCard
-              label="EPS Split"
-              value={formatCurrencyCompact(data.overview.epsSplit)}
-              footerText={formatLatestMonthMetric(
-                latestMonth,
-                latestMonth ? formatCurrencyShort(latestMonth.epsSplit) : "-"
-              )}
-            />
-            <KpiCard
-              label="EPS Override"
-              value={formatCurrencyCompact(data.overview.epsOverride)}
-              footerText={formatLatestMonthMetric(
-                latestMonth,
-                latestMonth ? formatCurrencyShort(latestMonth.epsOverride) : "-"
-              )}
-            />
-            <KpiCard
-              label="Agent Comm Rate"
-              value={formatPercent(
-                percentOf(data.overview.agentReceived, data.overview.totalMesserPaid)
-              )}
-              footerText={formatLatestMonthMetric(
-                latestMonth,
-                latestMonth
-                  ? formatPercent(
-                      percentOf(
-                        latestMonth.agentReceived,
-                        latestMonth.totalMesserPaid
-                      )
-                    )
-                  : "-"
-              )}
-            />
-            <KpiCard
-              label="EPS Comm Rate"
-              value={formatPercent(
-                percentOf(data.overview.epsCommission, data.overview.totalMesserPaid)
-              )}
-              footerText={formatLatestMonthMetric(
-                latestMonth,
-                latestMonth
-                  ? formatPercent(
-                      percentOf(
-                        latestMonth.epsCommission,
-                        latestMonth.totalMesserPaid
-                      )
-                    )
-                  : "-"
-              )}
-            />
-            <KpiCard
-              label="EPS Split Rate"
-              value={formatPercent(
-                percentOf(data.overview.epsSplit, data.overview.totalMesserPaid)
-              )}
-              footerText={formatLatestMonthMetric(
-                latestMonth,
-                latestMonth
-                  ? formatPercent(
-                      percentOf(latestMonth.epsSplit, latestMonth.totalMesserPaid)
-                    )
-                  : "-"
-              )}
-            />
-            <KpiCard
-              label="EPS Override Rate"
-              value={formatPercent(
-                percentOf(data.overview.epsOverride, data.overview.totalMesserPaid)
-              )}
-              footerText={formatLatestMonthMetric(
-                latestMonth,
-                latestMonth
-                  ? formatPercent(
-                      percentOf(
-                        latestMonth.epsOverride,
-                        latestMonth.totalMesserPaid
-                      )
-                    )
-                  : "-"
-              )}
-            />
-          </section>
+          <HealthCompanyOverviewScoreCards
+            overview={data.overview}
+            periods={overviewPeriods}
+          />
 
           <HealthSalesTrendSections
             afterMonthSections={
@@ -893,53 +816,6 @@ function buildPolicyInfoSummary(rows: HealthSalesRow[]): PolicyInfoSummary {
   };
 }
 
-function KpiCard({
-  accent = "dark",
-  footerText,
-  label,
-  value,
-}: {
-  accent?: "dark" | "red";
-  footerText?: string;
-  label: string;
-  value: string;
-}) {
-  const isRed = accent === "red";
-
-  return (
-    <article className="flex min-h-[140px] flex-col rounded-xl border border-slate-200/70 bg-white px-5 py-4 text-center shadow-[0_6px_18px_rgba(15,23,42,0.06)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_12px_28px_rgba(15,23,42,0.1)]">
-      <div
-        className={`flex min-h-8 items-center justify-center text-[12px] font-semibold uppercase leading-snug tracking-[0.08em] ${
-          isRed ? "text-rose-500" : "text-slate-500"
-        }`}
-      >
-        {label}
-      </div>
-      <div className="flex flex-1 items-center justify-center py-2">
-        <div
-          className={`w-full break-words text-center text-[2rem] font-bold leading-none tracking-normal tabular-nums ${
-            isRed ? "text-rose-600" : "text-slate-950"
-          }`}
-        >
-          {value}
-        </div>
-      </div>
-      <div className="min-h-5 truncate text-sm font-medium text-slate-500">
-        {footerText}
-      </div>
-    </article>
-  );
-}
-
-function formatLatestMonthMetric(
-  latestMonth: MonthlySummary | null,
-  value: string
-) {
-  return latestMonth
-    ? `${value} in ${formatMonthYear(latestMonth.monthKey)}`
-    : `Latest month ${value}`;
-}
-
 function SalesTrendLevelTables({
   data,
   level,
@@ -974,12 +850,15 @@ function SalesMomGrowthTable({
   rows: SalesMomRow[];
 }) {
   return (
-    <section>
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+    <section className="pc-section">
+      <div className="pc-section-head mb-2 flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-semibold leading-tight text-[#16233a]">
-          Portfolio Growth by {periodLabel} | Policies &amp; Revenue {changeLabel}
+          Portfolio growth
         </h2>
       </div>
+      <p className="pc-section-note">
+        Policies, clients, carrier paid and EPS commission by {periodLabel.toLowerCase()}, with {changeLabel} change. Dates are Report Month.
+      </p>
 
       <article className="agent-health-panel">
         {rows.length === 0 ? (
@@ -1237,8 +1116,10 @@ function CombinedPaymentStatusTable({
   );
 
   return (
-    <section className="flex flex-col">
-      <h2 className="mb-4 text-xl font-semibold leading-tight text-[#16233a]">{title}</h2>
+    <section className="pc-section">
+      <div className="pc-section-head mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-xl font-bold tracking-tight text-slate-900">{title}</h2>
+      </div>
       <article className="agent-health-panel">
         <div
           className="overflow-y-auto overflow-x-hidden"
@@ -1325,15 +1206,13 @@ function CombinedCarrierPaymentStatusTable({
   );
 
   return (
-    <section className="flex flex-col">
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
-        <h2 className="text-xl font-semibold leading-tight text-[#16233a]">{title}</h2>
-        {reportMonth ? (
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            {formatReportMonth(reportMonth)}
-          </span>
-        ) : null}
+    <section className="pc-section">
+      <div className="pc-section-head mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-xl font-bold tracking-tight text-slate-900">{title}</h2>
       </div>
+      {reportMonth ? (
+        <p className="pc-section-note">Report Month {formatReportMonth(reportMonth)}.</p>
+      ) : null}
       <article className="agent-health-panel">
         <div
           className="overflow-y-auto overflow-x-hidden"
@@ -1450,7 +1329,7 @@ function CommissionBreakdownTable({
   rows: SalesPeriodSummary[];
 }) {
   return (
-    <ReportPanel title={`Revenue & Commission by ${periodLabel}`}>
+    <ReportPanel title={`Revenue & commission by ${periodLabel.toLowerCase()}`}>
       <div className="max-h-[300px] overflow-y-auto">
         <table className="w-full table-fixed text-[11px]">
           <thead>
@@ -1521,7 +1400,7 @@ function AgentDashboardTable({ rows }: { rows: AgentDashboardRow[] }) {
   };
 
   return (
-    <ReportPanel title="Agent Performance | Policies & Commission">
+    <ReportPanel title="Agent performance, policies & commission">
       <div className="max-h-[300px] overflow-y-auto overflow-x-hidden">
         <table className="w-full table-fixed text-[11px]">
           <thead className="sticky top-0 z-10">
@@ -1603,7 +1482,7 @@ function AgentPeriodPivotTable({
 
   return (
     <ReportPanel
-      title={`Agent Performance by ${periodLabel} | Commission Breakdown`}
+      title={`Agent commission by ${periodLabel.toLowerCase()}`}
     >
       {data.agentNames.length === 0 || data.rows.length === 0 ? (
         <div className="px-6 py-10 text-center text-sm font-medium text-slate-500">
@@ -1779,16 +1658,16 @@ function HealthSalesAfterTrendSections({
 }) {
   return (
     <>
-      <section className="grid gap-5 xl:grid-cols-2">
+      <section className="grid min-w-0 items-start gap-8 xl:grid-cols-2">
         <CombinedPaymentStatusTable
           labelHeader="Month"
           rows={combinePaymentStatusMonths(data.monthlyRows)}
-          title="Paid Rate | Recent Months"
+          title="Paid rate, recent months"
         />
         <CombinedCarrierPaymentStatusTable
           reportMonth={data.carrierPaidRateBreakdown.reportMonth}
           rows={data.carrierPaidRateBreakdown.rows}
-          title="Carrier Paid Rate | Latest Month"
+          title="Carrier paid rate, latest month"
         />
       </section>
       <AgentPeriodPivotTable data={data.agentPivotByLevel[level]} level={level} />
@@ -1806,7 +1685,7 @@ function CarrierDashboardTable({ rows }: { rows: CarrierDashboardRow[] }) {
   };
 
   return (
-    <ReportPanel title="Carrier Performance | Policies & Revenue">
+    <ReportPanel title="Carrier performance, policies & revenue">
       <div className="max-h-[300px] overflow-y-auto overflow-x-hidden">
         <table className="w-full table-fixed text-[11px]">
           <thead className="sticky top-0 z-10">
@@ -1880,7 +1759,7 @@ function StateDashboardTable({ rows }: { rows: StateDashboardRow[] }) {
   };
 
   return (
-    <ReportPanel title="State Distribution | Policies & Revenue">
+    <ReportPanel title="State distribution, policies & revenue">
       <div className="max-h-[300px] overflow-y-auto">
         <table className="w-full table-fixed text-[12px]">
           <thead>
@@ -1934,17 +1813,17 @@ function StateDashboardTable({ rows }: { rows: StateDashboardRow[] }) {
 function ReportPanel({
   children,
   title,
-  titleClassName = "",
 }: {
   children: ReactNode;
   title: string;
-  titleClassName?: string;
 }) {
   return (
-    <section className="flex flex-col">
-      <h3 className={`mb-4 text-lg font-bold leading-tight text-slate-800 ${titleClassName}`}>
-        {title}
-      </h3>
+    <section className="pc-section flex flex-col">
+      <div className="pc-section-head mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-lg font-bold leading-tight text-slate-800">
+          {title}
+        </h3>
+      </div>
       <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition-shadow duration-300 hover:shadow-md">
         {children}
       </div>
@@ -2102,15 +1981,6 @@ function formatCurrencyExact(value: number) {
   }).format(value);
 }
 
-function formatCurrencyCompact(value: number) {
-  const amount = value / 1000;
-
-  return `$${new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 2,
-  }).format(amount)}K`;
-}
-
 function formatCurrencyShort(value: number) {
   const absValue = Math.abs(value);
   const sign = value < 0 ? "-" : "";
@@ -2147,16 +2017,6 @@ function formatPaidRatePercent(value: number) {
 function formatNullablePercent(value: number | null) {
   if (value == null) return "-";
   return formatPercent(value);
-}
-
-function formatMonthYear(monthKey: string) {
-  if (!/^\d{4}-\d{2}$/.test(monthKey)) return monthKey;
-
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    timeZone: "UTC",
-    year: "numeric",
-  }).format(new Date(`${monthKey}-01T00:00:00Z`));
 }
 
 function formatReportMonth(value: string) {

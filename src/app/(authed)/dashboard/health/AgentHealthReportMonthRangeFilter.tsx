@@ -158,7 +158,7 @@ export function AgentHealthReportMonthRangeFilter({
   }
 
   return (
-    <div ref={containerRef} className="relative">
+    <div ref={containerRef} className="dashboard-filter-wide relative">
       <button
         type="button"
         onClick={() => setIsOpen((current) => !current)}

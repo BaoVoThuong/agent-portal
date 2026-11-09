@@ -36,6 +36,13 @@ export function tooltipRow(marker: string, name: string, value: string) {
   return `<div style="display:flex;justify-content:space-between;gap:20px"><span>${marker}${name}</span><b>${value}</b></div>`;
 }
 
+// Trong mỗi kỳ, số của đường cao hơn nằm trên, đường thấp hơn nằm dưới.
+export function twoLineLabelPositions(first: number, second: number) {
+  return first >= second
+    ? ({ first: "top", second: "bottom" } as const)
+    : ({ first: "bottom", second: "top" } as const);
+}
+
 const AXIS_TICK_COUNT = 4;
 const NICE_STEPS = [1, 1.2, 1.25, 1.5, 2, 2.5, 3, 4, 5, 6, 7.5, 8, 10];
 

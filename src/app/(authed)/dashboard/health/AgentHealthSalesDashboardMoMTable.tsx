@@ -82,12 +82,15 @@ export function AgentHealthSalesDashboardMoMTable({
   }, [periodsByLevel, chartLevel]);
 
   return (
-    <section>
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+    <section className="pc-section">
+      <div className="pc-section-head mb-2 flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-semibold leading-tight text-[#16233a]">
-          Book &amp; Commission Trend | {changeLabel}
+          Book &amp; commission growth
         </h2>
       </div>
+      <p className="pc-section-note">
+        Policies, clients and agent commission by {getChartLevelLabel(chartLevel).toLowerCase()}, with {changeLabel} change. Dates are Report Month.
+      </p>
 
       <article className="agent-health-panel">
         {rows.length === 0 ? (

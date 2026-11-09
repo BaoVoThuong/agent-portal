@@ -7,6 +7,8 @@ import {
 } from "./AgentHealthDashboardFilterState";
 import { DashboardNavigationContent } from "../../_dashboard-shared/DashboardNavigationState";
 import { DashboardViewSkeleton } from "../../_dashboard-shared/DashboardViewSkeleton";
+import { HealthAgentOverviewScoreCards } from "../../_dashboard-shared/HealthOverviewScoreCards";
+import type { HealthAgentPeriod } from "../../_dashboard-shared/health-overview-metrics";
 import { AgentHealthCarrierMultiSelectFilter } from "./AgentHealthCarrierMultiSelectFilter";
 import { AgentHealthMemberPaymentTable } from "./AgentHealthMemberPaymentTable";
 import { AgentHealthDashboardTrendSection } from "./AgentHealthDashboardTrendSection";
@@ -34,8 +36,6 @@ import {
   type PaymentStatusMonth,
   type ReportMonthRange,
   type ReportYearCommissionMetric,
-  type ScoreCardMetric,
-  type ScoreCards,
 } from "./AgentHealthDashboard.types";
 
 // Re-export các type công khai để giữ nguyên đường import của page.tsx.
@@ -106,21 +106,23 @@ export function AgentHealthDashboard({
   }
 
   return (
-    <div className="agent-health-dashboard min-h-screen bg-slate-50 px-6 py-8 font-sans text-slate-900 md:px-10">
+    <div className="min-h-screen bg-slate-50 px-6 py-8 text-slate-900 md:px-10">
       <div className="mx-auto max-w-[1536px]">
         <header className="mb-6 flex flex-wrap items-start justify-between gap-6">
           <div>
-            <h1 className="text-[28px] font-semibold leading-tight text-[#16233a]">
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">
               Health Sales Dashboard
             </h1>
-            <p className="mt-2 text-sm font-normal text-[#667085]">
-              {canViewAll
-                ? "Showing dashboard for all agents."
-                : `Showing dashboard for ${agentName || "your account"}.`}
+            <p className="mt-2 text-sm text-slate-500 max-md:hidden">
+              Agent-facing Health production, policies, and commission.
             </p>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-3 max-md:justify-start max-md:[&>*]:w-full">
             {viewSwitcher}
+          </div>
+        </header>
+        <div className="dashboard-sticky-filters">
+          <div className="dashboard-filter-group flex flex-wrap items-center justify-end gap-3 max-md:justify-start max-md:[&>*]:w-full">
             <AgentHealthReportMonthRangeFilter
               key={`${reportMonthRange.start ?? ""}:${reportMonthRange.end ?? ""}`}
               defaultConfig={defaultConfig}
@@ -128,8 +130,7 @@ export function AgentHealthDashboard({
               endDate={reportMonthRange.end}
             />
           </div>
-        </header>
-        <div className={`mb-8 flex flex-wrap items-center justify-end gap-3 max-md:justify-start max-md:[&>*]:w-full max-md:mb-4 ${phoneFiltersOpen ? "" : "max-md:[&>*:not(:first-child)]:hidden"}`}>
+          <div className={`dashboard-filter-group flex flex-wrap items-center justify-end gap-3 max-md:justify-start max-md:[&>*]:w-full ${phoneFiltersOpen ? "" : "max-md:[&>*:not(:first-child)]:hidden"}`}>
       <PhoneFilterToggle open={phoneFiltersOpen} onToggle={() => setPhoneFiltersOpen((current) => !current)} activeCount={[clientCarriers, draftPrimaryMemberId].filter((value) => value.length > 0).length} />
           <AgentHealthCarrierMultiSelectFilter
             options={carrierOptions}
@@ -154,6 +155,7 @@ export function AgentHealthDashboard({
               value={draftPrimaryMemberId}
             />
           </label>
+          </div>
         </div>
 
         <DashboardNavigationContent fallback={<DashboardViewSkeleton />}>
@@ -163,49 +165,23 @@ export function AgentHealthDashboard({
             </div>
           ) : (
             <AgentHealthDashboardContent>
-              <div className="space-y-6">
-                <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-4 max-md:grid-cols-2 max-md:gap-2">
-                  <ScoreCard
-                    label="Active Policies"
-                    value={formatInteger(
-                      dashboardData.scoreCards.activePolicy.value
-                    )}
-                    changePercent={
-                      dashboardData.scoreCards.activePolicy.changePercent
-                    }
-                  />
-                  <ScoreCard
-                    label="Active Clients"
-                    value={formatInteger(
-                      dashboardData.scoreCards.activeClient.value
-                    )}
-                    changePercent={
-                      dashboardData.scoreCards.activeClient.changePercent
-                    }
-                  />
-                  <ScoreCard
-                    label="Monthly Commission"
-                    value={formatCurrency(
-                      dashboardData.scoreCards.totalCommission.value
-                    )}
-                    changePercent={
-                      dashboardData.scoreCards.totalCommission.changePercent
-                    }
-                  />
-                  <ScoreCard
-                    label={`${
-                      dashboardData.scoreCards.totalCommissionInReportYear
-                        .reportYear ?? "Report Year"
-                    } Commission`}
-                    value={formatCurrency(
-                      dashboardData.scoreCards.totalCommissionInReportYear.value
-                    )}
-                    footerText={`Avg ${formatCurrency(
-                      dashboardData.scoreCards.totalCommissionInReportYear
-                        .averageMonthlyCommission
-                    )} / month`}
-                  />
-                </section>
+              <div className="pc-numbered-sections space-y-8">
+                <div>
+                  <h2 className="text-2xl font-bold tracking-tight text-slate-900">
+                    Personal overview
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {canViewAll
+                      ? "Showing agent-facing Health metrics for all agents."
+                      : `Showing Health dashboard for ${agentName || "your account"}.`}{" "}
+                    Months use Report Month.
+                  </p>
+                </div>
+
+                <HealthAgentOverviewScoreCards
+                  periods={dashboardData.overviewPeriods}
+                  reportYearCommission={dashboardData.reportYearCommission}
+                />
 
                 <AgentHealthDashboardTrendSection
                   initialChartLevel={initialChartLevel}
@@ -245,9 +221,16 @@ function buildDashboardData(rows: HealthMartRow[]): DashboardData {
   const eligibleRows = buildEligibleHealthRows(filteredRows);
   const monthlySummaries = buildMonthlyDashboardSummaries(eligibleRows);
   const memberPaymentSummary = buildMemberPaymentSummary(eligibleRows);
+  const policyPaymentStatus = buildPolicyPaymentStatus(eligibleRows);
+  const clientPaymentStatus = buildClientPaymentStatus(eligibleRows);
 
   return {
-    scoreCards: buildScoreCards(monthlySummaries),
+    reportYearCommission: summarizeReportYearCommission(monthlySummaries),
+    overviewPeriods: buildOverviewPeriods(
+      monthlySummaries,
+      policyPaymentStatus,
+      clientPaymentStatus
+    ),
     memberPayments: memberPaymentSummary.rows,
     memberPaymentReportMonths: memberPaymentSummary.reportMonths,
     chartPeriodsByLevel: {
@@ -255,8 +238,8 @@ function buildDashboardData(rows: HealthMartRow[]): DashboardData {
       quarter: buildChartPeriods(monthlySummaries, "quarter"),
       year: buildChartPeriods(monthlySummaries, "year"),
     },
-    policyPaymentStatus: buildPolicyPaymentStatus(eligibleRows),
-    clientPaymentStatus: buildClientPaymentStatus(eligibleRows),
+    policyPaymentStatus,
+    clientPaymentStatus,
     carrierPaymentStatus: buildCarrierPaymentStatusBreakdown(
       eligibleRows,
       monthlySummaries
@@ -403,24 +386,34 @@ function buildMonthlyDashboardSummaries(
   );
 }
 
-function buildScoreCards(
-  monthlySummaries: MonthlyDashboardSummary[]
-): ScoreCards {
-  const qualifyingSummaries = monthlySummaries.filter(hasPolicies);
-  const latest = toScoreCardSummary(qualifyingSummaries.at(-1));
-  const previous = toScoreCardSummary(qualifyingSummaries.at(-2));
-  const reportYearCommission =
-    summarizeReportYearCommission(monthlySummaries);
+function buildOverviewPeriods(
+  monthlySummaries: MonthlyDashboardSummary[],
+  policyPaymentStatus: PaymentStatusMonth[],
+  clientPaymentStatus: PaymentStatusMonth[]
+): HealthAgentPeriod[] {
+  const policyStatusByMonth = new Map(
+    policyPaymentStatus.map((month) => [month.reportMonth, month])
+  );
+  const clientStatusByMonth = new Map(
+    clientPaymentStatus.map((month) => [month.reportMonth, month])
+  );
 
-  return {
-    activePolicy: toScoreCardMetric(latest.policyCount, previous.policyCount),
-    activeClient: toScoreCardMetric(latest.clientCount, previous.clientCount),
-    totalCommission: toScoreCardMetric(
-      latest.agentReceived,
-      previous.agentReceived
-    ),
-    totalCommissionInReportYear: reportYearCommission,
-  };
+  return monthlySummaries.filter(hasPolicies).map((summary) => {
+    const policyStatus = policyStatusByMonth.get(summary.reportMonth);
+    const clientStatus = clientStatusByMonth.get(summary.reportMonth);
+
+    return {
+      ...toScoreCardSummary(summary),
+      periodKey: summary.reportMonth,
+      periodLabel: summary.reportMonth,
+      paidPolicyCount: policyStatus?.paid ?? 0,
+      unpaidPolicyCount: policyStatus?.unpaid ?? 0,
+      paidClientCount: clientStatus?.paid ?? 0,
+      unpaidClientCount: clientStatus?.unpaid ?? 0,
+      policyPaidRate: policyStatus?.paidRate ?? 0,
+      clientPaidRate: clientStatus?.paidRate ?? 0,
+    };
+  });
 }
 
 function toScoreCardSummary(summary: MonthlyDashboardSummary | undefined) {
@@ -473,18 +466,6 @@ function summarizeReportYearCommission(
           qualifyingMonthCommissions.length,
     reportYear,
   };
-}
-
-function toScoreCardMetric(value: number, previousValue: number): ScoreCardMetric {
-  return {
-    value,
-    changePercent: calculatePercentChange(value, previousValue),
-  };
-}
-
-function calculatePercentChange(value: number, previousValue: number) {
-  if (previousValue === 0) return null;
-  return ((value - previousValue) / previousValue) * 100;
 }
 
 function buildChartPeriods(
@@ -966,16 +947,16 @@ function PaidRateOverviewSection({
   );
 
   return (
-    <section className="grid gap-5 xl:grid-cols-2">
+    <section className="grid min-w-0 items-start gap-8 xl:grid-cols-2">
       <CombinedPaymentStatusTable
         labelHeader="Month"
         rows={monthRows}
-        title="Paid Rate | Recent Months"
+        title="Paid rate, recent months"
       />
       <CombinedCarrierPaymentStatusTable
         reportMonth={reportMonth}
         rows={carrierRows}
-        title="Carrier Paid Rate | Latest Month"
+        title="Carrier paid rate, latest month"
       />
     </section>
   );
@@ -991,15 +972,15 @@ function MixBreakdownSection({
   stateRows: MixBreakdownRow[];
 }) {
   return (
-    <section className="grid gap-5 xl:grid-cols-2">
+    <section className="grid min-w-0 items-start gap-8 xl:grid-cols-2">
       <MixBreakdownTable
-        title="Carrier Mix | Latest Month"
+        title="Carrier mix, latest month"
         labelHeader="Carrier"
         reportMonth={reportMonth}
         rows={carrierRows}
       />
       <MixBreakdownTable
-        title="State Mix | Latest Month"
+        title="State mix, latest month"
         labelHeader="State"
         reportMonth={reportMonth}
         rows={stateRows}
@@ -1116,15 +1097,13 @@ function CombinedCarrierPaymentStatusTable({
   );
 
   return (
-    <section className="flex flex-col">
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
-        <h2 className="text-xl font-semibold leading-tight text-[#16233a]">{title}</h2>
-        {reportMonth ? (
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            {formatReportMonth(reportMonth)}
-          </span>
-        ) : null}
+    <section className="pc-section">
+      <div className="pc-section-head mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-xl font-bold tracking-tight text-slate-900">{title}</h2>
       </div>
+      {reportMonth ? (
+        <p className="pc-section-note">Report Month {formatReportMonth(reportMonth)}.</p>
+      ) : null}
       <article className="agent-health-panel">
         <div
           className="overflow-y-auto overflow-x-hidden"
@@ -1202,15 +1181,13 @@ function MixBreakdownTable({
   rows: MixBreakdownRow[];
 }) {
   return (
-    <section className="flex flex-col">
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-2">
-        <h2 className="text-xl font-semibold leading-tight text-[#16233a]">{title}</h2>
-        {reportMonth ? (
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            {formatReportMonth(reportMonth)}
-          </span>
-        ) : null}
+    <section className="pc-section">
+      <div className="pc-section-head mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-xl font-bold tracking-tight text-slate-900">{title}</h2>
       </div>
+      {reportMonth ? (
+        <p className="pc-section-note">Report Month {formatReportMonth(reportMonth)}.</p>
+      ) : null}
       <article className="agent-health-panel">
         <div className="overflow-hidden">
           <table className="w-full table-fixed text-[12px] tabular-nums">
@@ -1300,8 +1277,10 @@ function CombinedPaymentStatusTable({
   );
 
   return (
-    <section className="flex flex-col">
-      <h2 className="mb-4 text-xl font-semibold leading-tight text-[#16233a]">{title}</h2>
+    <section className="pc-section">
+      <div className="pc-section-head mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-xl font-bold tracking-tight text-slate-900">{title}</h2>
+      </div>
       <article className="agent-health-panel">
         <div
           className="overflow-y-auto overflow-x-hidden"
@@ -1410,56 +1389,6 @@ function calculateWeightedPaidRate<T>(
   return totals.total === 0 ? null : (totals.paid / totals.total) * 100;
 }
 
-function ScoreCard({
-  label,
-  value,
-  changePercent,
-  footerText,
-}: {
-  label: string;
-  value: string;
-  changePercent?: number | null;
-  footerText?: string;
-}) {
-  const hasTrend = changePercent !== undefined && changePercent !== null;
-  const isUp = hasTrend && changePercent > 0;
-  const isDown = hasTrend && changePercent < 0;
-  
-  let trendColorClass = "text-slate-500 bg-slate-50";
-  if (isUp) {
-    trendColorClass = "text-emerald-600 bg-emerald-50";
-  } else if (isDown) {
-    trendColorClass = "text-rose-600 bg-rose-50";
-  }
-
-  const footer = footerText ?? formatTrendContextText(changePercent ?? null);
-
-  return (
-    <article className="agent-health-panel-soft flex min-h-[124px] flex-col px-5 py-4 text-center">
-      <div className="flex min-h-8 items-center justify-center text-[12px] font-semibold uppercase leading-snug text-slate-500">
-        {label}
-      </div>
-      <div className="flex flex-1 items-center justify-center py-2">
-        <div className="w-full break-words text-center text-[2rem] font-semibold leading-none text-slate-950 tabular-nums">
-          {value}
-        </div>
-      </div>
-      <div className="flex min-h-7 items-center justify-center gap-2">
-        {hasTrend ? (
-          <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums ${trendColorClass}`}>
-            {isUp && <span className="mr-1">↑</span>}
-            {isDown && <span className="mr-1">↓</span>}
-            {formatTrendBadgePercent(Math.abs(changePercent))}
-          </span>
-        ) : null}
-        <span className={`min-w-0 truncate text-xs font-medium ${hasTrend ? "text-slate-600" : "text-slate-500"}`}>
-          {footer}
-        </span>
-      </div>
-    </article>
-  );
-}
-
 function sumMapValues(map: Map<string, number>) {
   let total = 0;
 
@@ -1495,20 +1424,6 @@ function formatPercent(value: number) {
     maximumFractionDigits: 1,
     minimumFractionDigits: 1,
   }).format(value)}%`;
-}
-
-function formatTrendBadgePercent(value: number) {
-  return `${new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: 1,
-    minimumFractionDigits: 0,
-  }).format(value)}%`;
-}
-
-function formatTrendContextText(value: number | null) {
-  if (value === null) return "No previous month";
-  if (value !== 0) return "vs previous month";
-
-  return "No change vs previous month";
 }
 
 function maxDateString(current: string | null, next: string | null) {

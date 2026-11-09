@@ -105,10 +105,6 @@ export default async function HealthSalesDashboardPage({
                 canViewSales
                 searchParams={params}
               />
-              <HealthSalesHeaderFilters
-                defaultConfig={monthDefaultConfig}
-                filters={filters}
-              />
             </div>
           </header>
 
@@ -120,6 +116,12 @@ export default async function HealthSalesDashboardPage({
               filterOptions={filterOptions}
               filters={filters}
               initialTrendLevel={trendLevel}
+              monthFilter={
+                <HealthSalesHeaderFilters
+                  defaultConfig={monthDefaultConfig}
+                  filters={filters}
+                />
+              }
               rows={reportMonthRows}
             />
           </DashboardNavigationContent>

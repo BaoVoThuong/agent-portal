@@ -238,12 +238,12 @@ export function AgentHealthMemberPaymentTable({
   }
 
   return (
-    <section className="agent-health-panel">
-      <header className="border-b border-[#d8dee7] px-6 py-5">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+    <section className="pc-section">
+      <header className="pc-section-head mb-3">
+        <div className="flex w-full flex-wrap items-start justify-between gap-4">
           <div>
             <h2 className="text-xl font-semibold leading-tight text-[#16233a]">
-              Member Payment History | 2026
+              Member payment history, 2026
             </h2>
             <p className="mt-1 text-xs text-[#667085]">
               Showing {formatInteger(filteredRows.length)} of {formatInteger(rows.length)} rows
