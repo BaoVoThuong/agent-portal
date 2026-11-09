@@ -3,7 +3,12 @@
 import { PhoneFilterToggle } from "@/app/(authed)/_shared/phone-ui";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FileDown, Filter } from "lucide-react";
-import * as XLSX from "xlsx";
+import type { WorkSheet } from "xlsx";
+import {
+  PcLineOfServiceSection,
+  PcScoreCards,
+} from "../../_dashboard-shared/PcLineOfService";
+import { useIncrementalRows } from "../../_dashboard-shared/use-incremental-rows";
 import { PcStateHeatMap } from "../../sales-dashboard/pc/PcStateHeatMap";
 import {
   POLICY_DETAIL_TABLE_MAX_HEIGHT,
@@ -259,6 +264,9 @@ export function AgentPcDashboard({
               )}
             />
           </section>
+
+          <PcScoreCards rows={filteredRows} showPremiumPerPolicy={false} />
+          <PcLineOfServiceSection audience="agent" rows={filteredRows} />
 
           <section>
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -1595,6 +1603,7 @@ function PolicyDetailsTable({
 
     return result;
   }, [rows, agentFilter, insuredFilter, policyFilter, carrierFilter, agencyFilter, paidFilter, statusFilter, effectiveDateRange, expiredDateRange, sortState]);
+  const { handleScroll, scrollRef, visibleRows } = useIncrementalRows(filteredRows);
 
   useEffect(() => {
     if (!activePanel) return;
@@ -1640,7 +1649,9 @@ function PolicyDetailsTable({
   }
 
   function exportFilteredRows() {
-    exportPolicyDetailsRows(filteredRows, showAgent);
+    exportPolicyDetailsRows(filteredRows, showAgent).catch(() => {
+      window.alert("Export failed. Reload the page and try again.");
+    });
   }
 
   return (
@@ -1669,7 +1680,7 @@ function PolicyDetailsTable({
           </button>
         </div>
       </div>
-      <div className="overflow-auto" style={{ maxHeight: POLICY_DETAIL_TABLE_MAX_HEIGHT }}>
+      <div className="overflow-auto" onScroll={handleScroll} ref={scrollRef} style={{ maxHeight: POLICY_DETAIL_TABLE_MAX_HEIGHT }}>
         <table className="text-[12px] tabular-nums">
           <thead className="sticky top-0 z-10">
             <tr>
@@ -1895,7 +1906,7 @@ function PolicyDetailsTable({
                 </td>
               </tr>
             ) : (
-              filteredRows.map((row, index) => (
+              visibleRows.map((row, index) => (
                 <tr
                   className={index % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}
                   key={`${row.policyNumber}-${row.effectiveDate}-${index}`}
@@ -1932,7 +1943,8 @@ function PolicyDetailsTable({
   );
 }
 
-function exportPolicyDetailsRows(rows: PolicyDetailRow[], showAgent: boolean) {
+async function exportPolicyDetailsRows(rows: PolicyDetailRow[], showAgent: boolean) {
+  const XLSX = await import("xlsx");
   const headers = [
     "#",
     ...(showAgent ? ["Agent"] : []),
@@ -1966,7 +1978,7 @@ function exportPolicyDetailsRows(rows: PolicyDetailRow[], showAgent: boolean) {
   sheet["!cols"] = headers.map((header) => ({
     wch: getPolicyDetailExportColumnWidth(header),
   }));
-  applyPolicyDetailExportFormats(sheet, headers, exportRows.length);
+  applyPolicyDetailExportFormats(XLSX, sheet, headers, exportRows.length);
 
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, sheet, "Policy Detail");
@@ -1989,7 +2001,8 @@ function getPolicyDetailExportColumnWidth(header: string) {
 }
 
 function applyPolicyDetailExportFormats(
-  sheet: XLSX.WorkSheet,
+  XLSX: typeof import("xlsx"),
+  sheet: WorkSheet,
   headers: string[],
   rowCount: number
 ) {
@@ -3152,12 +3165,14 @@ function formatInteger(value: number) {
   return Math.round(value).toLocaleString("en-US");
 }
 
+const agentCurrencyFormatter = new Intl.NumberFormat("en-US", {
+  currency: "USD",
+  maximumFractionDigits: 2,
+  style: "currency",
+});
+
 function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    currency: "USD",
-    maximumFractionDigits: 2,
-    style: "currency",
-  }).format(value);
+  return agentCurrencyFormatter.format(value);
 }
 
 function formatCurrencyShort(value: number) {

@@ -6,6 +6,26 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-09 — Dashboard P&C: score card và thống kê theo Line of Service (chưa deploy)
+
+- Áp dụng cho Company và Agent dashboard, theo bộ lọc đang chọn. Agent chỉ thấy Agent Comm, không có Total/EPS Comm.
+- Score card: New Business, Renewals, Cancellation, Carrier, Line of Service; Company có thêm Premium per Policy (Agent đã có
+  Average Premium / Policy). Số lớn là tổng theo bộ lọc, dòng dưới là tháng mới nhất và chênh lệch so với tháng liền trước.
+  Tháng liền trước không nằm trong dữ liệu đang lọc thì không hiện chênh lệch.
+- Cách đếm theo `pc_mart.status`, gom theo số policy, tháng theo `effective_date`. New Business và Renewals chỉ tính policy có
+  premium dương (giống Policies Sold và Renewal Rate). Cancellation đếm cả policy chỉ còn dòng premium âm.
+- Line of Service lấy từ `pc_mart.type`. `refresh_pc_mart` gom 44 giá trị gốc thành 10 line: Auto, Home, Dwelling, Commercial,
+  Flood, Renters, Umbrella, Motorcycle, Mobile Home, Wind. Dwelling gồm DWELLING, DWELLING FIRE (trước thuộc Home), DF, DP, DP3,
+  TDP 3, LANDLORD, VACANT, RENTAL. Commercial gồm BOP, GL, AUTO COMERCIAL. HO3, HOB thuộc Home. Giá trị lạ, ô trống và tên hãng
+  ghi nhầm vào cột Type thành null, hiện là "Unspecified". `pc_raw_data` không đổi. Rollout `2026-11-09-pc-line-normalize.sql` đã chạy production 09/11.
+- Không làm các ô Account (không có mã account, gộp theo tên dễ lệch) và Rewritten (không có dữ liệu).
+- Hiển thị một bảng theo line, xếp theo premium, khung vừa 5 line và cuộn để xem tiếp.
+- Tăng tốc: trang Company đọc `pc_mart` một lần (trước 3 query chồng nhau), tải tối đa 3 trang cùng lúc, trình duyệt tự chia tập theo
+  khoảng tháng, All-time và Expired, nên dữ liệu không gửi trùng. Tab Quarter/Year chỉ tính khi mở. Bảng Policy Details ở cả 2
+  dashboard dựng 100 dòng đầu, cuộn thì dựng thêm; khi lọc/sắp xếp quay về đầu bảng. "Showing X of Y" và Export vẫn theo toàn bộ
+  danh sách đã lọc. Trang Agent tải 2 query song song. Bỏ `COUNT(*)` chính xác trên toàn `pc_mart` trước khi tải trang (bảng nhỏ
+  chỉ cần một query). Chỉ tải thư viện XLSX khi bấm Export; dùng lại formatter số/ngày khi dựng các bảng. Số liệu không đổi.
+
 ## 2026-11-09 — Enrollment Import: cột "ID" của ACA không còn bị đọc thành mã hồ sơ (đã deploy)
 
 - Lý do (report của anh Nam): ACA (13/10) và Other Service (20/10) có cột tuỳ chỉnh "ID" (mã member, 48 hồ sơ ACA đang

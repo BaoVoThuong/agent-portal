@@ -2,7 +2,12 @@
 
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { FileDown, Filter, Minus, Plus } from "lucide-react";
-import * as XLSX from "xlsx";
+import type { WorkSheet } from "xlsx";
+import {
+  PcLineOfServiceSection,
+  PcScoreCards,
+} from "../../_dashboard-shared/PcLineOfService";
+import { useIncrementalRows } from "../../_dashboard-shared/use-incremental-rows";
 import {
   PcCommissionMetricTrendChart,
   type CommissionTrendRow,
@@ -10,6 +15,11 @@ import {
 import { PcSalesDashboardFilters } from "./PcSalesDashboardFilters";
 import { PcSalesTrendSections } from "./PcSalesTrendSections";
 import { PcStateHeatMap } from "./PcStateHeatMap";
+import {
+  selectPcExpiredRows,
+  selectPcRowsInRange,
+  type PcDateWindow,
+} from "./pc-sales-rows";
 import {
   TREND_MONTH_LIMIT,
   UNPAID_PRODUCER_LABEL,
@@ -53,6 +63,7 @@ function collectStatementNumbers(rows: PcSalesRow[]) {
 
   return [...new Set(statements)].sort((a, b) => b.localeCompare(a)).join(", ");
 }
+const ALL_MONTHS = { start: null, end: null };
 const CARRIER_ROW_LIMIT = 24;
 const SALES_MOM_VISIBLE_ROW_COUNT = 6;
 const SALES_MOM_HEADER_HEIGHT_PX = 44;
@@ -94,22 +105,35 @@ type ClientFilterValues = Pick<
 >;
 
 export function PcSalesDashboard({
-  agentPerformanceSourceRows,
+  currentMonthKey,
   expiredMonthKeys,
-  expiredRows: expiredSourceRows,
+  expiredWindow,
   filterOptions,
   filters,
   initialTrendLevel,
-  rows,
+  sourceRows,
 }: {
-  agentPerformanceSourceRows: PcSalesRow[];
+  currentMonthKey: string;
   expiredMonthKeys: string[];
-  expiredRows: PcSalesRow[];
+  expiredWindow: PcDateWindow;
   filterOptions: FilterOptions;
   filters: FilterValues;
   initialTrendLevel: TrendLevel;
-  rows: PcSalesRow[];
+  sourceRows: PcSalesRow[];
 }) {
+  const rows = useMemo(
+    () =>
+      selectPcRowsInRange(sourceRows, filters.reportMonthRange, currentMonthKey),
+    [currentMonthKey, filters.reportMonthRange, sourceRows]
+  );
+  const agentPerformanceSourceRows = useMemo(
+    () => selectPcRowsInRange(sourceRows, ALL_MONTHS, currentMonthKey),
+    [currentMonthKey, sourceRows]
+  );
+  const expiredSourceRows = useMemo(
+    () => selectPcExpiredRows(sourceRows, expiredWindow),
+    [expiredWindow, sourceRows]
+  );
   const [clientFilters, setClientFilters] = useState<ClientFilterValues>(() => ({
     agency: filters.agency,
     agent: filters.agent,
@@ -149,15 +173,12 @@ export function PcSalesDashboard({
       ),
     [activeFilters, agentPerformanceMonthCount, agentPerformanceSourceRows]
   );
-  const dataByLevel = useMemo<Record<TrendLevel, DashboardData>>(
-    () => ({
-      month: buildDashboardData(filteredRows, "month"),
-      quarter: buildDashboardData(filteredRows, "quarter"),
-      year: buildDashboardData(filteredRows, "year"),
-    }),
+  // Quarter/Year chỉ tính khi người dùng mở tab đó.
+  const getLevelData = useMemo(
+    () => createLevelDataReader(filteredRows),
     [filteredRows]
   );
-  const data = dataByLevel.month;
+  const data = getLevelData("month");
   const latestMonth = data.monthlyRows[0] ?? null;
 
   function updateClientFilters(nextFilters: ClientFilterValues) {
@@ -292,34 +313,28 @@ export function PcSalesDashboard({
             />
           </section>
 
+          <PcScoreCards rows={filteredRows} showPremiumPerPolicy />
+          <PcLineOfServiceSection audience="company" rows={filteredRows} />
+
           <PcSalesTrendSections
             initialLevel={initialTrendLevel}
             monthSalesTrend={
-              <MonthlySalesTrendChart
-                rows={dataByLevel.month.trendRows}
-                trendLevel="month"
-              />
+              <LazySalesTrend getLevelData={getLevelData} trendLevel="month" />
             }
             monthSections={
-              <PcTrendLevelSections data={dataByLevel.month} trendLevel="month" />
+              <LazyTrendSections getLevelData={getLevelData} trendLevel="month" />
             }
             quarterSalesTrend={
-              <MonthlySalesTrendChart
-                rows={dataByLevel.quarter.trendRows}
-                trendLevel="quarter"
-              />
+              <LazySalesTrend getLevelData={getLevelData} trendLevel="quarter" />
             }
             quarterSections={
-              <PcTrendLevelSections data={dataByLevel.quarter} trendLevel="quarter" />
+              <LazyTrendSections getLevelData={getLevelData} trendLevel="quarter" />
             }
             yearSalesTrend={
-              <MonthlySalesTrendChart
-                rows={dataByLevel.year.trendRows}
-                trendLevel="year"
-              />
+              <LazySalesTrend getLevelData={getLevelData} trendLevel="year" />
             }
             yearSections={
-              <PcTrendLevelSections data={dataByLevel.year} trendLevel="year" />
+              <LazyTrendSections getLevelData={getLevelData} trendLevel="year" />
             }
           />
           <AgentPerformanceTable
@@ -374,6 +389,20 @@ function syncClientFilterUrl(filters: ClientFilterValues) {
     "",
     query ? `${window.location.pathname}?${query}` : window.location.pathname
   );
+}
+
+function createLevelDataReader(rows: PcSalesRow[]) {
+  const dataByLevel = new Map<TrendLevel, DashboardData>();
+
+  return (trendLevel: TrendLevel) => {
+    const cached = dataByLevel.get(trendLevel);
+    if (cached) return cached;
+
+    const built = buildDashboardData(rows, trendLevel);
+    dataByLevel.set(trendLevel, built);
+
+    return built;
+  };
 }
 
 function buildDashboardData(rows: PcSalesRow[], trendLevel: TrendLevel): DashboardData {
@@ -908,11 +937,10 @@ function agentMetrics(rows: PcSalesRow[], agentNames: string[]) {
   const policies: Record<string, number> = {};
   const premium: Record<string, number> = {};
   const commission: Record<string, number> = {};
+  const rowsByAgent = groupRows(rows, (row) => cleanGroupLabel(row.agent_name));
 
   for (const agent of agentNames) {
-    const agentRows = rows.filter(
-      (row) => cleanGroupLabel(row.agent_name) === agent
-    );
+    const agentRows = rowsByAgent.get(agent) ?? [];
     policies[agent] = summarizeRows(agentRows).policyCount;
     premium[agent] = agentRows.reduce(
       (total, row) => total + Math.max(moneyValue(row.true_premium ?? row.premium), 0),
@@ -1175,6 +1203,29 @@ function formatLatestMonthMetric(
   return latestMonth
     ? `${value} in ${formatMonthYear(latestMonth.monthKey)}`
     : `Latest month ${value}`;
+}
+
+type LazyLevelProps = {
+  getLevelData: (trendLevel: TrendLevel) => DashboardData;
+  trendLevel: TrendLevel;
+};
+
+function LazySalesTrend({ getLevelData, trendLevel }: LazyLevelProps) {
+  return (
+    <MonthlySalesTrendChart
+      rows={getLevelData(trendLevel).trendRows}
+      trendLevel={trendLevel}
+    />
+  );
+}
+
+function LazyTrendSections({ getLevelData, trendLevel }: LazyLevelProps) {
+  return (
+    <PcTrendLevelSections
+      data={getLevelData(trendLevel)}
+      trendLevel={trendLevel}
+    />
+  );
 }
 
 function PcTrendLevelSections({
@@ -3115,6 +3166,7 @@ function PolicyDetailsTable({ rows }: { rows: PolicyDetailRow[] }) {
 
     return result;
   }, [rows, agentFilter, agencyFilter, insuredFilter, policyFilter, stateFilter, cityFilter, companyFilter, statusFilter, paidFilter, effectiveDateRange, expiredDateRange, sortState]);
+  const { handleScroll, scrollRef, visibleRows } = useIncrementalRows(filteredRows);
 
   useEffect(() => {
     if (!activePanel) return;
@@ -3154,7 +3206,9 @@ function PolicyDetailsTable({ rows }: { rows: PolicyDetailRow[] }) {
   }
 
   function exportFilteredRows() {
-    exportPolicyDetailsRows(filteredRows);
+    exportPolicyDetailsRows(filteredRows).catch(() => {
+      window.alert("Export failed. Reload the page and try again.");
+    });
   }
 
   return (
@@ -3183,7 +3237,7 @@ function PolicyDetailsTable({ rows }: { rows: PolicyDetailRow[] }) {
           </button>
         </div>
       </div>
-      <div className="overflow-auto" style={{ maxHeight: POLICY_DETAIL_TABLE_MAX_HEIGHT }}>
+      <div className="overflow-auto" onScroll={handleScroll} ref={scrollRef} style={{ maxHeight: POLICY_DETAIL_TABLE_MAX_HEIGHT }}>
         <table className="text-[12px] tabular-nums">
           <thead className="sticky top-0 z-10">
             <tr>
@@ -3265,7 +3319,7 @@ function PolicyDetailsTable({ rows }: { rows: PolicyDetailRow[] }) {
                 </td>
               </tr>
             ) : (
-              filteredRows.map((row, index) => (
+              visibleRows.map((row, index) => (
                 <tr key={`${row.policyNumber}-${index}`} className={index % 2 === 0 ? "bg-white" : "bg-[#f7f8fa]"}>
                   <td className="border-b border-slate-100 px-3 py-3 text-right text-xs font-semibold text-slate-400 whitespace-nowrap">
                     {index + 1}
@@ -3299,7 +3353,8 @@ function PolicyDetailsTable({ rows }: { rows: PolicyDetailRow[] }) {
   );
 }
 
-function exportPolicyDetailsRows(rows: PolicyDetailRow[]) {
+async function exportPolicyDetailsRows(rows: PolicyDetailRow[]) {
+  const XLSX = await import("xlsx");
   const headers = [
     "#",
     "Agent",
@@ -3337,7 +3392,7 @@ function exportPolicyDetailsRows(rows: PolicyDetailRow[]) {
   sheet["!cols"] = headers.map((header) => ({
     wch: getPolicyDetailExportColumnWidth(header),
   }));
-  applyPolicyDetailExportFormats(sheet, exportRows.length);
+  applyPolicyDetailExportFormats(XLSX, sheet, exportRows.length);
 
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, sheet, "Policy Detail");
@@ -3360,7 +3415,11 @@ function getPolicyDetailExportColumnWidth(header: string) {
   return 14;
 }
 
-function applyPolicyDetailExportFormats(sheet: XLSX.WorkSheet, rowCount: number) {
+function applyPolicyDetailExportFormats(
+  XLSX: typeof import("xlsx"),
+  sheet: WorkSheet,
+  rowCount: number
+) {
   // Cột Premium (8) và Agent Commission (9) theo thứ tự header export.
   const currencyColumnIndexes = [8, 9];
 
@@ -3887,33 +3946,51 @@ function roundAxisMax(value: number) {
   return Math.ceil(value / magnitude) * magnitude;
 }
 
+const integerFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+const currencyFormatter = new Intl.NumberFormat("en-US", {
+  currency: "USD", maximumFractionDigits: 2, minimumFractionDigits: 0, style: "currency",
+});
+const currencyLargeFormatter = new Intl.NumberFormat("en-US", {
+  currency: "USD", maximumFractionDigits: 0, minimumFractionDigits: 0, style: "currency",
+});
+const fixedTwoFormatter = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 2, minimumFractionDigits: 2,
+});
+const shortMillionFormatter = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 2, minimumFractionDigits: 0,
+});
+const shortThousandFormatter = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 1, minimumFractionDigits: 0,
+});
+const percentFormatter = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 2, minimumFractionDigits: 0,
+});
+const percentLargeFormatter = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 2, minimumFractionDigits: 1,
+});
+const monthYearFormatter = new Intl.DateTimeFormat("en-US", {
+  month: "short", timeZone: "UTC", year: "numeric",
+});
+const shortDateFormatter = new Intl.DateTimeFormat("en-US", {
+  day: "numeric", month: "short", year: "numeric",
+});
+
 function formatInteger(value: number) {
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
+  return integerFormatter.format(value);
 }
 
 function formatCurrency(value: number) {
-  return new Intl.NumberFormat("en-US", {
-    currency: "USD",
-    maximumFractionDigits: Math.abs(value) >= 1000 ? 0 : 2,
-    minimumFractionDigits: 0,
-    style: "currency",
-  }).format(value);
+  return (Math.abs(value) >= 1000 ? currencyLargeFormatter : currencyFormatter).format(value);
 }
 
 function formatCurrencyCompact(value: number) {
   const absValue = Math.abs(value);
 
   if (absValue >= 1000000) {
-    return `$${new Intl.NumberFormat("en-US", {
-      maximumFractionDigits: 2,
-      minimumFractionDigits: 2,
-    }).format(value / 1000000)}M`;
+    return `$${fixedTwoFormatter.format(value / 1000000)}M`;
   }
 
-  return `$${new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 2,
-  }).format(value / 1000)}K`;
+  return `$${fixedTwoFormatter.format(value / 1000)}K`;
 }
 
 function formatCurrencyShort(value: number) {
@@ -3921,17 +3998,11 @@ function formatCurrencyShort(value: number) {
   const sign = value < 0 ? "-" : "";
 
   if (absValue >= 1000000) {
-    return `${sign}$${new Intl.NumberFormat("en-US", {
-      maximumFractionDigits: 2,
-      minimumFractionDigits: 0,
-    }).format(absValue / 1000000)}M`;
+    return `${sign}$${shortMillionFormatter.format(absValue / 1000000)}M`;
   }
 
   if (absValue >= 1000) {
-    return `${sign}$${new Intl.NumberFormat("en-US", {
-      maximumFractionDigits: 1,
-      minimumFractionDigits: 0,
-    }).format(absValue / 1000)}K`;
+    return `${sign}$${shortThousandFormatter.format(absValue / 1000)}K`;
   }
 
   return `${sign}${formatCurrency(absValue)}`;
@@ -3945,10 +4016,7 @@ function formatAxisMoney(value: number) {
 }
 
 function formatPercent(value: number) {
-  return `${new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: Math.abs(value) >= 10 ? 1 : 0,
-  }).format(value)}%`;
+  return `${(Math.abs(value) >= 10 ? percentLargeFormatter : percentFormatter).format(value)}%`;
 }
 
 function formatNullablePercent(value: number | null) {
@@ -3958,11 +4026,7 @@ function formatNullablePercent(value: number | null) {
 function formatMonthYear(monthKey: string) {
   if (!/^\d{4}-\d{2}$/.test(monthKey)) return monthKey;
 
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    timeZone: "UTC",
-    year: "numeric",
-  }).format(new Date(`${monthKey}-01T00:00:00Z`));
+  return monthYearFormatter.format(new Date(`${monthKey}-01T00:00:00Z`));
 }
 
 function deltaTextClassName(value: number | null) {
@@ -4040,11 +4104,7 @@ function rgba(red: number, green: number, blue: number, alpha: number) {
 }
 
 function formatShortDate(value: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  }).format(toDate(value));
+  return shortDateFormatter.format(toDate(value));
 }
 
 function toDate(value: string) {

@@ -75,16 +75,17 @@ export default async function PcDashboardPage({
   const agentName = normalizeAgentName(session.user.name ?? "");
   const scopedAgentName = canViewAllAgents ? null : agentName;
   const expiredPolicyWindow = getExpiredPolicyWindow();
-  const rows = scopedAgentName || canViewAllAgents
-    ? await fetchAgentPcRows(scopedAgentName, reportMonthRange)
-    : null;
-  const expiredRows = scopedAgentName || canViewAllAgents
-    ? await fetchAgentPcExpiredRows(
-        scopedAgentName,
-        expiredPolicyWindow.startDate,
-        expiredPolicyWindow.endDate
-      )
-    : [];
+  const canLoadRows = Boolean(scopedAgentName) || canViewAllAgents;
+  const [rows, expiredRows] = await Promise.all([
+    canLoadRows ? fetchAgentPcRows(scopedAgentName, reportMonthRange) : null,
+    canLoadRows
+      ? fetchAgentPcExpiredRows(
+          scopedAgentName,
+          expiredPolicyWindow.startDate,
+          expiredPolicyWindow.endDate
+        )
+      : [],
+  ]);
   const filters = parseFilters(params);
   const filterOptions = rows ? buildFilterOptions(rows) : emptyFilterOptions();
 

@@ -21,6 +21,7 @@ import {
   type PcSalesRow,
 } from "./PcSalesDashboard";
 import { PcSalesHeaderFilters } from "./PcSalesDashboardFilters";
+import { selectPcRowsInRange } from "./pc-sales-rows";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,7 @@ type ReportMonthRange = {
 type TrendLevel = "month" | "quarter" | "year";
 
 const PC_PAGE_SIZE = 1000;
+const PC_PAGE_CONCURRENCY = 3;
 const EXPIRED_POLICY_MONTH_COUNT = 12;
 const PC_SALES_ROW_SELECT = [
   "agent_name",
@@ -76,12 +78,10 @@ export default async function PcSalesDashboardPage({
   const trendLevel = parseTrendLevel(params.trendLevel);
   const currentMonthKey = getCurrentMonthKey();
   const expiredPolicyWindow = getExpiredPolicyWindow();
-  const [rows, expiredPolicyRows, agentPerformanceSourceRows] = await Promise.all([
-    fetchPcSalesRows(filters.reportMonthRange, currentMonthKey),
-    fetchPcExpiredPolicyRows(expiredPolicyWindow.startDate, expiredPolicyWindow.endDate),
-    fetchPcSalesRows({ start: null, end: null }, currentMonthKey),
-  ]);
-  const filterOptions = buildFilterOptions(rows);
+  const sourceRows = await fetchPcSourceRows();
+  const filterOptions = buildFilterOptions(
+    selectPcRowsInRange(sourceRows, filters.reportMonthRange, currentMonthKey)
+  );
 
   return (
     <DashboardNavigationProvider>
@@ -117,13 +117,16 @@ export default async function PcSalesDashboardPage({
               key={`${filters.reportMonthRange.start ?? "all"}:${
                 filters.reportMonthRange.end ?? "all"
               }`}
-              agentPerformanceSourceRows={agentPerformanceSourceRows}
+              currentMonthKey={currentMonthKey}
+              expiredMonthKeys={expiredPolicyWindow.monthKeys}
+              expiredWindow={{
+                endDate: expiredPolicyWindow.endDate,
+                startDate: expiredPolicyWindow.startDate,
+              }}
               filterOptions={filterOptions}
               filters={filters}
-              expiredMonthKeys={expiredPolicyWindow.monthKeys}
-              expiredRows={expiredPolicyRows}
               initialTrendLevel={trendLevel}
-              rows={rows}
+              sourceRows={sourceRows}
             />
           </DashboardNavigationContent>
         </div>
@@ -133,65 +136,44 @@ export default async function PcSalesDashboardPage({
   );
 }
 
-async function fetchPcSalesRows(
-  reportMonthRange: ReportMonthRange,
-  maxMonthKey: string
-) {
-  const supabase = getSupabaseAdmin();
-  const rows: PcSalesRow[] = [];
-  const startMonth = dateToMonthKey(reportMonthRange.start);
-  const requestedEndMonth = dateToMonthKey(reportMonthRange.end);
-  const endMonth =
-    requestedEndMonth && requestedEndMonth.localeCompare(maxMonthKey) < 0
-      ? requestedEndMonth
-      : maxMonthKey;
-
-  for (let from = 0; ; from += PC_PAGE_SIZE) {
-    let query = supabase
-      .from("pc_mart")
-      .select(PC_SALES_ROW_SELECT)
-      .order("effective_date", { ascending: false })
-      .range(from, from + PC_PAGE_SIZE - 1);
-
-    if (startMonth) {
-      query = query.gte("effective_date", monthValueToDate(startMonth));
-    }
-
-    if (endMonth) {
-      query = query.lte("effective_date", monthValueToEndDate(endMonth));
-    }
-
-    const { data, error } = await query;
-
-    if (error) throw new Error(error.message);
-
-    rows.push(...(((data ?? []) as unknown) as PcSalesRow[]));
-
-    if (!data || data.length < PC_PAGE_SIZE) {
-      return rows;
-    }
-  }
+function selectPcPage(from: number) {
+  return getSupabaseAdmin()
+    .from("pc_mart")
+    .select(PC_SALES_ROW_SELECT)
+    .order("effective_date", { ascending: false })
+    // effective_date trùng rất nhiều: thứ tự phải cố định thì các trang mới
+    // không lặp hay sót dòng.
+    .order("policy_number")
+    .order("statement_number")
+    .order("paid_producer")
+    .order("type")
+    .order("company")
+    .range(from, from + PC_PAGE_SIZE - 1);
 }
 
-async function fetchPcExpiredPolicyRows(startDate: string, endDate: string) {
-  const supabase = getSupabaseAdmin();
-  const rows: PcSalesRow[] = [];
+async function fetchPcSourceRows() {
+  const firstPage = await selectPcPage(0);
 
-  for (let from = 0; ; from += PC_PAGE_SIZE) {
-    const { data, error } = await supabase
-      .from("pc_mart")
-      .select(PC_SALES_ROW_SELECT)
-      .not("expired_date", "is", null)
-      .gte("expired_date", startDate)
-      .lte("expired_date", endDate)
-      .order("expired_date", { ascending: true })
-      .range(from, from + PC_PAGE_SIZE - 1);
+  if (firstPage.error) throw new Error(firstPage.error.message);
 
-    if (error) throw new Error(error.message);
+  const rows = ((firstPage.data ?? []) as unknown) as PcSalesRow[];
+  if (rows.length < PC_PAGE_SIZE) return rows;
 
-    rows.push(...(((data ?? []) as unknown) as PcSalesRow[]));
+  for (let from = PC_PAGE_SIZE; ; from += PC_PAGE_SIZE * PC_PAGE_CONCURRENCY) {
+    const pages = await Promise.all(
+      Array.from({ length: PC_PAGE_CONCURRENCY }, (_, index) =>
+        selectPcPage(from + index * PC_PAGE_SIZE)
+      )
+    );
 
-    if (!data || data.length < PC_PAGE_SIZE) {
+    for (const page of pages) {
+      if (page.error) throw new Error(page.error.message);
+
+      rows.push(...(((page.data ?? []) as unknown) as PcSalesRow[]));
+    }
+
+    // Trang cuối ngắn hơn page size; không cần query COUNT(*) trên toàn mart.
+    if (pages.some((page) => (page.data?.length ?? 0) < PC_PAGE_SIZE)) {
       return rows;
     }
   }
@@ -354,13 +336,6 @@ function dateToMonthKey(value: string | null) {
 
 function monthValueToDate(value: string) {
   return `${value}-01`;
-}
-
-function monthValueToEndDate(value: string) {
-  const year = Number(value.slice(0, 4));
-  const month = Number(value.slice(5, 7));
-
-  return new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
 }
 
 function cleanGroupLabel(value: string | null) {
