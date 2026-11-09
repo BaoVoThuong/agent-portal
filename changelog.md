@@ -6,6 +6,17 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-09 — Enrollment Import: cột "ID" của ACA không còn bị đọc thành mã hồ sơ (đã deploy)
+
+- Lý do (report của anh Nam): ACA (13/10) và Other Service (20/10) có cột tuỳ chỉnh "ID" (mã member, 48 hồ sơ ACA đang
+  dùng), trùng tiêu đề "ID" mà Export ghi cho uuid hồ sơ. File xuất ra có hai cột "ID"; Import đọc cột "ID" nào cũng thành
+  uuid nên mã member gõ vào → "Invalid ID" → bỏ cả dòng.
+- Export ghi uuid với tiêu đề **"Record ID"**. Import: "Record ID" là uuid; "ID" là cột của chương trình nếu chương trình có cột
+  tên "ID", còn không thì vẫn là uuid (file cũ của Medicare/Medicaid). File Export cũ của ACA (hai cột "ID"): cột đầu là uuid,
+  cột sau là mã member; một cột "ID" mà toàn uuid thì vẫn là uuid.
+- Đọc file theo vị trí cột (`uniqueImportHeaders`) thay vì `sheet_to_json` dạng object, để hai cột trùng tên giữ ô riêng.
+- Lỗi "Invalid …" nói thêm "Leave it blank to add a new record."; danh sách dòng bị bỏ mở sẵn trong hộp thoại.
+
 ## 2026-11-07 — DB nghẽn không còn bị hiểu là "không có quyền"; dọn lỗi lặp của upload (đã deploy, đã chạy rollout)
 
 - Lý do: log Vercel tuần 31/10–07/11 cho thấy cả 141 lỗi 403 và 74 lỗi 401 đều nằm trong 2 đợt Supabase nghẽn: tra quyền

@@ -5,9 +5,11 @@ import {
   buildEnrollmentTemplate,
   ENROLLMENT_IMPORT_MANAGED_KEYS,
   enrollmentImportPayload,
+  importHeaderLabel,
   matchEnrollmentHeaders,
   parseEnrollmentImportRows,
   toIsoDate,
+  uniqueImportHeaders,
   type EnrollmentImportContext,
 } from "@/lib/enrollment/import";
 import type { TableColumn } from "@/lib/table-config/types";
@@ -92,10 +94,84 @@ describe("matchEnrollmentHeaders", () => {
     expect(matched.ignored).toEqual([]);
   });
 
-  it("nhận cột ID để biết dòng nào là cập nhật", () => {
-    const matched = matchEnrollmentHeaders(["ID", "Client Name"], COLUMNS);
-    expect(matched.idHeader).toBe(ENROLLMENT_IMPORT_ID_HEADER);
+  it("nhận cột Record ID để biết dòng nào là cập nhật", () => {
+    expect(ENROLLMENT_IMPORT_ID_HEADER).toBe("Record ID");
+    const matched = matchEnrollmentHeaders(["Record ID", "Client Name"], COLUMNS);
+    expect(matched.idHeader).toBe("Record ID");
   });
+
+  it("file Export cũ (tiêu đề ID) của chương trình không có cột ID vẫn là uuid", () => {
+    const matched = matchEnrollmentHeaders(["ID", "Client Name"], COLUMNS);
+    expect(matched.idHeader).toBe("ID");
+  });
+});
+
+// 2026-11-09, report của anh Nam: ACA có cột tuỳ chỉnh "ID" (mã member), trùng
+// tiêu đề với uuid của Export. Số member gõ vào bị đọc thành uuid → bỏ dòng.
+describe("chương trình có cột ID riêng (ACA)", () => {
+  const ACA_COLUMNS = [...COLUMNS, { ...column("id", "ID"), is_system: false } as TableColumn];
+  const UUID = "11111111-1111-4111-8111-111111111111";
+
+  it("ID là cột của chương trình, không phải uuid", () => {
+    const records = [{ ID: "M06972750", "Client Name": "A" }];
+    const matched = matchEnrollmentHeaders(["ID", "Client Name"], ACA_COLUMNS, records);
+    expect(matched.idHeader).toBeNull();
+    expect(matched.byHeader.get("ID")).toBe("id");
+    const parsed = parseEnrollmentImportRows(records, matched, ACA_COLUMNS, CTX);
+    expect(parsed.skipped).toEqual([]);
+    expect(parsed.rows[0]).toMatchObject({ mode: "create", values: { id: "M06972750" } });
+  });
+
+  it("file mới: Record ID là uuid, ID là mã member", () => {
+    const matched = matchEnrollmentHeaders(["Record ID", "ID", "Client Name"], ACA_COLUMNS);
+    expect(matched.idHeader).toBe("Record ID");
+    expect(matched.byHeader.get("ID")).toBe("id");
+  });
+
+  it("file Export cũ có hai cột ID: cột đầu là uuid, cột sau là mã member", () => {
+    const headers = uniqueImportHeaders(["ID", "Client Name", "ID"]);
+    const records = [
+      { [headers[0]]: UUID, "Client Name": "A", [headers[2]]: "002332290200" },
+      { [headers[0]]: null, "Client Name": "B", [headers[2]]: "M06972750" },
+    ];
+    const matched = matchEnrollmentHeaders(headers, ACA_COLUMNS, records);
+    expect(matched.idHeader).toBe(headers[0]);
+    expect(matched.byHeader.get(headers[2])).toBe("id");
+    expect(matched.ignored).toEqual([]);
+    const parsed = parseEnrollmentImportRows(records, matched, ACA_COLUMNS, CTX);
+    expect(parsed.rows.map((row) => [row.mode, row.id, row.values.id])).toEqual([
+      ["update", UUID, "002332290200"],
+      ["create", null, "M06972750"],
+    ]);
+  });
+
+  it("một cột ID mà toàn uuid thì vẫn là uuid (Export cũ đã ẩn cột member)", () => {
+    const matched = matchEnrollmentHeaders(["ID", "Client Name"], ACA_COLUMNS, [
+      { ID: UUID, "Client Name": "A" },
+    ]);
+    expect(matched.idHeader).toBe("ID");
+  });
+
+  it("gõ số vào cột uuid thì nói rõ cách sửa", () => {
+    const headers = uniqueImportHeaders(["ID", "Client Name", "ID"]);
+    const records = [{ [headers[0]]: "1", "Client Name": "A", [headers[2]]: null }];
+    const matched = matchEnrollmentHeaders(headers, ACA_COLUMNS, records);
+    const parsed = parseEnrollmentImportRows(records, matched, ACA_COLUMNS, CTX);
+    expect(parsed.skipped[0].reason).toBe("Invalid ID: 1. Leave it blank to add a new record.");
+  });
+});
+
+describe("uniqueImportHeaders", () => {
+  it("giữ tiêu đề đầu, đánh dấu những lần lặp, bỏ ô trống", () => {
+    const keys = uniqueImportHeaders(["ID", "Client Name", "ID", ""]);
+    expect(keys[0]).toBe("ID");
+    expect(keys[2]).not.toBe("ID");
+    expect(importHeaderLabel(keys[2])).toBe("ID");
+    expect(keys[3]).toBe("");
+  });
+});
+
+describe("matchEnrollmentHeaders (tiếp)", () => {
 
   // Key là số hiệu hiển thị do database sinh; QC bị chặn theo stage nên nhập
   // vào chỉ tạo ra một loạt lỗi khó hiểu; nhóm created/updated là lịch sử.

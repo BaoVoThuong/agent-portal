@@ -10,8 +10,10 @@ import {
   buildEnrollmentImportContext,
   buildEnrollmentTemplate,
   enrollmentImportPayload,
+  importHeaderLabel,
   matchEnrollmentHeaders,
   parseEnrollmentImportRows,
+  uniqueImportHeaders,
   type EnrollmentImportParse,
 } from "@/lib/enrollment/import";
 
@@ -64,8 +66,8 @@ export function EnrollmentImportDialog({
     [options, people, columnOptions]
   );
   const matched = useMemo(
-    () => matchEnrollmentHeaders(headers, columns),
-    [headers, columns]
+    () => matchEnrollmentHeaders(headers, columns, records),
+    [headers, columns, records]
   );
   const parsed: EnrollmentImportParse = useMemo(
     () => parseEnrollmentImportRows(records, matched, columns, context),
@@ -121,15 +123,27 @@ export function EnrollmentImportDialog({
         header: 1,
         defval: null,
       });
-      const nextHeaders = (matrix[0] ?? [])
-        .map((value) => String(value ?? "").trim())
-        .filter(Boolean);
+      // Read by position, not with sheet_to_json's object mode: two columns with
+      // the same title (old ACA exports had two "ID") must keep their own cells.
+      const keys = uniqueImportHeaders(
+        (matrix[0] ?? []).map((value) => String(value ?? "").trim())
+      );
+      const nextHeaders = keys.filter((key) => importHeaderLabel(key) !== "");
       if (nextHeaders.length === 0) {
         throw new Error("The first row must contain column headers.");
       }
-      const nextRecords = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-        defval: null,
-      });
+      const nextRecords = matrix
+        .slice(1)
+        .filter((row) =>
+          row.some((cell) => cell !== null && cell !== undefined && String(cell).trim() !== "")
+        )
+        .map((row) => {
+          const record: Record<string, unknown> = {};
+          keys.forEach((key, index) => {
+            if (key) record[key] = row[index] ?? null;
+          });
+          return record;
+        });
       if (nextRecords.length > MAX_ROWS) {
         throw new Error(
           `That file has ${nextRecords.length} rows. The limit is ${MAX_ROWS}.`
@@ -354,7 +368,7 @@ export function EnrollmentImportDialog({
                 ) : null}
 
                 {parsed.skipped.length > 0 ? (
-                  <details className="mt-3 rounded-lg border border-[#dbe2eb] bg-[#f7f9fc] px-3 py-2">
+                  <details open className="mt-3 rounded-lg border border-[#dbe2eb] bg-[#f7f9fc] px-3 py-2">
                     <summary className="cursor-pointer text-xs font-bold text-[#42526e]">
                       {parsed.skipped.length} rows skipped
                     </summary>

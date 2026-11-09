@@ -10,7 +10,39 @@ import type { TableColumn } from "@/lib/table-config/types";
  * BỎ DÒNG chứ không ghi null đè lên giá trị đang đúng.
  */
 
-export const ENROLLMENT_IMPORT_ID_HEADER = "ID";
+/**
+ * Tiêu đề cột mang uuid của hồ sơ trong file Export.
+ *
+ * Trước 2026-11-09 là "ID" — trùng với cột tuỳ chỉnh "ID" (mã member) mà ACA và
+ * Other Service tự tạo trong /config. File xuất ra có hai cột "ID", và số member
+ * gõ vào bị đọc thành uuid nên cả dòng bị bỏ ("Invalid ID"). File cũ vẫn nhập
+ * được: xem `matchEnrollmentHeaders`.
+ */
+export const ENROLLMENT_IMPORT_ID_HEADER = "Record ID";
+const RECORD_ID_HEADER = "recordid";
+const LEGACY_ID_HEADER = "id";
+
+/** Đánh dấu tiêu đề lặp lại, để mỗi cột trong file giữ ô của riêng nó. */
+const DUPLICATE_MARK = "\u0000";
+
+/**
+ * Khoá duy nhất cho từng cột của file: tiêu đề lặp lại lần thứ n thành
+ * `tiêu đề + DUPLICATE_MARK + n`. Ô trống giữ nguyên "" (cột bị bỏ).
+ */
+export function uniqueImportHeaders(raw: readonly string[]): string[] {
+  const seen = new Map<string, number>();
+  return raw.map((header) => {
+    if (!header) return "";
+    const count = (seen.get(header) ?? 0) + 1;
+    seen.set(header, count);
+    return count === 1 ? header : `${header}${DUPLICATE_MARK}${count}`;
+  });
+}
+
+/** Tiêu đề người dùng thấy, bỏ dấu đánh lặp. */
+export function importHeaderLabel(header: string): string {
+  return header.split(DUPLICATE_MARK)[0];
+}
 
 /**
  * Cột không nhận giá trị từ file.
@@ -152,9 +184,34 @@ function iso(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+/** Mọi ô có giá trị của cột đều là uuid, và có ít nhất một ô. */
+function holdsRecordIds(
+  records: readonly Record<string, unknown>[],
+  header: string
+): boolean {
+  let seen = false;
+  for (const record of records) {
+    const value = String(record[header] ?? "").trim();
+    if (!value) continue;
+    if (!UUID_RE.test(value)) return false;
+    seen = true;
+  }
+  return seen;
+}
+
+/**
+ * `headers` là khoá cột của `records` (đã qua `uniqueImportHeaders`).
+ *
+ * Cột mang uuid hồ sơ là "Record ID". "ID" chỉ còn là uuid khi chương trình
+ * KHÔNG có cột nào tên "ID" (file Export cũ của Medicare/Medicaid). Chương
+ * trình có cột "ID" riêng (ACA, Other Service) thì "ID" là cột đó — trừ file
+ * Export cũ: hai cột "ID" thì cột đầu là uuid (Export luôn ghi nó đầu tiên);
+ * một cột "ID" mà toàn uuid thì cũng là uuid.
+ */
 export function matchEnrollmentHeaders(
   headers: readonly string[],
-  columns: readonly TableColumn[]
+  columns: readonly TableColumn[],
+  records: readonly Record<string, unknown>[] = []
 ): EnrollmentHeaderMatch {
   const lookup = new Map<string, string>();
   const managedLookup = new Set<string>();
@@ -173,22 +230,37 @@ export function matchEnrollmentHeaders(
   const taken = new Set<string>();
   const ignored: string[] = [];
   const managed: string[] = [];
-  let idHeader: string | null = null;
+  const normalizedOf = (header: string) => normalizeHeader(importHeaderLabel(header));
+  const programHasIdColumn = lookup.has(LEGACY_ID_HEADER);
+  const recordIdHeader = headers.find((h) => normalizedOf(h) === RECORD_ID_HEADER) ?? null;
+  const legacyIdHeaders = headers.filter((h) => normalizedOf(h) === LEGACY_ID_HEADER);
+
+  let idHeader: string | null = recordIdHeader;
+  if (!idHeader && legacyIdHeaders.length > 0) {
+    const first = legacyIdHeaders[0];
+    if (!programHasIdColumn || legacyIdHeaders.length >= 2 || holdsRecordIds(records, first)) {
+      idHeader = first;
+    }
+  }
 
   for (const header of headers) {
-    const normalized = normalizeHeader(header);
-    if (normalized === "id") {
-      if (idHeader === null) idHeader = header;
-      else ignored.push(header);
+    if (!header || header === idHeader) continue;
+    const label = importHeaderLabel(header);
+    const normalized = normalizedOf(header);
+    if (
+      normalized === RECORD_ID_HEADER ||
+      (normalized === LEGACY_ID_HEADER && !programHasIdColumn)
+    ) {
+      ignored.push(label);
       continue;
     }
     if (managedLookup.has(normalized)) {
-      managed.push(header);
+      managed.push(label);
       continue;
     }
     const key = lookup.get(normalized);
     if (!key || taken.has(key)) {
-      ignored.push(header);
+      ignored.push(label);
       continue;
     }
     taken.add(key);
@@ -216,7 +288,10 @@ export function parseEnrollmentImportRows(
       const rawId = String(record[matched.idHeader] ?? "").trim();
       if (rawId) {
         if (!UUID_RE.test(rawId)) {
-          skipped.push({ row: excelRow, reason: `Invalid ID: ${rawId}` });
+          skipped.push({
+            row: excelRow,
+            reason: `Invalid ${importHeaderLabel(matched.idHeader)}: ${rawId}. Leave it blank to add a new record.`,
+          });
           return;
         }
         id = rawId;
