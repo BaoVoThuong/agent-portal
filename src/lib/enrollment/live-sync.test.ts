@@ -5,7 +5,10 @@ import {
   enrollmentInvalidationReconcileScope,
   enrollmentLivePollInterval,
   enrollmentRefetchDisposition,
+  ENROLLMENT_LIST_RECONCILE_MS,
+  ENROLLMENT_LIVE_RECONCILE_MS,
   mergeEnrollmentReconcileScope,
+  parseEnrollmentRefetchReason,
 } from "./live-sync";
 
 describe("enrollment live sync", () => {
@@ -52,6 +55,17 @@ describe("enrollment live sync", () => {
     expect(enrollmentLivePollInterval("degraded")).toBeLessThan(
       enrollmentLivePollInterval("live"),
     );
+  });
+
+  it("does not poll the full list faster when Realtime is degraded", () => {
+    expect(ENROLLMENT_LIST_RECONCILE_MS).toBe(ENROLLMENT_LIVE_RECONCILE_MS);
+  });
+
+  it("accepts only known refetch reasons", () => {
+    expect(parseEnrollmentRefetchReason("broadcast")).toBe("broadcast");
+    expect(parseEnrollmentRefetchReason("poll")).toBe("poll");
+    expect(parseEnrollmentRefetchReason("x@example.com")).toBe("other");
+    expect(parseEnrollmentRefetchReason(null)).toBe("other");
   });
 });
 

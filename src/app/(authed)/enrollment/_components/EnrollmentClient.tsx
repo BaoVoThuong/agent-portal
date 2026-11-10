@@ -60,12 +60,15 @@ import {
 import { useBodyScrollLock } from "../../_shared/useBodyScrollLock";
 import {
   canRefreshEnrollmentData,
+  ENROLLMENT_LIST_RECONCILE_MS,
   ENROLLMENT_LIVE_EVENT_DEBOUNCE_MS,
   ENROLLMENT_LIVE_REFRESH_THROTTLE_MS,
+  ENROLLMENT_OPTIONS_POLL_EVERY_TICKS,
   enrollmentBroadcastReconcileScope,
   enrollmentInvalidationReconcileScope,
   enrollmentLivePollInterval,
   type EnrollmentLiveStatus,
+  type EnrollmentRefetchReason,
 } from "@/lib/enrollment/live-sync";
 import { tableConfigTopic } from "@/lib/table-config/realtime-topics";
 import {
@@ -1007,6 +1010,7 @@ export function EnrollmentClient({
   // trailing refresh, matching the task board's stale-while-revalidate flow.
   const recordsRefetchInFlightRef = useRef<Promise<void> | null>(null);
   const recordsRefetchQueuedRef = useRef(false);
+  const recordsRefetchQueuedReasonRef = useRef<EnrollmentRefetchReason | null>(null);
   const enrollmentLayoutHydratedRef = useRef(false);
   const enrollmentLayoutUpdatedAtRef = useRef<string | null>(null);
   const enrollmentLayoutSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -1014,6 +1018,8 @@ export function EnrollmentClient({
   const enrollmentLayoutProgramRef = useRef(program);
   const enrollmentLayoutBaselineRef = useRef<string | null>(null);
   const optionsRequestSequenceRef = useRef(0);
+  const optionsInFlightRef = useRef<Promise<void> | null>(null);
+  const optionsQueuedRef = useRef(false);
 
   function updateRecords(updater: (current: EnrollmentRecordWithStats[]) => EnrollmentRecordWithStats[]) {
     setRecords((current) => {
@@ -1401,19 +1407,27 @@ export function EnrollmentClient({
     }
   }, [exportColumnKeys, exportRecordIds, program]);
 
-  const refetch = useCallback((): Promise<void> => {
+  const refetch = useCallback((reason: EnrollmentRefetchReason = "other"): Promise<void> => {
     const current = recordsRefetchInFlightRef.current;
     if (current) {
       // Coalesce every trigger that arrives during a request into exactly one
       // trailing request. This prevents a realtime burst from creating a
       // queue of equally expensive full-list queries.
       recordsRefetchQueuedRef.current = true;
+      recordsRefetchQueuedReasonRef.current ??= reason;
       return current;
     }
 
+    let runReason: EnrollmentRefetchReason = reason;
+    const takeQueued = () => {
+      if (!recordsRefetchQueuedRef.current) return false;
+      runReason = recordsRefetchQueuedReasonRef.current ?? "retry";
+      return true;
+    };
     const operation = (async () => {
       do {
         recordsRefetchQueuedRef.current = false;
+        recordsRefetchQueuedReasonRef.current = null;
         const seq = ++refetchSeqRef.current;
         // Captured BEFORE the request goes out: if a write is already in
         // flight, whatever the server returns cannot include it, so this
@@ -1421,7 +1435,7 @@ export function EnrollmentClient({
         // like later.
         const hadPendingAtIssue = pendingRef.current.size > 0;
         try {
-          const response = await fetch(`/api/enrollment?program=${program}`, {
+          const response = await fetch(`/api/enrollment?program=${program}&reason=${runReason}`, {
             cache: "no-store",
           });
           if (!response.ok) continue;
@@ -1449,7 +1463,7 @@ export function EnrollmentClient({
           // The next realtime ping or manual refresh will retry. If another
           // trigger arrived meanwhile, the trailing pass below will retry it.
         }
-      } while (recordsRefetchQueuedRef.current);
+      } while (takeQueued());
     })().finally(() => {
       if (recordsRefetchInFlightRef.current === operation) {
         recordsRefetchInFlightRef.current = null;
@@ -1466,19 +1480,36 @@ export function EnrollmentClient({
     if (pendingRef.current.size > 0) return;
     if (!refetchDirtyRef.current) return;
     refetchDirtyRef.current = false;
-    void refetch();
+    void refetch("retry");
   }, [refetch]);
 
-  const reloadOptions = useCallback(async () => {
-    const sequence = ++optionsRequestSequenceRef.current;
-    const response = await fetch(
-      `/api/enrollment/option-sets?program=${program}`,
-      { cache: "no-store" }
-    );
-    if (!response.ok) return;
-    const data = (await response.json()) as { options: EnrollmentOption[] };
-    if (sequence !== optionsRequestSequenceRef.current) return;
-    setOptions(data.options);
+  const reloadOptions = useCallback((): Promise<void> => {
+    if (optionsInFlightRef.current) {
+      optionsQueuedRef.current = true;
+      return optionsInFlightRef.current;
+    }
+    const operation = (async () => {
+      do {
+        optionsQueuedRef.current = false;
+        const sequence = ++optionsRequestSequenceRef.current;
+        try {
+          const response = await fetch(
+            `/api/enrollment/option-sets?program=${program}`,
+            { cache: "no-store" },
+          );
+          if (!response.ok) continue;
+          const data = (await response.json()) as { options: EnrollmentOption[] };
+          if (sequence !== optionsRequestSequenceRef.current) continue;
+          setOptions(data.options);
+        } catch {
+          // A later broadcast, focus or poll retries the read.
+        }
+      } while (optionsQueuedRef.current);
+    })().finally(() => {
+      if (optionsInFlightRef.current === operation) optionsInFlightRef.current = null;
+    });
+    optionsInFlightRef.current = operation;
+    return operation;
   }, [program]);
 
   // Auto-dismiss now lives in <Toast>; keeping a second timer here would be
@@ -1532,7 +1563,7 @@ export function EnrollmentClient({
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         if (!active) return;
-        void refetch();
+        void refetch("broadcast");
         if (scope === "full") void reloadOptions();
       }, ENROLLMENT_LIVE_EVENT_DEBOUNCE_MS);
     };
@@ -1583,7 +1614,7 @@ export function EnrollmentClient({
         liveSourceId,
       );
       if (!scope) return;
-      void refetch();
+      void refetch("invalidation");
       if (scope === "full") void reloadOptions();
     });
     return unsubscribe;
@@ -1603,7 +1634,7 @@ export function EnrollmentClient({
       }
       lastForegroundRefreshAtRef.current = now;
       getBrowserSupabase()?.realtime.connect();
-      void refetch();
+      void refetch("focus");
       void reloadOptions();
     };
     const onOffline = () => setLiveStatus("degraded");
@@ -1620,14 +1651,18 @@ export function EnrollmentClient({
   }, [refetch, reloadOptions]);
 
   useEffect(() => {
+    let ticks = 0;
     const timer = window.setInterval(() => {
       if (canRefreshEnrollmentData(document.visibilityState, navigator.onLine)) {
-        void refetch();
-        void reloadOptions();
+        void refetch("poll");
+        ticks += 1;
+        if (ticks % ENROLLMENT_OPTIONS_POLL_EVERY_TICKS === 0) {
+          void reloadOptions();
+        }
       }
-    }, enrollmentLivePollInterval(liveStatus));
+    }, ENROLLMENT_LIST_RECONCILE_MS);
     return () => window.clearInterval(timer);
-  }, [liveStatus, refetch, reloadOptions]);
+  }, [refetch, reloadOptions]);
 
   useEffect(() => {
     const sb = getBrowserSupabase();
@@ -2020,7 +2055,7 @@ export function EnrollmentClient({
             className="rounded bg-[#ffab00] px-3 py-1 text-xs font-bold text-[#172b4d]"
             onClick={() => {
               getBrowserSupabase()?.realtime.connect();
-              void refetch();
+              void refetch("reconnect");
               void reloadOptions();
             }}
           >
@@ -2081,7 +2116,7 @@ export function EnrollmentClient({
             columnOptions={tableColumnOptions}
             people={people}
             onClose={() => setImportOpen(false)}
-            onImported={() => void refetch()}
+            onImported={() => void refetch("import")}
           />
 
           <EnrollmentToolbar
@@ -2129,6 +2164,7 @@ export function EnrollmentClient({
             <EnrollmentTable
               columns={visibleColumns}
               records={visibleRecords}
+              paginationKey={orderResetKey}
               peopleByEmail={peopleByEmail}
               agentsByEmail={agentsByEmail}
               optionsById={optionsById}
@@ -2225,7 +2261,7 @@ export function EnrollmentClient({
           onParentUpdatedAt={(updatedAt) =>
             applyParentUpdatedAt(openRecord.id, updatedAt)
           }
-          onParentRefresh={() => refetch()}
+          onParentRefresh={() => refetch("parent")}
         />
       ) : null}
 
@@ -2689,9 +2725,12 @@ function ColumnVisibilityButton({
   );
 }
 
+const ENROLLMENT_TABLE_PAGE_SIZE = 50;
+
 function EnrollmentTable({
   columns,
   records,
+  paginationKey,
   peopleByEmail,
   agentsByEmail,
   optionsById,
@@ -2709,6 +2748,7 @@ function EnrollmentTable({
 }: {
   columns: EnrollmentColumn[];
   records: EnrollmentRecordWithStats[];
+  paginationKey: string;
   peopleByEmail: Map<string, string>;
   agentsByEmail: Map<string, string>;
   optionsById: Map<string, EnrollmentOption>;
@@ -2745,12 +2785,64 @@ function EnrollmentTable({
     maxHeight: "1008px",
   };
   const isPhone = useIsPhone();
+  const [page, setPage] = useState(0);
+  const [lastPaginationKey, setLastPaginationKey] = useState(paginationKey);
+  const pageCount = Math.max(1, Math.ceil(records.length / ENROLLMENT_TABLE_PAGE_SIZE));
+  if (lastPaginationKey !== paginationKey) {
+    setLastPaginationKey(paginationKey);
+    setPage(0);
+  } else if (page >= pageCount) {
+    setPage(pageCount - 1);
+  }
+  const pageIndex = lastPaginationKey === paginationKey
+    ? Math.min(page, pageCount - 1)
+    : 0;
+  const pageRecords = records.slice(
+    pageIndex * ENROLLMENT_TABLE_PAGE_SIZE,
+    (pageIndex + 1) * ENROLLMENT_TABLE_PAGE_SIZE,
+  );
+  const tableTopRef = useRef<HTMLDivElement | null>(null);
+  const listScrollRef = useRef<HTMLDivElement | null>(null);
+  const changePage = (nextPage: number) => {
+    setPage(Math.max(0, Math.min(nextPage, pageCount - 1)));
+    if (isPhone) tableTopRef.current?.scrollIntoView({ block: "start" });
+    else if (listScrollRef.current) listScrollRef.current.scrollTop = 0;
+  };
+  const pager = pageCount > 1 ? (
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#ebecf0] bg-white px-3 py-2 text-xs font-semibold text-[#44546f]">
+      <span>
+        Showing {pageIndex * ENROLLMENT_TABLE_PAGE_SIZE + 1}–{Math.min((pageIndex + 1) * ENROLLMENT_TABLE_PAGE_SIZE, records.length)} of {records.length}
+      </span>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          disabled={pageIndex === 0}
+          onClick={() => changePage(pageIndex - 1)}
+          aria-label="Previous enrollment page"
+          className="rounded border border-[#cfd8e5] px-2 py-1.5 hover:bg-[#f4f5f7] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Previous
+        </button>
+        <span aria-live="polite">Page {pageIndex + 1} of {pageCount}</span>
+        <button
+          type="button"
+          disabled={pageIndex === pageCount - 1}
+          onClick={() => changePage(pageIndex + 1)}
+          aria-label="Next enrollment page"
+          className="rounded border border-[#cfd8e5] px-2 py-1.5 hover:bg-[#f4f5f7] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  ) : null;
 
   if (isPhone && records.length > 0) {
     return (
-      <div className="pb-20">
+      <div ref={tableTopRef} className="scroll-mt-20 pb-20">
         <PhoneCardList
-          items={records}
+          key={`${paginationKey}:${pageIndex}`}
+          items={pageRecords}
           getKey={(record) => record.id}
           renderItem={(record) => {
             const stage = record.stage_id ? optionsById.get(record.stage_id) : undefined;
@@ -2783,6 +2875,7 @@ function EnrollmentTable({
             );
           }}
         />
+        {pager}
       </div>
     );
   }
@@ -2797,10 +2890,11 @@ function EnrollmentTable({
 
   return (
     <div
+      ref={tableTopRef}
       className="flex min-h-0 flex-1 flex-col overflow-hidden rounded border border-[#dfe1e6] bg-white shadow-[0_1px_2px_rgba(9,30,66,0.12)] max-md:h-[78dvh] max-md:flex-none"
       style={tableFrameStyle}
     >
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div ref={listScrollRef} className="min-h-0 flex-1 overflow-auto">
         <div style={{ minWidth }}>
           <div className="sticky top-0 z-20 flex items-stretch whitespace-nowrap border-b border-[#dfe1e6] bg-[#fafbfc] text-[11px] font-bold uppercase tracking-wide text-[#6b778c] shadow-[0_1px_0_#dfe1e6]">
             {columns.map((column) => {
@@ -2833,7 +2927,7 @@ function EnrollmentTable({
             })}
           </div>
           <ul>
-            {records.map((record) => (
+            {pageRecords.map((record) => (
               <li key={record.id} className="border-b border-[#ebecf0]">
                 <EnrollmentRowItem
                   columns={columns}
@@ -2856,6 +2950,7 @@ function EnrollmentTable({
           </ul>
         </div>
       </div>
+      {pager}
     </div>
   );
 }

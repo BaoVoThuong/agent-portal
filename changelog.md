@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-10 — Enrollment: giảm tải danh sách (đã deploy)
+
+- Bảng và thẻ điện thoại hiển thị tối đa 50 hồ sơ mỗi trang; tìm kiếm, sắp xếp, tổng cột và Export vẫn tính trên toàn bộ kết quả lọc. Đổi bộ lọc/sort về trang đầu; khi dữ liệu co lại tự giữ trang trong phạm vi hợp lệ. Đây là phân trang phần hiển thị, không thêm request DB.
+- Danh sách gộp số comment, số attachment và nội dung comment để tìm kiếm qua một RPC thay cho nhiều request theo lô; chỉ dùng đường đọc cũ khi RPC chưa có trong schema cache.
+- Ghi lý do mỗi lần client tải lại danh sách (`broadcast`, `poll`, `focus`...) vào log server để xác định nguồn tăng request; không ghi thông tin hồ sơ.
+- Danh sách poll mỗi 60 giây kể cả khi Realtime lỗi; khung chi tiết giữ nhịp 15 giây khi lỗi. Danh mục option poll mỗi 5 phút và các lần tải lại option được gộp thành tối đa một request đang chạy cùng một request tiếp theo.
+- SQL rollout `supabase/rollouts/2026-11-09-enrollment-list-child-stats.sql` và app đã chạy production ngày 10/11; preflight trên 614 hồ sơ ACA mất khoảng 5 ms, dùng index và không spill ra disk. Phần giãn broadcast chỉ triển khai nếu log sau deploy đạt điều kiện của plan; phân trang bỏ vì chưa chạm ngưỡng 800 hồ sơ.
+
 ## 2026-11-09 — Dashboard Health: giao diện và chart như P&C (đã deploy)
 
 - 3 chart Agent commission/policies/clients, Carrier paid và Commission Trend chuyển từ SVG vẽ tay sang combo ECharts. Thứ tự kỳ và cách tính giữ nguyên; tooltip tiền rút gọn như P&C ($12.3K).

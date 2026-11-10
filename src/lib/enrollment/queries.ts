@@ -136,6 +136,46 @@ async function fetchEnrollmentListChildren(
   };
 }
 
+export type EnrollmentListChildStats = {
+  comment_count: number;
+  attachment_count: number;
+  comment_search_text: string;
+};
+
+export async function fetchEnrollmentListChildStats(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  recordIds: readonly string[],
+): Promise<Map<string, EnrollmentListChildStats>> {
+  if (recordIds.length === 0) return new Map();
+  const { data, error } = await supabase.rpc("enrollment_list_child_stats", {
+    p_record_ids: [...recordIds],
+  });
+  if (!error) {
+    return new Map(
+      Object.entries((data ?? {}) as Record<string, EnrollmentListChildStats>),
+    );
+  }
+  if (error.code !== "PGRST202") throw new Error(error.message);
+
+  console.warn("Enrollment list stats RPC missing; using per-chunk reads", {
+    records: recordIds.length,
+  });
+  const { comments, attachments } = await fetchEnrollmentListChildren(supabase, recordIds);
+  const commentCounts = countByRecord(comments);
+  const commentText = textByRecord(comments);
+  const attachmentCounts = countByRecord(attachments);
+  return new Map(
+    recordIds.map((id) => [
+      id,
+      {
+        comment_count: commentCounts.get(id) ?? 0,
+        attachment_count: attachmentCounts.get(id) ?? 0,
+        comment_search_text: commentText.get(id) ?? "",
+      },
+    ]),
+  );
+}
+
 export function isMissingEnrollmentTrackingColumn(error: SupabaseLikeError): boolean {
   return isEnrollmentSchemaOutOfDate(error);
 }
@@ -216,16 +256,12 @@ export async function fetchEnrollmentRecords(
   const ids = records.map((record) => record.id);
   if (ids.length === 0) return [];
 
-  const { comments, attachments } = await fetchEnrollmentListChildren(supabase, ids);
-
-  const commentCounts = countByRecord(comments);
-  const commentText = textByRecord(comments);
-  const attachmentCounts = countByRecord(attachments);
+  const stats = await fetchEnrollmentListChildStats(supabase, ids);
   return records.map((record) => ({
     ...record,
-    comment_count: commentCounts.get(record.id) ?? 0,
-    comment_search_text: commentText.get(record.id) ?? "",
-    attachment_count: attachmentCounts.get(record.id) ?? 0,
+    comment_count: stats.get(record.id)?.comment_count ?? 0,
+    comment_search_text: stats.get(record.id)?.comment_search_text ?? "",
+    attachment_count: stats.get(record.id)?.attachment_count ?? 0,
   }));
 }
 

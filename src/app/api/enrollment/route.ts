@@ -61,6 +61,7 @@ import {
 } from "@/lib/table-config/write-context";
 import { resolveEnrollmentScope } from "@/lib/enrollment/scope";
 import { RouteTiming } from "@/lib/server-timing";
+import { parseEnrollmentRefetchReason } from "@/lib/enrollment/live-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -105,6 +106,11 @@ export async function GET(request: Request) {
   if (!program) {
     return respond({ error: "Invalid enrollment program." }, 400);
   }
+  console.info(
+    `[enrollment-list] reason=${parseEnrollmentRefetchReason(
+      new URL(request.url).searchParams.get("reason"),
+    )} program=${program}`,
+  );
   try {
     const scope = await timing.measure("scope", () =>
       resolveEnrollmentScope(actorResult.actor),
