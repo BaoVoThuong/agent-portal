@@ -3,6 +3,7 @@ import {
   ENROLLMENT_IMPORT_ID_HEADER,
   buildEnrollmentImportContext,
   buildEnrollmentTemplate,
+  buildEnrollmentTemplateSpec,
   ENROLLMENT_IMPORT_MANAGED_KEYS,
   enrollmentImportPayload,
   importHeaderLabel,
@@ -651,5 +652,70 @@ describe("buildEnrollmentTemplate", () => {
   it("dòng ví dụ dài đúng bằng số tiêu đề", () => {
     const { header, example } = build();
     expect(example).toHaveLength(header.length);
+  });
+});
+
+describe("buildEnrollmentTemplateSpec", () => {
+  const COLS = [
+    column("client", "Client Name"),
+    column("agent", "Agent", "person"),
+    column("stage", "Stage", "dropdown"),
+    column("carrier", "Carrier", "multiselect"),
+    column("qc", "QC", "checkbox"),
+    { ...column("authorization", "Authorization", "dropdown"), is_system: false } as TableColumn,
+    { ...column("paid", "Paid", "checkbox"), is_system: false } as TableColumn,
+  ];
+  const OPTIONS = [
+    { id: "s1", set_key: "stage", label: "1-Need quote", archived_at: null },
+    { id: "s0", set_key: "stage", label: "Old stage", archived_at: "2026-01-01" },
+    { id: "c1", set_key: "carrier", label: "Ambetter", archived_at: null },
+  ];
+  const COLUMN_OPTIONS = [
+    { id: "a2", column_id: "col-authorization", label: "No", position: 2, archived_at: null },
+    { id: "a1", column_id: "col-authorization", label: "Yes", position: 1, archived_at: null },
+  ];
+  const PEOPLE = [
+    { email: "ann@x.com", name: "Ann Strambler" },
+    { email: "phi1@x.com", name: "Phi Nguyen" },
+    { email: "phi2@x.com", name: "Phi Nguyen" },
+  ];
+  const spec = buildEnrollmentTemplateSpec("aca", COLS, OPTIONS, COLUMN_OPTIONS, PEOPLE, {
+    today: "2026-11-10",
+  });
+  const byHeader = new Map(spec.columns.map((c) => [c.header, c]));
+
+  it("đánh dấu theo chương trình và bỏ cột hệ thống tự quản", () => {
+    expect(spec.kind).toBe("enrollment:aca");
+    expect(byHeader.has("QC")).toBe(false);
+  });
+
+  it("dropdown là nhãn đang dùng, chặn giá trị lạ; Carrier chỉ cảnh báo", () => {
+    expect(byHeader.get("Stage")?.dropdown).toEqual({
+      values: ["1-Need quote"],
+      allowOther: false,
+    });
+    expect(byHeader.get("Carrier")?.dropdown?.allowOther).toBe(true);
+    expect(byHeader.get("Authorization")?.dropdown?.values).toEqual(["Yes", "No"]);
+    expect(byHeader.get("Paid")?.dropdown?.values).toEqual(["Yes", "No"]);
+    expect(byHeader.get("Client Name")?.dropdown).toBeUndefined();
+  });
+
+  it("cột người: tên, tên trùng thì email; ô ví dụ là một giá trị trong dropdown", () => {
+    const agent = byHeader.get("Agent");
+    expect(agent?.dropdown?.values).toEqual(["Ann Strambler", "phi1@x.com", "phi2@x.com"]);
+    expect(agent?.dropdown?.tracked).toBe(false);
+    expect(agent?.example).toBe("Ann Strambler");
+  });
+
+  it("mọi giá trị trong dropdown đều được Import đọc lại đúng", () => {
+    const context = buildEnrollmentImportContext(OPTIONS, PEOPLE, COLUMN_OPTIONS);
+    const headers = spec.columns.map((c) => c.header);
+    const record = Object.fromEntries(spec.columns.map((c) => [c.header, c.example]));
+    record.Agent = "phi2@x.com";
+    const matched = matchEnrollmentHeaders(headers, COLS, [record]);
+    const parsed = parseEnrollmentImportRows([record], matched, COLS, context);
+    expect(parsed.skipped).toEqual([]);
+    expect(parsed.rows[0].values.agent).toBe("phi2@x.com");
+    expect(parsed.rows[0].values.stage).toBe("s1");
   });
 });

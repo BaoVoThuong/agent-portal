@@ -6,6 +6,13 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-11 — Enrollment Import: template có dropdown, preview hiện tên (đã deploy)
+
+- "Download template" của Enrollment tải file xlsx có dropdown thật: Stage/Payment/ACA status/Consent/Platform và cột tuỳ chỉnh dạng dropdown (vd. Authorization) chặn giá trị ngoài danh sách; Carrier và cột tuỳ chỉnh nhiều lựa chọn chỉ cảnh báo vì "A, B" hợp lệ; cột người (Agent/Caller/Responsible) là tên, tên trùng thì email; checkbox Yes/No. Giá trị nằm ở sheet ẩn `Lists`, lấy từ cấu hình lúc tải.
+- File mẫu mang dấu phiên bản (sheet ẩn `_template`). Import một file tải trước khi cột hoặc giá trị dropdown đổi thì hiện cảnh báo "older template" kèm nút tải lại; thêm người mới không tính là đổi. Không chặn Import.
+- Preview Import hiện avatar + tên cho cột người thay vì email, và nhãn cho cột tuỳ chỉnh (Authorization) thay vì uuid.
+- Thêm thư viện `exceljs` (chỉ tải khi bấm Download template) vì SheetJS bản cộng đồng không ghi được dropdown.
+
 ## 2026-11-10 — Enrollment: giảm tải danh sách (đã deploy)
 
 - Bảng và thẻ điện thoại hiển thị tối đa 50 hồ sơ mỗi trang; tìm kiếm, sắp xếp, tổng cột và Export vẫn tính trên toàn bộ kết quả lọc. Đổi bộ lọc/sort về trang đầu; khi dữ liệu co lại tự giữ trang trong phạm vi hợp lệ. Đây là phân trang phần hiển thị, không thêm request DB.

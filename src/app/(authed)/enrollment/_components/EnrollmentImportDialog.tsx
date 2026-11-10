@@ -8,7 +8,8 @@ import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import type { EnrollmentOption, EnrollmentProgram } from "@/lib/enrollment/types";
 import {
   buildEnrollmentImportContext,
-  buildEnrollmentTemplate,
+  buildEnrollmentTemplateSpec,
+  ENROLLMENT_PERSON_COLUMNS,
   enrollmentImportPayload,
   importHeaderLabel,
   matchEnrollmentHeaders,
@@ -16,6 +17,15 @@ import {
   uniqueImportHeaders,
   type EnrollmentImportParse,
 } from "@/lib/enrollment/import";
+import { personLabel } from "@/lib/tasks/people";
+import { downloadImportTemplate } from "@/lib/import-template/download";
+import {
+  readTemplateMarker,
+  templateFreshness,
+  type TemplateFreshness,
+} from "@/lib/import-template/spec";
+import { TemplateFreshnessNotice } from "../../_shared/TemplateFreshnessNotice";
+import { Initials } from "../../tasks/_components/board-ui";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 const MAX_ROWS = 1000;
@@ -59,6 +69,7 @@ export function EnrollmentImportDialog({
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [freshness, setFreshness] = useState<TemplateFreshness | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const context = useMemo(
@@ -76,6 +87,24 @@ export function EnrollmentImportDialog({
 
   const createCount = parsed.rows.filter((row) => row.mode === "create").length;
   const updateCount = parsed.rows.filter((row) => row.mode === "update").length;
+  const labelById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const option of options) map.set(option.id, option.label);
+    for (const option of columnOptions) map.set(option.id, option.label);
+    return map;
+  }, [options, columnOptions]);
+  const nameByEmail = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const person of people) {
+      const name = person.name?.trim();
+      if (name) map.set(person.email.trim().toLowerCase(), name);
+    }
+    return map;
+  }, [people]);
+  const templateSpec = useMemo(
+    () => buildEnrollmentTemplateSpec(program, columns, options, columnOptions, people),
+    [program, columns, options, columnOptions, people]
+  );
   const previewColumns = useMemo(() => {
     const keys = new Set(matched.byHeader.values());
     return columns.filter((column) => !column.archived_at && keys.has(column.key));
@@ -89,19 +118,18 @@ export function EnrollmentImportDialog({
     setRecords([]);
     setError(null);
     setResult(null);
+    setFreshness(null);
     if (inputRef.current) inputRef.current.value = "";
   }
 
-  function downloadTemplate() {
-    // Dựng từ cấu hình cột THẬT của chương trình đang mở: mỗi chương trình một
-    // bộ cột, và admin còn thêm cột tuỳ chỉnh trong /config.
-    const { header, example } = buildEnrollmentTemplate(columns, options, columnOptions, {
-      personName: people[0]?.name?.trim() || people[0]?.email,
-    });
-    const sheet = XLSX.utils.aoa_to_sheet([header, example]);
-    const book = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(book, sheet, "Data");
-    XLSX.writeFile(book, `enrollment-${program}-template.xlsx`);
+  async function downloadTemplate() {
+    // Dựng từ cấu hình cột THẬT của chương trình đang mở (mỗi chương trình một
+    // bộ cột, admin còn thêm cột tuỳ chỉnh trong /config), kèm dropdown.
+    try {
+      await downloadImportTemplate(templateSpec, `enrollment-${program}-template.xlsx`);
+    } catch {
+      setError("The template could not be created. Try again.");
+    }
   }
 
   async function handleFile(event: ChangeEvent<HTMLInputElement>) {
@@ -152,6 +180,7 @@ export function EnrollmentImportDialog({
       setFile(next);
       setHeaders(nextHeaders);
       setRecords(nextRecords);
+      setFreshness(templateFreshness(readTemplateMarker(workbook), templateSpec));
     } catch (readError) {
       reset();
       setError(
@@ -243,7 +272,7 @@ export function EnrollmentImportDialog({
                 </h3>
                 <button
                   type="button"
-                  onClick={downloadTemplate}
+                  onClick={() => void downloadTemplate()}
                   className="inline-flex shrink-0 items-center gap-1 text-xs font-bold text-[#0c66e4] transition hover:underline"
                 >
                   <Download className="h-3.5 w-3.5" />
@@ -311,6 +340,11 @@ export function EnrollmentImportDialog({
                   </div>
                 </div>
 
+                <TemplateFreshnessNotice
+                  freshness={freshness}
+                  onDownload={() => void downloadTemplate()}
+                />
+
                 {matched.ignored.length > 0 ? (
                   <p className="mt-3 flex items-start gap-2 rounded-lg border border-[#ffe2bd] bg-[#fffaf0] px-3 py-2 text-xs font-semibold text-[#974f0c]">
                     <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -350,7 +384,12 @@ export function EnrollmentImportDialog({
                                 key={column.id}
                                 className="max-w-[220px] truncate px-3 py-2.5"
                               >
-                                {formatPreview(row.values[column.key], options)}
+                                <PreviewCell
+                                  column={column}
+                                  value={row.values[column.key]}
+                                  labelById={labelById}
+                                  nameByEmail={nameByEmail}
+                                />
                               </td>
                             ))}
                           </tr>
@@ -465,22 +504,47 @@ function Chip({
 }
 
 /**
- * Bản xem trước hiện NHÃN chứ không hiện id.
+ * Bản xem trước hiện NHÃN chứ không hiện id, và NGƯỜI chứ không hiện email.
  *
- * Bộ đọc file đã dịch nhãn thành id để gửi lên API; hiện thẳng id ra thì người
- * dùng nhìn thấy một dãy uuid và không kiểm được là mình chọn đúng hay sai.
+ * Bộ đọc file đã dịch nhãn thành id (cả lựa chọn hệ thống lẫn cột tuỳ chỉnh
+ * như Authorization) và tên người thành email để gửi lên API; hiện thẳng ra
+ * thì người dùng thấy uuid/email và không kiểm được mình chọn đúng hay sai.
  */
-function formatPreview(value: unknown, options: readonly EnrollmentOption[]): string {
+function PreviewCell({
+  column,
+  value,
+  labelById,
+  nameByEmail,
+}: {
+  column: TableColumn;
+  value: unknown;
+  labelById: Map<string, string>;
+  nameByEmail: Map<string, string>;
+}) {
+  const isPerson =
+    column.type === "person" ||
+    (ENROLLMENT_PERSON_COLUMNS as readonly string[]).includes(column.key);
+  if (isPerson && typeof value === "string" && value) {
+    const name = personLabel(value, nameByEmail);
+    return (
+      <span className="flex min-w-0 items-center gap-1.5" title={name}>
+        <Initials email={value} label={name} />
+        <span className="min-w-0 truncate">{name}</span>
+      </span>
+    );
+  }
+  return <>{formatPreview(value, labelById)}</>;
+}
+
+function formatPreview(value: unknown, labelById: Map<string, string>): string {
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "boolean") return value ? "Yes" : "No";
-  // Carrier nhiều hãng: mảng id → các nhãn cách nhau bằng dấu phẩy.
+  // Carrier / cột nhiều lựa chọn: mảng id → các nhãn cách nhau bằng dấu phẩy.
   if (Array.isArray(value)) {
     return value.length === 0
       ? "—"
-      : value.map((item) => formatPreview(item, options)).join(", ");
+      : value.map((item) => formatPreview(item, labelById)).join(", ");
   }
   const text = String(value);
-  const option = options.find((item) => item.id === text);
-  if (option) return option.label;
-  return text;
+  return labelById.get(text) ?? text;
 }

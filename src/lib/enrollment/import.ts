@@ -1,4 +1,10 @@
 import type { TableColumn } from "@/lib/table-config/types";
+import {
+  distinctLabels,
+  personChoiceLabels,
+  type ImportTemplateSpec,
+  type TemplateDropdown,
+} from "@/lib/import-template/spec";
 
 /**
  * Nhập hồ sơ Enrollment từ file Excel — KHÔNG có bước map cột.
@@ -651,4 +657,82 @@ export function buildEnrollmentTemplate(
   });
 
   return { header: importable.map((column) => column.label), example };
+}
+
+/** Trần số dòng của Import Enrollment — dropdown phủ đúng ngần ấy dòng. */
+export const ENROLLMENT_IMPORT_MAX_ROWS = 1000;
+
+/**
+ * File mẫu có dropdown: cùng bộ cột và dòng ví dụ với `buildEnrollmentTemplate`,
+ * thêm danh sách giá trị Import đang nhận cho từng cột lựa chọn.
+ *
+ * - Cột option (Stage, Payment…) và cột tuỳ chỉnh dạng dropdown: nhãn thật, chặn
+ *   giá trị lạ — gõ tay sai chính tả là lý do Import lỗi.
+ * - Carrier và cột tuỳ chỉnh nhiều lựa chọn: chỉ cảnh báo, vì "A, B" hợp lệ.
+ * - Cột người: tên; tên trùng thì email (Import từ chối tên trùng).
+ * - Checkbox: Yes / No.
+ */
+export function buildEnrollmentTemplateSpec(
+  program: string,
+  columns: readonly TableColumn[],
+  options: readonly { id: string; set_key: string; label: string; archived_at: string | null }[],
+  columnOptions: readonly {
+    id: string;
+    column_id: string;
+    label: string;
+    position?: number;
+    archived_at: string | null;
+  }[],
+  people: readonly { email: string; name?: string | null }[],
+  sample: { personName?: string; today?: string } = {}
+): ImportTemplateSpec {
+  const importable = columns.filter(
+    (column) => !column.archived_at && !MANAGED_KEYS.has(column.key)
+  );
+  const personLabels = personChoiceLabels(people, normalize);
+  // Ô ví dụ của cột người lấy đúng một giá trị trong dropdown.
+  const { header, example } = buildEnrollmentTemplate(columns, options, columnOptions, {
+    ...sample,
+    personName: sample.personName ?? personLabels[0],
+  });
+
+  const dropdownFor = (column: TableColumn): TemplateDropdown | undefined => {
+    if (OPTION_COLUMNS.has(column.key)) {
+      const setKey = ENROLLMENT_SET_BY_COLUMN[column.key];
+      return {
+        values: distinctLabels(
+          options
+            .filter((option) => option.set_key === setKey && !option.archived_at)
+            .map((option) => option.label)
+        ),
+        allowOther: MULTI_OPTION_COLUMNS.has(column.key),
+      };
+    }
+    if (PERSON_COLUMNS.has(column.key) || column.type === "person") {
+      return { values: personLabels, allowOther: false, tracked: false };
+    }
+    if (column.type === "checkbox") return { values: ["Yes", "No"], allowOther: false };
+    if (column.type === "dropdown" || column.type === "multiselect") {
+      return {
+        values: distinctLabels(
+          columnOptions
+            .filter((option) => option.column_id === column.id && !option.archived_at)
+            .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+            .map((option) => option.label)
+        ),
+        allowOther: column.type === "multiselect",
+      };
+    }
+    return undefined;
+  };
+
+  return {
+    kind: `enrollment:${program}`,
+    rows: ENROLLMENT_IMPORT_MAX_ROWS,
+    columns: importable.map((column, index) => ({
+      header: header[index],
+      example: example[index],
+      dropdown: dropdownFor(column),
+    })),
+  };
 }
