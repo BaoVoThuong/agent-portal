@@ -72,20 +72,6 @@ export const PROVIDER_IMPORT_TEMPLATE_KEYS = [
 /** Trần số dòng của Import Provider — dropdown phủ đúng ngần ấy dòng. */
 export const PROVIDER_IMPORT_MAX_ROWS = 2000;
 
-/** Một dòng ví dụ cho file mẫu, theo khoá cột. */
-const PROVIDER_TEMPLATE_EXAMPLE: Record<string, string> = {
-  facility: "Houston Methodist",
-  doctors: "Hoang Anh Phan",
-  npi: "1407020035",
-  accepting_new_patients: "Yes",
-  business_hours: "Mon - Fri: 8:00am - 5:00pm",
-  phone: "713-555-0123",
-  street: "7111 Harwin Dr, Ste 210",
-  city: "Houston",
-  state: "TX",
-  zip_code: "77036",
-};
-
 /**
  * File mẫu có dropdown. Cột có trong Table Config mới vào file; cột tuỳ chỉnh
  * admin thêm sau được nối vào cuối. Cột nhiều lựa chọn (Specialty, ACA plans,
@@ -133,14 +119,11 @@ export function buildProviderTemplateSpec(
   return {
     kind: "provider",
     rows: PROVIDER_IMPORT_MAX_ROWS,
-    columns: ordered.map((column) => {
-      const dropdown = dropdownFor(column);
-      return {
-        header: column.label,
-        example: PROVIDER_TEMPLATE_EXAMPLE[column.key] ?? dropdown?.values[0] ?? "",
-        dropdown,
-      };
-    }),
+    columns: ordered.map((column) => ({
+      header: column.label,
+      required: column.required,
+      dropdown: dropdownFor(column),
+    })),
   };
 }
 

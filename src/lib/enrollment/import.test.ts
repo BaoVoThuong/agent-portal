@@ -679,9 +679,13 @@ describe("buildEnrollmentTemplateSpec", () => {
     { email: "phi1@x.com", name: "Phi Nguyen" },
     { email: "phi2@x.com", name: "Phi Nguyen" },
   ];
-  const spec = buildEnrollmentTemplateSpec("aca", COLS, OPTIONS, COLUMN_OPTIONS, PEOPLE, {
-    today: "2026-11-10",
-  });
+  const spec = buildEnrollmentTemplateSpec(
+    "aca",
+    COLS.map((c) => (c.key === "client" ? ({ ...c, required: true } as TableColumn) : c)),
+    OPTIONS,
+    COLUMN_OPTIONS,
+    PEOPLE
+  );
   const byHeader = new Map(spec.columns.map((c) => [c.header, c]));
 
   it("đánh dấu theo chương trình và bỏ cột hệ thống tự quản", () => {
@@ -700,17 +704,24 @@ describe("buildEnrollmentTemplateSpec", () => {
     expect(byHeader.get("Client Name")?.dropdown).toBeUndefined();
   });
 
-  it("cột người: tên, tên trùng thì email; ô ví dụ là một giá trị trong dropdown", () => {
+  it("cột người: tên, tên trùng thì email", () => {
     const agent = byHeader.get("Agent");
     expect(agent?.dropdown?.values).toEqual(["Ann Strambler", "phi1@x.com", "phi2@x.com"]);
     expect(agent?.dropdown?.tracked).toBe(false);
-    expect(agent?.example).toBe("Ann Strambler");
+  });
+
+  it("đánh dấu cột Required theo Table Config", () => {
+    expect(byHeader.get("Client Name")?.required).toBe(true);
+    expect(byHeader.get("Stage")?.required).toBe(false);
   });
 
   it("mọi giá trị trong dropdown đều được Import đọc lại đúng", () => {
     const context = buildEnrollmentImportContext(OPTIONS, PEOPLE, COLUMN_OPTIONS);
     const headers = spec.columns.map((c) => c.header);
-    const record = Object.fromEntries(spec.columns.map((c) => [c.header, c.example]));
+    const record: Record<string, unknown> = Object.fromEntries(
+      spec.columns.map((c) => [c.header, c.dropdown?.values[0] ?? null])
+    );
+    record["Client Name"] = "Nguyen Van A";
     record.Agent = "phi2@x.com";
     const matched = matchEnrollmentHeaders(headers, COLS, [record]);
     const parsed = parseEnrollmentImportRows([record], matched, COLS, context);

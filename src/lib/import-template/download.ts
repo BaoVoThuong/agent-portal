@@ -8,6 +8,12 @@ import {
   type ImportTemplateSpec,
 } from "./spec";
 
+const REQUIRED_FILL = {
+  type: "pattern",
+  pattern: "solid",
+  fgColor: { argb: "FFFFFF00" },
+} as const;
+
 /**
  * Ghi file mẫu có dropdown thật (Data validation) và tải về.
  *
@@ -29,18 +35,15 @@ export async function buildImportTemplateWorkbook(
   const lists = book.addWorksheet(TEMPLATE_LISTS_SHEET, { state: "veryHidden" });
   const meta = book.addWorksheet(TEMPLATE_META_SHEET, { state: "veryHidden" });
 
+  // Chỉ có dòng tiêu đề: dòng ví dụ làm người điền rối (có file chép nguyên giá
+  // trị mẫu cho mọi dòng). Cột Required tô vàng CẢ CỘT — style của cột, nên ô
+  // trống bên dưới cũng vàng — để thấy ngay phải điền gì.
   data.addRow(spec.columns.map((column) => column.header));
-  // Không có ô ví dụ nào thì không ghi dòng ví dụ (template Lead): một dòng
-  // toàn chuỗi rỗng vẫn bị đọc thành một lead trống.
-  if (spec.columns.some((column) => column.example !== "")) {
-    data.addRow(spec.columns.map((column) => column.example));
-  }
   data.getRow(1).font = { bold: true };
   spec.columns.forEach((column, index) => {
-    data.getColumn(index + 1).width = Math.min(
-      40,
-      Math.max(14, column.header.length + 4, column.example.length + 2),
-    );
+    const sheetColumn = data.getColumn(index + 1);
+    sheetColumn.width = Math.min(40, Math.max(14, column.header.length + 4));
+    if (column.required) sheetColumn.fill = REQUIRED_FILL;
   });
 
   let listIndex = 0;

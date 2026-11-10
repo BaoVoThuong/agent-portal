@@ -663,8 +663,10 @@ export function buildEnrollmentTemplate(
 export const ENROLLMENT_IMPORT_MAX_ROWS = 1000;
 
 /**
- * File mẫu có dropdown: cùng bộ cột và dòng ví dụ với `buildEnrollmentTemplate`,
- * thêm danh sách giá trị Import đang nhận cho từng cột lựa chọn.
+ * File mẫu có dropdown: cùng bộ cột với `buildEnrollmentTemplate`, thêm danh
+ * sách giá trị Import đang nhận cho từng cột lựa chọn. KHÔNG có dòng ví dụ (user
+ * chốt 2026-11-11: dòng ví dụ làm người điền rối, có file chép nguyên giá trị
+ * mẫu cho mọi dòng); cột Required được tô vàng thay cho lời giải thích.
  *
  * - Cột option (Stage, Payment…) và cột tuỳ chỉnh dạng dropdown: nhãn thật, chặn
  *   giá trị lạ — gõ tay sai chính tả là lý do Import lỗi.
@@ -683,18 +685,12 @@ export function buildEnrollmentTemplateSpec(
     position?: number;
     archived_at: string | null;
   }[],
-  people: readonly { email: string; name?: string | null }[],
-  sample: { personName?: string; today?: string } = {}
+  people: readonly { email: string; name?: string | null }[]
 ): ImportTemplateSpec {
   const importable = columns.filter(
     (column) => !column.archived_at && !MANAGED_KEYS.has(column.key)
   );
   const personLabels = personChoiceLabels(people, normalize);
-  // Ô ví dụ của cột người lấy đúng một giá trị trong dropdown.
-  const { header, example } = buildEnrollmentTemplate(columns, options, columnOptions, {
-    ...sample,
-    personName: sample.personName ?? personLabels[0],
-  });
 
   const dropdownFor = (column: TableColumn): TemplateDropdown | undefined => {
     if (OPTION_COLUMNS.has(column.key)) {
@@ -729,9 +725,9 @@ export function buildEnrollmentTemplateSpec(
   return {
     kind: `enrollment:${program}`,
     rows: ENROLLMENT_IMPORT_MAX_ROWS,
-    columns: importable.map((column, index) => ({
-      header: header[index],
-      example: example[index],
+    columns: importable.map((column) => ({
+      header: column.label,
+      required: column.required,
       dropdown: dropdownFor(column),
     })),
   };

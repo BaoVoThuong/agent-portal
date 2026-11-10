@@ -54,14 +54,9 @@ export function buildLeadTemplateSpec(
   return {
     kind: "lead",
     rows: LEAD_IMPORT_MAX_ROWS,
-    columns: LEAD_IMPORT_TEMPLATE.map((column) => {
-      const dropdown = dropdownFor(column.field);
-      return {
-        header: column.header,
-        // Không có dòng ví dụ: agent quên xoá là nhập nhầm một lead giả.
-        example: "",
-        dropdown,
-      };
-    }),
+    columns: LEAD_IMPORT_TEMPLATE.map((column) => ({
+      header: column.header,
+      dropdown: dropdownFor(column.field),
+    })),
   };
 }

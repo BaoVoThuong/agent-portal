@@ -3,8 +3,8 @@ import type { WorkBook } from "xlsx";
 /**
  * File mẫu Import có dropdown — phần thuần, không đụng thư viện ghi file.
  *
- * Mỗi template là một danh sách cột: tiêu đề, một ô ví dụ, và (nếu có) bộ giá
- * trị cho dropdown. `download.ts` biến nó thành file xlsx: sheet `Data` để điền,
+ * Mỗi template là một danh sách cột: tiêu đề, cờ Required, và (nếu có) bộ giá
+ * trị cho dropdown. Không có dòng ví dụ: người điền hay chép nguyên dòng mẫu. `download.ts` biến nó thành file xlsx: sheet `Data` để điền,
  * sheet ẩn `Lists` chứa giá trị dropdown, sheet ẩn `_template` ghi template này
  * dựng từ cấu hình nào — để lúc Import nhận ra file tải từ lâu.
  */
@@ -26,7 +26,8 @@ export type TemplateDropdown = {
 
 export type TemplateColumnSpec = {
   header: string;
-  example: string;
+  /** Cột Required trong Table Config: cả cột được tô vàng trong file mẫu. */
+  required?: boolean;
   dropdown?: TemplateDropdown;
 };
 

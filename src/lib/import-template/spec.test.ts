@@ -15,20 +15,18 @@ const SPEC: ImportTemplateSpec = {
   kind: "enrollment:aca",
   rows: 10,
   columns: [
-    { header: "Client", example: "Nguyen Van A" },
+    { header: "Client", required: true },
     {
       header: "Stage",
-      example: "1-Need quote",
       dropdown: { values: ["1-Need quote", "2-Quoted"], allowOther: false },
     },
     {
       header: "Agent",
-      example: "Ann Strambler",
+      required: true,
       dropdown: { values: ["Ann Strambler"], allowOther: false, tracked: false },
     },
     {
       header: "Carrier",
-      example: "Ambetter",
       dropdown: { values: ["Ambetter", "Oscar"], allowOther: true },
     },
   ],
@@ -107,14 +105,15 @@ describe("templateFreshness", () => {
 });
 
 describe("buildImportTemplateWorkbook", () => {
-  it("ghi Data trước, dropdown trỏ vào sheet Lists ẩn, và dấu phiên bản đọc lại được", async () => {
+  it("chỉ có dòng tiêu đề, dropdown trỏ vào sheet Lists ẩn, cột Required tô vàng, dấu phiên bản đọc lại được", async () => {
     const buffer = await buildImportTemplateWorkbook(SPEC);
 
     const book = XLSX.read(buffer, { type: "array" });
     expect(book.SheetNames[0]).toBe("Data");
     const rows = XLSX.utils.sheet_to_json<unknown[]>(book.Sheets.Data, { header: 1 });
     expect(rows[0]).toEqual(["Client", "Stage", "Agent", "Carrier"]);
-    expect(rows[1]).toEqual(["Nguyen Van A", "1-Need quote", "Ann Strambler", "Ambetter"]);
+    // Không có dòng ví dụ để người điền chép theo.
+    expect(rows).toHaveLength(1);
     expect(readTemplateMarker(book)).toEqual({
       kind: "enrollment:aca",
       fingerprint: templateFingerprint(SPEC),
@@ -130,6 +129,12 @@ describe("buildImportTemplateWorkbook", () => {
     expect(sheetXml).toMatch(/errorStyle="warning"[^>]*sqref="D2:D11"|sqref="D2:D11"[^>]*errorStyle="warning"/);
     // Cột không có dropdown thì không có validation.
     expect(sheetXml).not.toContain('sqref="A2:A11"');
+
+    // Cột Required (A, C) mang style tô vàng cả cột; cột thường (B, D) thì không.
+    const styled = [...sheetXml.matchAll(/<col [^>]*min="(\d+)"[^>]*style="(\d+)"/g)].map((m) => m[1]);
+    expect(styled).toEqual(["1", "3"]);
+    const styles = await zip.file("xl/styles.xml")!.async("string");
+    expect(styles).toContain('rgb="FFFFFF00"');
 
     const workbookXml = await zip.file("xl/workbook.xml")!.async("string");
     expect(workbookXml).toMatch(/name="Lists"[^>]*state="veryHidden"|state="veryHidden"[^>]*name="Lists"/);

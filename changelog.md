@@ -6,6 +6,11 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-11 — Template Import: bỏ dòng ví dụ, tô vàng cột Required (đã deploy)
+
+- File mẫu Enrollment và Provider chỉ còn dòng tiêu đề: dòng ví dụ làm người điền rối (có file chép nguyên giá trị mẫu cho mọi dòng). Lead vốn không có.
+- Cột đang bật Required trong Table Configuration được tô vàng cả cột, để thấy ngay phải điền gì. Đổi Required trong /config thì file tải sau đổi theo.
+
 ## 2026-11-11 — Provider + Lead Import: template có dropdown (đã deploy)
 
 - Provider: "Download template" lấy tên cột theo Table Config hiện tại (Doctor, Specialty, New Patient, ZIP, ACA plans, Medicare plans…) thay cho bộ tiêu đề cắm cứng cũ, giữ thứ tự Google Sheet của đội; cột tuỳ chỉnh admin thêm được nối cuối. Dropdown: Specialty/ACA plans/Medicare plans (cảnh báo, vì "A, B" hợp lệ), New Patient Yes/No và State (chặn). File mẫu cũ vẫn nhập được (alias giữ nguyên). Import file tải trước khi cấu hình đổi thì cảnh báo như Enrollment.

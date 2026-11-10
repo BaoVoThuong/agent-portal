@@ -68,10 +68,6 @@ describe("buildLeadTemplateSpec", () => {
     expect(byHeader.get("Full Name")?.dropdown).toBeUndefined();
   });
 
-  it("không có dòng ví dụ", () => {
-    expect(spec.columns.every((c) => c.example === "")).toBe(true);
-  });
-
   it("Agent: tên, tên trùng thì email", () => {
     expect(byHeader.get("Agent")?.dropdown).toEqual({
       values: ["an1@x.com", "an2@x.com", "Khang Nguyễn"],
