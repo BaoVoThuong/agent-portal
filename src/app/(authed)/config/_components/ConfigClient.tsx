@@ -1500,13 +1500,13 @@ function ConfigDropdownValuesSection({
   const controlsDisabled = busy || !available || Boolean(refreshError) || categoryUnavailable;
   const sectionError = refreshError ?? (categoryUnavailable ? categoriesError : availabilityError);
   const isStageGroup = selected?.kind === "optionSet" && selected.setKey === "stage";
-  const isConsentGroup = selected?.kind === "optionSet" && selected.setKey === "consent";
   const isLeadStatusGroup = selected?.kind === "leadStatus";
   const isLeadTypeGroup = selected?.kind === "leadType";
   const isLeadVocabularyGroup = isLeadStatusGroup || isLeadTypeGroup;
-  const protectsLabelIdentity =
-    (selected?.kind === "optionSet" && (selected.setKey === "stage" || selected.setKey === "consent"));
-  const protectedLabelReason = "Stage and Consent labels are protected workflow identities.";
+  // Consent từng bị khoá ở đúng 2 lựa chọn (Yes / khác) vì ô tick cần thế. Từ
+  // 2026-11-11 Consent là dropdown nên thêm / đổi tên / archive như mọi bộ khác.
+  const protectsLabelIdentity = isStageGroup;
+  const protectedLabelReason = "Stage labels are protected workflow identities.";
 
   const [label, setLabel] = useState("");
   const [color, setColor] = useState("");
@@ -1557,7 +1557,6 @@ function ConfigDropdownValuesSection({
                 isTerminal: o.is_terminal,
                 triggersQc: o.triggers_qc,
               }));
-  const activeConsentCount = isConsentGroup ? valueRows.length : 0;
   // Lead vocabulary sorts by position, and nothing renumbers on insert, so a new
   // value goes after the last one instead of joining a pile of zeroes whose
   // order then depends on insertion time.
@@ -1823,7 +1822,6 @@ function ConfigDropdownValuesSection({
   }
 
   const confirmRow = valueRows.find((r) => r.id === confirmArchiveId) ?? null;
-  const wouldDropConsentBelowTwo = isConsentGroup && activeConsentCount <= 2;
 
   function resetValueDraft() {
     setLabel("");
@@ -1975,12 +1973,7 @@ function ConfigDropdownValuesSection({
               ) : null}
               <button
                 type="submit"
-                disabled={controlsDisabled || !label.trim() || (isConsentGroup && activeConsentCount >= 2)}
-                title={
-                  isConsentGroup && activeConsentCount >= 2
-                    ? "Consent supports exactly 2 active options (Yes / other)."
-                    : undefined
-                }
+                disabled={controlsDisabled || !label.trim()}
                 className="inline-flex h-10 items-center justify-center gap-2 rounded bg-[#0c66e4] px-4 text-sm font-bold text-white disabled:opacity-40"
               >
                 <Plus className="h-4 w-4" /> Add
@@ -2008,7 +2001,6 @@ function ConfigDropdownValuesSection({
                 </thead>
                 <tbody>
                   {valueRows.map((row) => {
-                    const disableArchive = isConsentGroup && wouldDropConsentBelowTwo;
                     return (
                       <tr key={row.id}>
                         <td className="border-b border-r border-[#dfe1e6] px-3 py-2">
@@ -2132,8 +2124,7 @@ function ConfigDropdownValuesSection({
                         <td className="border-b border-[#dfe1e6] px-3 py-2 text-right">
                           <button
                             type="button"
-                            disabled={controlsDisabled || disableArchive}
-                            title={disableArchive ? "Consent needs at least 2 active options." : undefined}
+                            disabled={controlsDisabled}
                             onClick={() => void run(
                               () => prepareArchive(row.id),
                               "Archive confirmation ready."

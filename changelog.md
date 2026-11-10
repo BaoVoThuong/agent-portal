@@ -6,6 +6,10 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-11 — Table Configuration: Consent thêm / đổi tên / archive như bộ lựa chọn thường
+
+- Gỡ ràng buộc "Consent đúng 2 lựa chọn (Yes / khác)", khoá đổi tên và chặn archive dưới 2 — chỉ cần khi Consent còn là ô tick. Stage vẫn khoá đổi tên. Route `option-sets/[id]` bỏ chặn đổi tên Consent theo.
+
 ## 2026-11-11 — ACA: cột Consent đổi từ ô tick sang dropdown
 
 - Bảng, khung chi tiết và form tạo mới dùng dropdown Yes / Not Yet (như Platform) thay cho ô tick: ô tick không phân biệt được "Not Yet" với chưa điền. Hồ sơ trống giữ trống, hiện "No consent" (user chốt không điền hàng loạt).

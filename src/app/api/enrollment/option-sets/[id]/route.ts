@@ -57,9 +57,9 @@ export async function PATCH(request: Request, { params }: Ctx) {
       return NextResponse.json({ error: "Could not load the option set." }, { status: 500 });
     }
     if (!optionSetRow) return NextResponse.json(inactiveConfigValueResponse("Option"), { status: 409 });
-    if ("label" in body && (optionSetRow.key === "stage" || optionSetRow.key === "consent")) {
+    if ("label" in body && optionSetRow.key === "stage") {
       return NextResponse.json(
-        { error: "Stage and Consent option labels are protected workflow identities." },
+        { error: "Stage option labels are protected workflow identities." },
         { status: 409 }
       );
     }

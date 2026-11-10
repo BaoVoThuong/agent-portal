@@ -7,9 +7,7 @@ import { storesInCustomValues } from "./system-option-columns";
 
 export function isRequiredValueFilled(type: ColumnType, value: unknown): boolean {
   // A checkbox's `false` value is a deliberate answer and therefore counts as
-  // filled. Null/undefined/empty values are still missing, which matters for
-  // ACA Consent: it is rendered as a checkbox but stored as a nullable option
-  // id, so the server must agree with the form's Required check.
+  // filled. Null/undefined/empty values are still missing.
   if (type === "checkbox") {
     return value !== null && value !== undefined && value !== "";
   }
