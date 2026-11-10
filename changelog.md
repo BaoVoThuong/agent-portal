@@ -6,6 +6,15 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-11 — ACA: cột Consent đổi từ ô tick sang dropdown
+
+- Bảng, khung chi tiết và form tạo mới dùng dropdown Yes / Not Yet (như Platform) thay cho ô tick: ô tick không phân biệt được "Not Yet" với chưa điền. Hồ sơ trống giữ trống, hiện "No consent" (user chốt không điền hàng loạt).
+- `table_column` ACA `consent` đổi `checkbox` → `dropdown` (rollout `2026-11-11-aca-consent-dropdown.sql`, giữ local) để tiêu đề không canh giữa và bộ lọc lọc theo lựa chọn thay vì true/false; cấu hình mặc định trong `lib/table-config/queries.ts` đổi theo.
+
+## 2026-11-11 — Enrollment: bấm thông báo khi đang ở trang Enrollment mở đúng hồ sơ
+
+- Trước: link chuông `/enrollment?record=…` bấm lúc ĐANG ở trang Enrollment cùng chương trình là chuyển trang mềm, component không dựng lại và chỉ đọc `?record=` lúc mount, nên khung chi tiết không mở. Giờ trang theo dõi tham số `record`/`comment` trên URL, đổi là mở hồ sơ đó. Đóng khung (tham số mất) không làm gì thêm.
+
 ## 2026-11-11 — Template Import: bỏ dòng ví dụ, tô vàng cột Required (đã deploy)
 
 - File mẫu Enrollment và Provider chỉ còn dòng tiêu đề: dòng ví dụ làm người điền rối (có file chép nguyên giá trị mẫu cho mọi dòng). Lead vốn không có.

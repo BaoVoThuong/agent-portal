@@ -3,6 +3,7 @@
 import { PhoneFilterToggle, PhoneMoreActions } from "@/app/(authed)/_shared/phone-ui";
 import { PhoneBadge, PhoneCard, PhoneCardList } from "@/app/(authed)/_shared/phone-ui";
 import { useIsPhone } from "@/lib/use-is-phone";
+import { useSearchParams } from "next/navigation";
 import {
   useCallback,
   useEffect,
@@ -382,7 +383,7 @@ const ACA_ENROLLMENT_COLUMNS: EnrollmentColumn[] = [
   // Đủ cho một tên hãng dài ("HEALTHSPRING/CIGNA"); nhiều hãng thì xuống dòng.
   { key: "carrier", label: "Carrier", width: 220, sortable: true },
   { key: "aca", label: "AC", width: 280, sortable: true },
-  { key: "consent", label: "Consent", width: 104, sortable: true, align: "center" },
+  { key: "consent", label: "Consent", width: 130, sortable: true },
   { key: "platform", label: "Platform", width: 110, sortable: true },
   { key: "pcp2025", label: "PCP 2025", width: 180, sortable: true },
   { key: "pcp2026", label: "PCP 2026", width: 180, sortable: true },
@@ -1515,13 +1516,24 @@ export function EnrollmentClient({
   // Auto-dismiss now lives in <Toast>; keeping a second timer here would be
   // duplicated logic that can drift out of sync with it.
 
+  // `?record=` mở hồ sơ — không chỉ lúc trang mới dựng. Bấm chuông (link
+  // `/enrollment?record=…`) khi ĐANG ở trang Enrollment cùng chương trình là
+  // chuyển trang mềm: component không dựng lại, nên đọc URL một lần lúc mount
+  // là bỏ lỡ và khung chi tiết không mở (báo lỗi 2026-11-11). Theo dõi tham số
+  // thì mọi đường tới URL đều mở được. Đóng khung thì tham số mất — không làm gì.
+  const searchParams = useSearchParams();
+  const linkedRecordId = searchParams.get("record");
+  const linkedCommentId = searchParams.get("comment");
   useEffect(() => {
-    const initialRecordTimer = window.setTimeout(() => {
-      const params = new URL(window.location.href).searchParams;
-      setOpenId(params.get("record"));
-      setOpenCommentId(params.get("comment"));
+    if (!linkedRecordId) return;
+    const timer = window.setTimeout(() => {
+      setOpenId(linkedRecordId);
+      setOpenCommentId(linkedCommentId);
     }, 0);
+    return () => window.clearTimeout(timer);
+  }, [linkedRecordId, linkedCommentId]);
 
+  useEffect(() => {
     const onOpen = (event: Event) => {
       const detail = (event as CustomEvent<{ recordId?: unknown; commentId?: unknown }>).detail;
       if (typeof detail?.recordId !== "string") return;
@@ -1534,10 +1546,7 @@ export function EnrollmentClient({
       writeEnrollmentDeepLink(detail.recordId, "push", commentId);
     };
     window.addEventListener(OPEN_ENROLLMENT_EVENT, onOpen);
-    return () => {
-      window.clearTimeout(initialRecordTimer);
-      window.removeEventListener(OPEN_ENROLLMENT_EVENT, onOpen);
-    };
+    return () => window.removeEventListener(OPEN_ENROLLMENT_EVENT, onOpen);
   }, []);
 
   useEffect(() => {
@@ -3245,15 +3254,18 @@ function EnrollmentRowItem({
         </div>
       ) : null}
 
-      {/* Consent — ACA only; Yes/Not Yet is a binary field, so it's a tick box. */}
+      {/* Consent — ACA only. Dropdown, not a tick box (2026-11-11): unticked
+          could not tell "Not Yet" apart from never filled in. */}
       {has("consent") ? (
         <div
           style={cellStyleFor("consent")}
-          className={cellClassName("consent", "flex shrink-0 items-center justify-center px-2 py-2.5")}
+          className={cellClassName("consent", "flex shrink-0 items-center px-3 py-2.5")}
         >
-          <EnrollmentConsentToggle
+          <EnrollmentOptionMenu
             optionId={record.consent_id}
             options={optionsBySet.consent}
+            emptyLabel="No consent"
+            surface="list"
             canEdit={capabilities.canEditFields}
             onChange={(value) => void onPatch(record.id, { consent_id: value })}
           />
@@ -3454,72 +3466,6 @@ function EnrollmentRowItem({
         </div>
       ) : null}
     </div>
-  );
-}
-
-// Consent is a two-state field (Yes / Not Yet) so a click-to-toggle checkbox
-// is faster than opening a dropdown. Falls back to the generic dropdown if the
-// option set doesn't have the expected Yes/other shape (e.g. mid-edit in
-// Option sets management).
-function EnrollmentConsentToggle({
-  optionId,
-  options,
-  field = false,
-  canEdit = true,
-  onChange,
-}: {
-  optionId: string | null;
-  options: EnrollmentOption[];
-  field?: boolean;
-  canEdit?: boolean;
-  onChange: (value: string) => void;
-}) {
-  const yesOption =
-    options.find((option) => option.label.trim().toLowerCase() === "yes") ?? null;
-  const otherOption = options.find((option) => option.id !== yesOption?.id) ?? null;
-  if (!yesOption || !otherOption) {
-    return (
-      <EnrollmentOptionMenu
-        optionId={optionId}
-        options={options}
-        emptyLabel="No consent"
-        surface={field ? "form-field" : "form-bare"}
-        canEdit={canEdit}
-        onChange={onChange}
-      />
-    );
-  }
-
-  const current = optionId ? options.find((option) => option.id === optionId) ?? null : null;
-  const checked = current?.id === yesOption.id;
-  const label = current?.label ?? "Not set";
-
-  return (
-    <button
-      type="button"
-      disabled={!canEdit}
-      onClick={(event) => {
-        event.stopPropagation();
-        onChange(checked ? otherOption.id : yesOption.id);
-      }}
-      aria-label={`Consent: ${label}`}
-      aria-pressed={checked}
-      title={label}
-      className={
-        field
-          ? DETAIL_FIELD_BUTTON_CLASS
-          : "inline-flex h-7 w-7 items-center justify-center rounded text-[#42526e] transition hover:bg-[#f4f5f7] hover:text-[#172b4d] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#deebff] disabled:cursor-not-allowed disabled:opacity-60"
-      }
-    >
-      <span
-        className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border-2 transition ${
-          checked ? "border-[#00875a] bg-[#00875a]" : "border-[#c1c7d0] bg-white"
-        }`}
-      >
-        {checked ? <Check className="h-3 w-3 text-white" /> : null}
-      </span>
-      {field ? <span className="min-w-0 flex-1 truncate">{label}</span> : null}
-    </button>
   );
 }
 
@@ -4883,10 +4829,11 @@ function EnrollmentDrawer({
                     label={columnByKey.get("consent")?.label ?? "Consent"}
                     required={requiredColumnKeys.has("consent")}
                   >
-                    <EnrollmentConsentToggle
+                    <EnrollmentOptionMenu
                       optionId={record.consent_id}
                       options={optionsBySet.consent}
-                      field
+                      emptyLabel="No consent"
+                      surface="form-field"
                       canEdit={capabilities.canEditFields}
                       onChange={(value) => void onPatch({ consent_id: value })}
                     />
@@ -5596,9 +5543,12 @@ function NewEnrollmentDialog({
                       required={requiredColumnKeys.has("consent")}
                       invalid={isInvalid("consent")}
                     >
-                      <EnrollmentConsentToggle
+                      <EnrollmentOptionMenu
                         optionId={form.consent_id || null}
                         options={optionsBySet.consent}
+                        emptyLabel="No consent"
+                        placeholderLabel="Select consent"
+                        surface="form-bare"
                         onChange={(value) => update("consent_id", value)}
                       />
                     </CreatePropertyField>

@@ -71,7 +71,7 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("aca", "payment", "Payment status", "dropdown", 60),
     col("aca", "carrier", "Carrier", "multiselect", 70),
     col("aca", "aca", "AC", "dropdown", 80),
-    col("aca", "consent", "Consent", "checkbox", 90),
+    col("aca", "consent", "Consent", "dropdown", 90),
     col("aca", "platform", "Platform", "dropdown", 100),
     col("aca", "pcp2025", "PCP 2025", "text", 110),
     col("aca", "pcp2026", "PCP 2026", "text", 120),
