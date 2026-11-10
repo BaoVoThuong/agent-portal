@@ -101,13 +101,6 @@ export function matchTemplateHeaders(headers: readonly string[]): TemplateHeader
   };
 }
 
-/** Một dòng tiêu đề, cho nút "Download template". */
-export function leadImportTemplateCsv(): string {
-  return `${LEAD_IMPORT_TEMPLATE.map((column) =>
-    /[",]/.test(column.header) ? `"${column.header.replace(/"/g, '""')}"` : column.header,
-  ).join(",")}\n`;
-}
-
 export type TemplateLead = {
   /** Số dòng Excel (tiêu đề = 1), để mọi lý do chỉ đúng dòng người dùng thấy. */
   row: number;

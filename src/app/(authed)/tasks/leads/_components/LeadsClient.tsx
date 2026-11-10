@@ -1744,6 +1744,8 @@ export function LeadsClient({
         open={importOpen}
         nameByEmail={nameByEmail}
         agents={collaboratorRoster}
+        columns={columns}
+        columnOptions={columnOptions}
         sourceId={sourceId}
         onClose={() => setImportOpen(false)}
         onImported={async (result) => {

@@ -4,9 +4,16 @@ import { useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "rea
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { AlertTriangle, Download, FileSpreadsheet, X } from "lucide-react";
-import type { TableColumn } from "@/lib/table-config/types";
+import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
+import { downloadImportTemplate } from "@/lib/import-template/download";
 import {
-  PROVIDER_IMPORT_TEMPLATE_HEADERS,
+  readTemplateMarker,
+  templateFreshness,
+  type TemplateFreshness,
+} from "@/lib/import-template/spec";
+import { TemplateFreshnessNotice } from "../../../_shared/TemplateFreshnessNotice";
+import {
+  buildProviderTemplateSpec,
   matchProviderHeaders,
   parseProviderImportRows,
   providerImportPayload,
@@ -36,6 +43,7 @@ type ImportResult = {
 export function ProviderImportDialog({
   open,
   columns,
+  columnOptions,
   viewerName,
   goesToBacklog = false,
   onClose,
@@ -43,6 +51,8 @@ export function ProviderImportDialog({
 }: {
   open: boolean;
   columns: TableColumn[];
+  /** Lựa chọn của Specialty / ACA plans / Medicare plans — dropdown của file mẫu. */
+  columnOptions: TableColumnOption[];
   /** Tên người đang nhập — điền vào Verified by cho mọi dòng của lượt này. */
   viewerName: string;
   /**
@@ -60,6 +70,7 @@ export function ProviderImportDialog({
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
+  const [freshness, setFreshness] = useState<TemplateFreshness | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useBodyScrollLock(open);
@@ -98,6 +109,11 @@ export function ProviderImportDialog({
     );
   }, [matched, columns]);
 
+  const templateSpec = useMemo(
+    () => buildProviderTemplateSpec(columns, columnOptions),
+    [columns, columnOptions]
+  );
+
   const previewMinWidth = previewColumns.reduce(
     (total, column) => total + providerColumnWidth(column),
     0
@@ -111,6 +127,7 @@ export function ProviderImportDialog({
     setRecords([]);
     setError(null);
     setResult(null);
+    setFreshness(null);
     if (inputRef.current) inputRef.current.value = "";
   }
 
@@ -150,6 +167,7 @@ export function ProviderImportDialog({
       setFile(next);
       setHeaders(nextHeaders);
       setRecords(nextRecords);
+      setFreshness(templateFreshness(readTemplateMarker(workbook), templateSpec));
     } catch (readError) {
       reset();
       setError(
@@ -158,16 +176,15 @@ export function ProviderImportDialog({
     }
   }
 
-  function downloadTemplate() {
-    // Đúng bộ cột và đúng thứ tự của Google Sheet đội đang dùng, kèm một dòng ví
-    // dụ để thấy ngay định dạng từng ô. Không có cột ID: file mẫu là để THÊM
+  async function downloadTemplate() {
+    // Thứ tự cột của Google Sheet đội đang dùng, tên cột theo Table Config hiện
+    // tại, kèm dropdown và một dòng ví dụ. Không có cột ID: file mẫu là để THÊM
     // dòng mới — muốn sửa dòng có sẵn thì bấm Export, file đó mang sẵn ID.
-    const header = [...PROVIDER_IMPORT_TEMPLATE_HEADERS];
-    const example = header.map((name) => TEMPLATE_EXAMPLE[name] ?? "");
-    const sheet = XLSX.utils.aoa_to_sheet([header, example]);
-    const book = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(book, sheet, "Data");
-    XLSX.writeFile(book, "provider-import-template.xlsx");
+    try {
+      await downloadImportTemplate(templateSpec, "provider-import-template.xlsx");
+    } catch {
+      setError("The template could not be created. Try again.");
+    }
   }
 
   async function runImport() {
@@ -254,7 +271,7 @@ export function ProviderImportDialog({
                 </h3>
                 <button
                   type="button"
-                  onClick={downloadTemplate}
+                  onClick={() => void downloadTemplate()}
                   className="inline-flex shrink-0 items-center gap-1 text-xs font-bold text-[#0c66e4] transition hover:underline"
                 >
                   <Download className="h-3.5 w-3.5" />
@@ -332,6 +349,11 @@ export function ProviderImportDialog({
                     ) : null}
                   </div>
                 </div>
+
+                <TemplateFreshnessNotice
+                  freshness={freshness}
+                  onDownload={() => void downloadTemplate()}
+                />
 
                 {matched.ignored.length > 0 ? (
                   <p className="mt-3 flex items-start gap-2 rounded-lg border border-[#ffe2bd] bg-[#fffaf0] px-3 py-2 text-xs font-semibold text-[#974f0c]">
@@ -509,24 +531,6 @@ function Chip({
     </span>
   );
 }
-
-/** Một dòng ví dụ cho file mẫu, đúng định dạng mà bộ đọc file đang chấp nhận. */
-const TEMPLATE_EXAMPLE: Record<string, string> = {
-  Facility: "Houston Methodist",
-  Doctors: "Hoang Anh Phan",
-  NPI: "1407020035",
-  "Practices As": "PCP - Adults, Cardiologist",
-  "Accepting New Patients": "Yes",
-  "Business Hours": "Mon - Fri: 8:00am - 5:00pm",
-  Phone: "713-555-0123",
-  Street: "7111 Harwin Dr, Ste 210",
-  City: "Houston",
-  State: "TX",
-  "Zip Code": "77036",
-  ObamaCare: "Ambetter HMO, Oscar HMO",
-  Medicare: "UHC",
-  "Other Plans": "",
-};
 
 function formatPreview(value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";

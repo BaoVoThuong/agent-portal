@@ -615,6 +615,7 @@ export function ProviderListClient({
         key={importOpen ? "provider-import-open" : "provider-import-closed"}
         open={importOpen}
         columns={columns}
+        columnOptions={columnOptions}
         viewerName={viewerName}
         goesToBacklog={!canManage}
         onClose={() => setImportOpen(false)}

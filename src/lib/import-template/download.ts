@@ -30,7 +30,11 @@ export async function buildImportTemplateWorkbook(
   const meta = book.addWorksheet(TEMPLATE_META_SHEET, { state: "veryHidden" });
 
   data.addRow(spec.columns.map((column) => column.header));
-  data.addRow(spec.columns.map((column) => column.example));
+  // Không có ô ví dụ nào thì không ghi dòng ví dụ (template Lead): một dòng
+  // toàn chuỗi rỗng vẫn bị đọc thành một lead trống.
+  if (spec.columns.some((column) => column.example !== "")) {
+    data.addRow(spec.columns.map((column) => column.example));
+  }
   data.getRow(1).font = { bold: true };
   spec.columns.forEach((column, index) => {
     data.getColumn(index + 1).width = Math.min(

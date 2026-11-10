@@ -3,6 +3,7 @@ import {
   PROVIDER_IMPORT_ID_HEADER,
   PROVIDER_IMPORT_MANAGED_KEYS,
   PROVIDER_IMPORT_TEMPLATE_HEADERS,
+  buildProviderTemplateSpec,
   matchProviderHeaders,
   parseProviderImportRows,
   providerImportPayload,
@@ -342,5 +343,53 @@ describe("file mẫu khớp được hết", () => {
     expect(matched.byHeader.get("ObamaCare")).toBe("obamacare");
     expect(matched.byHeader.get("Medicare")).toBe("medicare");
     expect(matched.byHeader.get("Other Plans")).toBe("other_plans");
+  });
+});
+
+describe("buildProviderTemplateSpec", () => {
+  const COLS = [
+    column("doctors", "Doctor"),
+    column("facility", "Facility"),
+    column("practices_as", "Specialty", "multiselect"),
+    column("accepting_new_patients", "New Patient", "checkbox"),
+    column("needs_review", "Verified", "checkbox"),
+    column("state", "State"),
+    column("verified_by", "Verified by"),
+    column("date", "Verified date"),
+    column("created_by_email", "Opened by"),
+    { ...column("note", "Note"), is_system: false } as TableColumn,
+  ];
+  const OPTIONS = [
+    { column_id: "col-practices_as", label: "Dentist", position: 2, archived_at: null },
+    { column_id: "col-practices_as", label: "Cardiologist", position: 1, archived_at: null },
+  ];
+  const spec = buildProviderTemplateSpec(COLS, OPTIONS);
+
+  it("tiêu đề theo Table Config, thứ tự của mẫu cũ, cột tuỳ chỉnh nối cuối", () => {
+    expect(spec.columns.map((c) => c.header)).toEqual([
+      "Facility",
+      "Doctor",
+      "Specialty",
+      "New Patient",
+      "State",
+      "Note",
+    ]);
+  });
+
+  it("dropdown: Specialty cảnh báo, New Patient và State chặn", () => {
+    const byHeader = new Map(spec.columns.map((c) => [c.header, c.dropdown]));
+    expect(byHeader.get("Specialty")).toEqual({
+      values: ["Cardiologist", "Dentist"],
+      allowOther: true,
+    });
+    expect(byHeader.get("New Patient")).toEqual({ values: ["Yes", "No"], allowOther: false });
+    expect(byHeader.get("State")?.values).toContain("TX");
+    expect(byHeader.get("State")?.allowOther).toBe(false);
+  });
+
+  it("mọi tiêu đề của file mẫu mới đều khớp cột", () => {
+    const matched = matchProviderHeaders(spec.columns.map((c) => c.header), COLS);
+    expect(matched.ignored).toEqual([]);
+    expect(matched.managed).toEqual([]);
   });
 });

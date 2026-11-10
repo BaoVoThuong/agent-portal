@@ -18,10 +18,10 @@ import { TaskSelect } from "../../_components/TaskSelect";
 import { leadDisplayKey } from "@/lib/leads/display";
 import { normalizeEventName } from "@/lib/leads/events";
 import type { ExistingMatchField } from "@/lib/leads/import-existing";
-import {
-  LEAD_IMPORT_TEMPLATE,
-  leadImportTemplateCsv,
-} from "@/lib/leads/import-template";
+import { LEAD_IMPORT_TEMPLATE } from "@/lib/leads/import-template";
+import { buildLeadTemplateSpec } from "@/lib/leads/import-template-spec";
+import { downloadImportTemplate } from "@/lib/import-template/download";
+import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
 import type {
   LeadImportPreview,
   LeadImportPreviewRow,
@@ -60,6 +60,9 @@ type LeadImportDialogProps = {
   nameByEmail: Map<string, string>;
   /** Agent ở Account Management — người nhận Personal lead. */
   agents: { email: string; name: string | null }[];
+  /** Cấu hình bảng Lead — dropdown Gender / Contact Method / ... của file mẫu. */
+  columns: TableColumn[];
+  columnOptions: TableColumnOption[];
   sourceId: string;
   onClose: () => void;
   /** Nhận tóm tắt để màn hình ngoài báo toast; modal tự đóng khi lượt import sạch. */
@@ -85,25 +88,27 @@ function unmatchedAgentText(agent: UnmatchedImportAgent): string {
   return "no account with this name";
 }
 
-function downloadTemplate() {
-  const url = URL.createObjectURL(
-    new Blob([leadImportTemplateCsv()], { type: "text/csv;charset=utf-8" }),
-  );
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "lead-import-template.csv";
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
 export function LeadImportDialog({
   open,
   nameByEmail,
   agents,
+  columns,
+  columnOptions,
   sourceId,
   onClose,
   onImported,
 }: LeadImportDialogProps) {
+  async function downloadTemplate() {
+    // Tiêu đề cố định theo mẫu của đội; dropdown theo Table Config hiện tại.
+    try {
+      await downloadImportTemplate(
+        buildLeadTemplateSpec(columns, columnOptions, agents),
+        "lead-import-template.xlsx",
+      );
+    } catch {
+      setError("The template could not be created. Try again.");
+    }
+  }
   const [events, setEvents] = useState<LeadEvent[]>(
     () => peekLeadEvents()?.events ?? [],
   );
@@ -493,7 +498,7 @@ export function LeadImportDialog({
                 </h3>
                 <button
                   type="button"
-                  onClick={downloadTemplate}
+                  onClick={() => void downloadTemplate()}
                   className="inline-flex h-8 items-center gap-1.5 rounded border border-[#cfd8e5] bg-white px-2.5 text-xs font-bold text-[#42526e] transition hover:border-[#0c66e4] hover:text-[#0c66e4]"
                 >
                   <Download className="h-3.5 w-3.5" aria-hidden="true" />

@@ -6,6 +6,11 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-11 — Provider + Lead Import: template có dropdown (đã deploy)
+
+- Provider: "Download template" lấy tên cột theo Table Config hiện tại (Doctor, Specialty, New Patient, ZIP, ACA plans, Medicare plans…) thay cho bộ tiêu đề cắm cứng cũ, giữ thứ tự Google Sheet của đội; cột tuỳ chỉnh admin thêm được nối cuối. Dropdown: Specialty/ACA plans/Medicare plans (cảnh báo, vì "A, B" hợp lệ), New Patient Yes/No và State (chặn). File mẫu cũ vẫn nhập được (alias giữ nguyên). Import file tải trước khi cấu hình đổi thì cảnh báo như Enrollment.
+- Lead: template đổi từ CSV sang xlsx, giữ đúng 13 tiêu đề cố định. Dropdown Gender/Contact Method/Best Time to Contact/Insurance Needs theo Table Config (chỉ cảnh báo, vì Import tự tạo nhãn mới) và Agent (tên Agent, tên trùng thì email). Không có dòng ví dụ để tránh nhập nhầm một lead giả.
+
 ## 2026-11-11 — Enrollment Import: template có dropdown, preview hiện tên (đã deploy)
 
 - "Download template" của Enrollment tải file xlsx có dropdown thật: Stage/Payment/ACA status/Consent/Platform và cột tuỳ chỉnh dạng dropdown (vd. Authorization) chặn giá trị ngoài danh sách; Carrier và cột tuỳ chỉnh nhiều lựa chọn chỉ cảnh báo vì "A, B" hợp lệ; cột người (Agent/Caller/Responsible) là tên, tên trùng thì email; checkbox Yes/No. Giá trị nằm ở sheet ẩn `Lists`, lấy từ cấu hình lúc tải.

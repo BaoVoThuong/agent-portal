@@ -4,7 +4,6 @@ import { readSpreadsheet } from "./import-read";
 import {
   buildImportDescription,
   fubPersonKey,
-  leadImportTemplateCsv,
   matchTemplateHeaders,
   parseTemplateRows,
   resolveImportAgent,
@@ -145,14 +144,6 @@ describe("fubPersonKey", () => {
   it("treats http and https links to the same person as one", () => {
     expect(fubPersonKey("http://a.followupboss.com/2/people/view/16131"))
       .toBe(fubPersonKey("https://a.followupboss.com/2/people/view/16131/"));
-  });
-});
-
-describe("leadImportTemplateCsv", () => {
-  it("lists the thirteen template headers in file order", () => {
-    expect(leadImportTemplateCsv()).toBe(
-      "Full Name,Age,Gender,Phone Number,Email,Ticket #,Contact Method,Best Time to Contact,Insurance Needs,Client's Note,Agent,FUB link,Note\n",
-    );
   });
 });
 

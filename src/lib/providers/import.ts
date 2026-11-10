@@ -1,5 +1,11 @@
 import type { TableColumn } from "@/lib/table-config/types";
 import { isProviderMultiselectColumn, isReadOnlyProviderColumn } from "./form";
+import { US_STATES } from "./us-places";
+import {
+  distinctLabels,
+  type ImportTemplateSpec,
+  type TemplateDropdown,
+} from "@/lib/import-template/spec";
 
 /**
  * Nhập provider từ file Excel — KHÔNG có bước map cột.
@@ -40,6 +46,107 @@ const MANAGED_KEYS = new Set<string>(PROVIDER_IMPORT_MANAGED_KEYS);
  * `PROVIDER_IMPORT_MANAGED_KEYS`.
  *
  * `matchProviderHeaders` phải khớp HẾT bộ này; có test khoá lại.
+ */
+/**
+ * Thứ tự cột của file mẫu theo KHOÁ — cùng thứ tự Google Sheet đội đang dùng.
+ * Tiêu đề lấy `label` hiện tại trong Table Config (xem
+ * `buildProviderTemplateSpec`), nên admin đổi tên cột thì file mẫu đổi theo.
+ */
+export const PROVIDER_IMPORT_TEMPLATE_KEYS = [
+  "facility",
+  "doctors",
+  "npi",
+  "practices_as",
+  "accepting_new_patients",
+  "business_hours",
+  "phone",
+  "street",
+  "city",
+  "state",
+  "zip_code",
+  "obamacare",
+  "medicare",
+  "other_plans",
+] as const;
+
+/** Trần số dòng của Import Provider — dropdown phủ đúng ngần ấy dòng. */
+export const PROVIDER_IMPORT_MAX_ROWS = 2000;
+
+/** Một dòng ví dụ cho file mẫu, theo khoá cột. */
+const PROVIDER_TEMPLATE_EXAMPLE: Record<string, string> = {
+  facility: "Houston Methodist",
+  doctors: "Hoang Anh Phan",
+  npi: "1407020035",
+  accepting_new_patients: "Yes",
+  business_hours: "Mon - Fri: 8:00am - 5:00pm",
+  phone: "713-555-0123",
+  street: "7111 Harwin Dr, Ste 210",
+  city: "Houston",
+  state: "TX",
+  zip_code: "77036",
+};
+
+/**
+ * File mẫu có dropdown. Cột có trong Table Config mới vào file; cột tuỳ chỉnh
+ * admin thêm sau được nối vào cuối. Cột nhiều lựa chọn (Specialty, ACA plans,
+ * Medicare plans) chỉ cảnh báo khi gõ ngoài danh sách vì "A, B" là hợp lệ.
+ */
+export function buildProviderTemplateSpec(
+  columns: readonly TableColumn[],
+  columnOptions: readonly {
+    column_id: string;
+    label: string;
+    position?: number;
+    archived_at: string | null;
+  }[]
+): ImportTemplateSpec {
+  const active = columns.filter(
+    (column) =>
+      !column.archived_at &&
+      !MANAGED_KEYS.has(column.key) &&
+      !isReadOnlyProviderColumn(column)
+  );
+  const byKey = new Map(active.map((column) => [column.key, column]));
+  const ordered = [
+    ...PROVIDER_IMPORT_TEMPLATE_KEYS.flatMap((key) => byKey.get(key) ?? []),
+    ...active.filter((column) => !column.is_system),
+  ];
+
+  const labelsOf = (column: TableColumn) =>
+    distinctLabels(
+      columnOptions
+        .filter((option) => option.column_id === column.id && !option.archived_at)
+        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+        .map((option) => option.label)
+    );
+
+  const dropdownFor = (column: TableColumn): TemplateDropdown | undefined => {
+    if (column.type === "checkbox") return { values: ["Yes", "No"], allowOther: false };
+    if (column.key === "state") {
+      return { values: US_STATES.map((state) => state.code), allowOther: false };
+    }
+    const values = labelsOf(column);
+    if (values.length === 0) return undefined;
+    return { values, allowOther: isProviderMultiselectColumn(column) };
+  };
+
+  return {
+    kind: "provider",
+    rows: PROVIDER_IMPORT_MAX_ROWS,
+    columns: ordered.map((column) => {
+      const dropdown = dropdownFor(column);
+      return {
+        header: column.label,
+        example: PROVIDER_TEMPLATE_EXAMPLE[column.key] ?? dropdown?.values[0] ?? "",
+        dropdown,
+      };
+    }),
+  };
+}
+
+/**
+ * Tiêu đề của file mẫu CŨ (trước 10/11/2026). File agent còn giữ vẫn phải nhập
+ * được, nên `matchProviderHeaders` phải khớp hết bộ này; có test khoá lại.
  */
 export const PROVIDER_IMPORT_TEMPLATE_HEADERS = [
   "Facility",
