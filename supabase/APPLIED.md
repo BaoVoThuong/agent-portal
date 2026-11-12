@@ -13,6 +13,15 @@ Ba thư mục, ba vai trò khác nhau:
 
 ---
 
+## 2026-11-09 → 2026-11-12 — Enrollment list stats, ACA Consent dropdown, nhập file QDI vào Provider List
+
+- `rollouts/2026-11-09-enrollment-list-child-stats.sql`: hàm `enrollment_list_child_stats(uuid[])`. Kiểm ngày 12/11: đã có trên Portal production (code 87948f7 gọi hàm này).
+- `rollouts/2026-11-10-enrollment-list-preflight.sql`: chỉ `EXPLAIN (ANALYZE, BUFFERS)` đo truy vấn trước khi chạy file 11-09, không đổi gì.
+- `rollouts/2026-11-11-aca-consent-dropdown.sql`: cột `aca / consent` từ `checkbox` sang `dropdown`. Kiểm ngày 12/11: đã là `dropdown`.
+- 12/11, ngoài `rollouts/`, user duyệt từng bước: archive 10 dòng sample TEST của Provider Backlog; nhập file QDI Houston vào `provider_directory` (60 dòng cập nhật, bản cũ lưu ở bảng `_bk_20261112_provider_qdi` đã bật RLS; 102 dòng vào Backlog; 92 comment), rồi chạy `scripts/geocode-providers.mjs --write`. SQL nhập và hoàn tác giữ ngoài repo.
+
+---
+
 ## 2026-10-26 — Provider List: cột Reviewed đổi tên thành Verified
 
 Đã chạy `rollouts/2026-10-26-provider-verified-label.sql` trên Portal production (user duyệt). Chỉ đổi `table_column.label` của `provider / needs_review` từ "Reviewed" sang "Verified" — không đụng dữ liệu provider. Kiểm sau khi chạy: ba nhãn là Verified / Verified by / Verified date. Bản đang chạy trên Vercel đọc nhãn từ bảng này nên đổi theo ngay.
