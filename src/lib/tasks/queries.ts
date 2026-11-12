@@ -22,7 +22,13 @@ export const TASK_COLUMNS =
 const TASK_COLUMNS_LEGACY =
   "id,title,description,fub_link,status,priority,category_id,agent_email,assignee_email,reporter_email,todo_started_at,todo_reminded_at,in_progress_at,overdue_flagged_at,waiting_started_at,waiting_reminded_at,billing_started_at,billing_reminded_at,overdue_reminded_at,overdue_unlocked_at,due_soon_notified_at,stale_reminded_at,qc_reminded_at,last_activity_at,reopened_at,sla_minutes,overdue_count,todo_seconds,in_progress_seconds,waiting_seconds,billing_seconds,done_reviewed_by_email,done_reviewed_at,closed_at,position,created_at,updated_at,archived_at";
 
-export const TASK_PAGE_SIZE = 500;
+/**
+ * Một trang = đúng trần `max_rows` của Supabase (1.000). Các trang đi tuần tự,
+ * nên trang 500 nhân đôi số lượt đi-về nối nhau của mỗi lần nạp bảng task.
+ * Trần server có hạ xuống dưới mức này cũng không mất dòng: `fetchAllByKeyset`
+ * không dừng ở trang ngắn, chỉ dừng ở trang rỗng hoặc khi đã đủ `count`.
+ */
+export const TASK_PAGE_SIZE = 1000;
 
 /**
  * Trần số DÒNG một lượt nạp bảng task được phép kéo về.

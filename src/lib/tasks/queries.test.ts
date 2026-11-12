@@ -161,6 +161,20 @@ describe("fetchTasksForActor keyset paging", () => {
     expect(gtCalls).toEqual([["id", "b"]]);
   });
 
+  it("pages at the server cap of 1,000 rows", async () => {
+    // Các trang đi tuần tự: trang 500 nhân đôi số lượt đi-về của mỗi lần nạp board.
+    const { fetchTasksForActor, limitCalls } = await loadFetchTasksForActor({
+      selectedAgentEmails: [],
+      assistantAgents: [],
+      pages: [
+        { data: [row("a"), row("b")], error: null, count: 3 },
+        { data: [row("c")], error: null },
+      ],
+    });
+    await fetchTasksForActor(manager as never);
+    expect(limitCalls.slice(0, 2)).toEqual([[1000], [1000]]);
+  });
+
   it("reports truncated when the server has more than it returned", async () => {
     const { fetchTasksForActor } = await loadFetchTasksForActor({
       selectedAgentEmails: [],
@@ -502,6 +516,7 @@ async function loadFetchTasksForActor(options: {
     selectCalls,
     eqCalls,
     gtCalls,
+    limitCalls: builder.limit.mock.calls as unknown[][],
     rpcCalls,
     workerScopeCalls,
     fromCalls,
