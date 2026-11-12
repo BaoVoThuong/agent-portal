@@ -34,7 +34,7 @@ export interface PcTableSource {
 
 export const PC_MART_TABLE = "pc_mart";
 // Kích thước mỗi trang khi route phân trang qua .range() (giống dashboard).
-export const AI_QUERY_PAGE_SIZE = 1000;
+export const AI_QUERY_PAGE_SIZE = 500;
 
 const SELECT_COLUMNS = [
   "agent_name",

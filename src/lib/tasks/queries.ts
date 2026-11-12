@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { readAllRowsById } from "@/lib/pagination/all-rows";
 import {
   LIST_ENRICH_CONCURRENCY,
   mapWithConcurrency,
@@ -21,7 +22,7 @@ export const TASK_COLUMNS =
 const TASK_COLUMNS_LEGACY =
   "id,title,description,fub_link,status,priority,category_id,agent_email,assignee_email,reporter_email,todo_started_at,todo_reminded_at,in_progress_at,overdue_flagged_at,waiting_started_at,waiting_reminded_at,billing_started_at,billing_reminded_at,overdue_reminded_at,overdue_unlocked_at,due_soon_notified_at,stale_reminded_at,qc_reminded_at,last_activity_at,reopened_at,sla_minutes,overdue_count,todo_seconds,in_progress_seconds,waiting_seconds,billing_seconds,done_reviewed_by_email,done_reviewed_at,closed_at,position,created_at,updated_at,archived_at";
 
-export const TASK_PAGE_SIZE = 1000;
+export const TASK_PAGE_SIZE = 500;
 
 /**
  * Trần số DÒNG một lượt nạp bảng task được phép kéo về.
@@ -165,33 +166,13 @@ export async function fetchTasksForActor(actor: TaskActor): Promise<{
       { maxRows: TASK_MAX_ROWS, isTransient: isTransientPostgrestError }
     );
   } catch (error) {
-    // Nhánh tương thích cho DB chưa có cột custom_values. Production ĐÃ có cột
-    // này, nên nhánh này nguội — giữ nguyên kiểu một-phát kèm
-    // assertTaskListComplete, không phân trang một đường không chạy.
+    // Nhánh tương thích cũng phải phân trang: một lần đọc bị cắt ở max_rows.
     const maybeMissingColumn = { message: (error as Error).message };
     if (!isMissingTaskCustomValuesColumn(maybeMissingColumn)) throw error;
-    const countOption: CountOption = { count: TASK_LIST_COUNT_MODE };
-    const fallbackResult = workerScope
-      ? await selectWorkerTasks(supabase, workerScope, TASK_COLUMNS_LEGACY, countOption)
-          .is("archived_at", null)
-          .order("position", { ascending: true })
-          .order("created_at", { ascending: true })
-          .order("id", { ascending: true })
-      : await supabase
-          .from("tasks")
-          .select(TASK_COLUMNS_LEGACY, countOption)
-          .is("archived_at", null)
-          .order("position", { ascending: true })
-          .order("created_at", { ascending: true })
-          .order("id", { ascending: true });
-    if (fallbackResult.error) throw new Error(fallbackResult.error.message);
-    const rows = fallbackResult.data as unknown[] | null;
-    assertTaskListComplete(rows, fallbackResult.count);
-    page = {
-      rows: (rows ?? []) as { id: string }[],
-      total: fallbackResult.count ?? 0,
-      truncated: false,
-    };
+    page = await fetchAllByKeyset(
+      (afterId) => readPage(TASK_COLUMNS_LEGACY, afterId),
+      { maxRows: TASK_MAX_ROWS, isTransient: isTransientPostgrestError },
+    );
   }
 
   const rows = (page.rows as unknown as TaskRow[]).map((task) => ({
@@ -410,7 +391,13 @@ async function fetchTaskCommentRows(
 ): Promise<Array<{ task_id: string }>> {
   const chunks = chunkValues(taskIds, TASK_METADATA_TASK_ID_CHUNK_SIZE);
   const results = await mapWithConcurrency(chunks, LIST_ENRICH_CONCURRENCY, (chunk) =>
-    supabase.from("task_comments").select("task_id").in("task_id", chunk).is("deleted_at", null)
+    readAllRowsById<{ id: string; task_id: string }>((afterId, pageSize, withCount) => {
+      let query = supabase.from("task_comments")
+        .select("id,task_id", withCount ? { count: "exact" } : undefined)
+        .in("task_id", chunk).is("deleted_at", null);
+      if (afterId) query = query.gt("id", afterId);
+      return query.order("id").limit(pageSize);
+    })
   );
   const rows: Array<{ task_id: string }> = [];
   for (const { data, error } of results) {
@@ -426,7 +413,13 @@ async function fetchTaskAttachmentRows(
 ): Promise<Array<{ task_id: string }>> {
   const chunks = chunkValues(taskIds, TASK_METADATA_TASK_ID_CHUNK_SIZE);
   const results = await mapWithConcurrency(chunks, LIST_ENRICH_CONCURRENCY, (chunk) =>
-    supabase.from("task_attachments").select("task_id").in("task_id", chunk).is("deleted_at", null)
+    readAllRowsById<{ id: string; task_id: string }>((afterId, pageSize, withCount) => {
+      let query = supabase.from("task_attachments")
+        .select("id,task_id", withCount ? { count: "exact" } : undefined)
+        .in("task_id", chunk).is("deleted_at", null);
+      if (afterId) query = query.gt("id", afterId);
+      return query.order("id").limit(pageSize);
+    })
   );
   const rows: Array<{ task_id: string }> = [];
   for (const { data, error } of results) {

@@ -23,6 +23,7 @@ import {
   isRecordInScope,
 } from "@/lib/enrollment/scope";
 import { freshNotificationMembership } from "@/lib/notifications/membership";
+import { readAllRowsById } from "@/lib/pagination/all-rows";
 import { alertsMutedFromRow } from "@/lib/notifications/alert-preferences";
 import {
   countsAsUnread,
@@ -143,13 +144,16 @@ export async function GET(req: Request) {
         .eq("recipient_email", email)
         .eq("is_read", false)
         .gte("created_at", UNREAD_SINCE),
-      supabase
-        .from("task_notifications")
-        .select("task_id")
-        .eq("recipient_email", email)
-        .eq("type", "assigned")
-        .eq("is_read", false)
-        .gte("created_at", UNREAD_SINCE),
+      readAllRowsById<{ id: string; task_id: string }>((afterId, pageSize, withCount) => {
+        let query = supabase.from("task_notifications")
+          .select("id,task_id", withCount ? { count: "exact" } : undefined)
+          .eq("recipient_email", email)
+          .eq("type", "assigned")
+          .eq("is_read", false)
+          .gte("created_at", UNREAD_SINCE);
+        if (afterId) query = query.gt("id", afterId);
+        return query.order("id").limit(pageSize);
+      }),
       // Mốc phát hiện thông báo mới cho vòng lặp nền.
       //
       // Số chưa đọc KHÔNG dùng làm mốc được: nó là tổng của ba bảng và lên

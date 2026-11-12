@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { readAllRowsById } from "@/lib/pagination/all-rows";
 import { fetchTableColumns } from "@/lib/table-config/queries";
 import { aggregateEnrollmentOverview, defaultEnrollmentOverviewPeriod } from "./overview";
 import { sortEnrollmentOptions } from "./options";
@@ -35,11 +36,15 @@ export async function fetchEnrollmentOverview(
   const from = hasExplicitPeriod ? parseDateParam(periodParams?.from ?? "") ?? "" : defaultPeriod.from;
   const to = hasExplicitPeriod ? parseDateParam(periodParams?.to ?? "") ?? "" : defaultPeriod.to;
 
-  const recordsQuery = supabase
-    .from("enrollment_records")
-    .select(OVERVIEW_RECORD_COLUMNS)
-    .eq("program", program)
-    .is("archived_at", null);
+  const readRecords = () => readAllRowsById<{ id: string }>((afterId, pageSize, withCount) => {
+    let query = supabase
+      .from("enrollment_records")
+      .select(OVERVIEW_RECORD_COLUMNS, withCount ? { count: "exact" } : undefined)
+      .eq("program", program)
+      .is("archived_at", null);
+    if (afterId) query = query.gt("id", afterId);
+    return applyEnrollmentScope(query, scope).order("id").limit(pageSize);
+  });
   const [stageSetResult, recordsResult, tableColumns] = await Promise.all([
     supabase
       .from("enrollment_option_sets")
@@ -47,7 +52,7 @@ export async function fetchEnrollmentOverview(
       .eq("program", program)
       .eq("key", "stage")
       .maybeSingle(),
-    applyEnrollmentScope(recordsQuery, scope),
+    readRecords(),
     fetchTableColumns(program),
   ]);
 

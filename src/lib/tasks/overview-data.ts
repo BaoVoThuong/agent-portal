@@ -1,5 +1,6 @@
 import { businessDateKey } from "./business-date";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { readAllRowsById } from "@/lib/pagination/all-rows";
 import { isAdminRoleName } from "@/lib/rbac/admin-role";
 import { fetchTaskAssigneeRowsForTaskIds } from "./assignees";
 import { resolveReminderSettings } from "./reminder-settings";
@@ -50,17 +51,23 @@ export async function fetchTaskOverview(
         .from("task_categories")
         .select("id,name,color")
         .eq("is_active", true),
-      supabase
-        .from("tasks")
-        .select(OVERVIEW_TASK_COLUMNS)
-        .is("archived_at", null)
-        .in("status", ["backlog", "todo", "in_progress", "waiting", "billing"]),
-      supabase
-        .from("tasks")
-        .select(OVERVIEW_TASK_COLUMNS)
-        .is("archived_at", null)
-        .in("status", ["done", "cancel"])
-        .or(`closed_at.gte.${recentDoneSince},done_reviewed_at.is.null`),
+      readAllRowsById<{ id: string }>((afterId, pageSize, withCount) => {
+        let query = supabase.from("tasks")
+          .select(OVERVIEW_TASK_COLUMNS, withCount ? { count: "exact" } : undefined)
+          .is("archived_at", null)
+          .in("status", ["backlog", "todo", "in_progress", "waiting", "billing"]);
+        if (afterId) query = query.gt("id", afterId);
+        return query.order("id").limit(pageSize);
+      }),
+      readAllRowsById<{ id: string }>((afterId, pageSize, withCount) => {
+        let query = supabase.from("tasks")
+          .select(OVERVIEW_TASK_COLUMNS, withCount ? { count: "exact" } : undefined)
+          .is("archived_at", null)
+          .in("status", ["done", "cancel"])
+          .or(`closed_at.gte.${recentDoneSince},done_reviewed_at.is.null`);
+        if (afterId) query = query.gt("id", afterId);
+        return query.order("id").limit(pageSize);
+      }),
       supabase.from("task_sla_rules").select("priority,category_id,duration_minutes"),
       supabase.from("task_reminder_settings").select("*").maybeSingle(),
     ]);

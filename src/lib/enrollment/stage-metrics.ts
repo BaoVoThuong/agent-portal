@@ -1,11 +1,11 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { assertEnrollmentRecordsComplete } from "./queries";
+import { readAllRowsById } from "@/lib/pagination/all-rows";
+import { mapWithConcurrency } from "@/lib/pagination/concurrency";
 import { applyEnrollmentScope, type EnrollmentScope } from "./scope";
 import { summarizeDurations } from "./stage-time";
 import type { EnrollmentOption, EnrollmentProgram } from "./types";
 import type { EnrollmentOverviewStageDwellMetric } from "./overview-types";
 
-const PAGE_SIZE = 1000;
 const ID_CHUNK_SIZE = 50;
 const LOOKBACK_DAYS = 90;
 
@@ -44,41 +44,43 @@ export async function fetchStageDwellMetrics(
   now = new Date()
 ): Promise<EnrollmentOverviewStageDwellMetric[]> {
   const supabase = getSupabaseAdmin();
-  const recordsQuery = supabase
-    .from("enrollment_records")
-    .select("id", { count: "exact" })
-    .eq("program", program)
-    .is("archived_at", null);
-  const { data: recordRows, error: recordError, count } = await applyEnrollmentScope(recordsQuery, scope);
+  const { data: recordRows, error: recordError } = await readAllRowsById<{ id: string }>(
+    (afterId, pageSize, withCount) => {
+      let query = supabase.from("enrollment_records")
+        .select("id", withCount ? { count: "exact" } : undefined)
+        .eq("program", program).is("archived_at", null);
+      if (afterId) query = query.gt("id", afterId);
+      return applyEnrollmentScope(query, scope).order("id").limit(pageSize);
+    },
+  );
   if (recordError) throw new Error(recordError.message);
-  assertEnrollmentRecordsComplete(recordRows, count);
   const recordIds = ((recordRows ?? []) as { id: string }[]).map((row) => row.id);
   if (recordIds.length === 0) return [];
 
   const cutoff = new Date(now);
   cutoff.setUTCDate(cutoff.getUTCDate() - LOOKBACK_DAYS);
-  const batches = await Promise.all(Array.from({ length: Math.ceil(recordIds.length / ID_CHUNK_SIZE) }, (_, chunkIndex) => {
-    const ids = recordIds.slice(chunkIndex * ID_CHUNK_SIZE, (chunkIndex + 1) * ID_CHUNK_SIZE);
-    return (async () => {
-      const rows: CycleRow[] = [];
-    for (let offset = 0; ; offset += PAGE_SIZE) {
-      const result = await supabase
+  const idChunks = Array.from(
+    { length: Math.ceil(recordIds.length / ID_CHUNK_SIZE) },
+    (_, chunkIndex) => recordIds.slice(chunkIndex * ID_CHUNK_SIZE, (chunkIndex + 1) * ID_CHUNK_SIZE),
+  );
+  const batches = await mapWithConcurrency(idChunks, 4, async (ids) => {
+      const result = await readAllRowsById<{ id: string; stage_id: string; duration_seconds: number | null }>(
+        (afterId, pageSize, withCount) => {
+          let query = supabase
         .from("enrollment_stage_cycles")
-        .select("stage_id,duration_seconds")
+        .select("id,stage_id,duration_seconds", withCount ? { count: "exact" } : undefined)
         .in("record_id", ids)
         .eq("program", program)
         .eq("kind", "dwell")
         .eq("source", "live")
         .not("ended_at", "is", null)
-        .gte("ended_at", cutoff.toISOString())
-        .range(offset, offset + PAGE_SIZE - 1);
+        .gte("ended_at", cutoff.toISOString());
+          if (afterId) query = query.gt("id", afterId);
+          return query.order("id").limit(pageSize);
+        },
+      );
       if (result.error) throw new Error(result.error.message);
-      const page = (result.data ?? []) as CycleRow[];
-      rows.push(...page);
-      if (page.length < PAGE_SIZE || (typeof result.count === "number" && offset + page.length >= result.count)) break;
-    }
-      return rows;
-    })();
-  }));
+      return (result.data ?? []) as CycleRow[];
+  });
   return summarizeStageDwell(batches.flat(), stageOptions);
 }

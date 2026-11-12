@@ -3,6 +3,7 @@ import { getTimeOffActor } from "@/lib/time-off/access";
 import { monthBounds } from "@/lib/time-off/business-days";
 import type { TimeOffCalendarEvent, TimeOffHoliday } from "@/lib/time-off/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { readAllRowsById } from "@/lib/pagination/all-rows";
 import { getUsFederalHolidaysInRange } from "@/lib/time-off/us-holidays";
 
 export const dynamic = "force-dynamic";
@@ -35,14 +36,15 @@ export async function GET(request: Request) {
       .gte("holiday_date", bounds.start)
       .lte("holiday_date", bounds.end)
       .order("holiday_date"),
-    supabase
-      .from("time_off_requests")
-      .select("id,policy_code,start_date,end_date")
-      .eq("requester_id", actor.accountId)
-      .eq("status", "approved")
-      .lte("start_date", bounds.end)
-      .gte("end_date", bounds.start)
-      .order("start_date"),
+    readAllRowsById<RequestRow>((afterId, pageSize, withCount) => {
+      let query = supabase.from("time_off_requests")
+        .select("id,policy_code,start_date,end_date", withCount ? { count: "exact" } : undefined)
+        .eq("requester_id", actor.accountId)
+        .eq("status", "approved")
+        .lte("start_date", bounds.end).gte("end_date", bounds.start);
+      if (afterId) query = query.gt("id", afterId);
+      return query.order("id").limit(pageSize);
+    }),
   ]);
   if (holidaysResult.error) return NextResponse.json({ error: holidaysResult.error.message }, { status: 500 });
   if (requestsResult.error) return NextResponse.json({ error: requestsResult.error.message }, { status: 500 });

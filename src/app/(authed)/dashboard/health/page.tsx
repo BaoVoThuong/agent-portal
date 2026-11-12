@@ -29,7 +29,7 @@ type DashboardPageProps = {
 
 type ChartLevel = "month" | "quarter" | "year";
 
-const HEALTH_MART_PAGE_SIZE = 1000;
+const HEALTH_MART_PAGE_SIZE = 500;
 const HEALTH_DASHBOARD_PERMISSIONS = [
   PERMISSIONS.AGENT_DASHBOARD_HEALTH,
   PERMISSIONS.COMPANY_DASHBOARD_HEALTH,

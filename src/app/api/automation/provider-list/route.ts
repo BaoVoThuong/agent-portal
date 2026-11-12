@@ -3,7 +3,7 @@ import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { canAddProviders, canViewProviders, providerWritesGoLive } from "@/lib/providers/access";
 import { findProviderDuplicate, pendingProviderFields } from "@/lib/providers/backlog";
-import { fetchBacklogProviderRows, fetchLiveProviderKeys } from "@/lib/providers/backlog-queries";
+import { fetchBacklogProviderRows, fetchLiveProviderKeys, fetchLiveProviderRows } from "@/lib/providers/backlog-queries";
 import { notifyProviderBacklogSubmitted } from "@/lib/providers/notifications";
 import { buildProviderRow, parseCreateProviderInput } from "@/lib/providers/create";
 import { PROVIDER_SELECT, PROVIDER_TABLE, PROVIDER_TEXT_FIELDS } from "@/lib/providers/types";
@@ -68,19 +68,10 @@ export async function GET() {
     // Backlog đi cùng chuyến: nhập file xong thì cả hai tab đều có thể đã đổi.
     const supabase = getSupabaseAdmin();
     const [live, backlog] = await Promise.all([
-      timing.measure("provider_query", async () =>
-        supabase
-          .from(PROVIDER_TABLE)
-          .select(PROVIDER_SELECT)
-          .eq("pending", false)
-          .is("archived_at", null)
-          .order("updated_at", { ascending: false })
-          .limit(5000),
-      ),
+      timing.measure("provider_query", () => fetchLiveProviderRows(supabase)),
       timing.measure("backlog_query", () => fetchBacklogProviderRows(supabase)),
     ]);
-    if (live.error) return respond({ error: live.error.message }, 500);
-    return respond({ providers: live.data ?? [], backlog });
+    return respond({ providers: live, backlog });
   } catch (error) {
     return respond(
       { error: error instanceof Error ? error.message : "Unable to load providers." },

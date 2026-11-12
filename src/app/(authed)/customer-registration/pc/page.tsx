@@ -4,6 +4,7 @@ import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { requirePermission } from "@/lib/rbac/server";
 import { buildVisibleEntriesFilter } from "@/lib/agent-name";
+import { fetchRegistrationEntries } from "@/lib/registration/queries";
 import PcEntryGrid from "./PcEntryGrid";
 
 export const dynamic = "force-dynamic";
@@ -16,18 +17,10 @@ export default async function PcRegistrationPage() {
     PERMISSIONS.CUSTOMER_REGISTRATION_VIEW_ALL
   );
 
-  const supabase = getSupabaseAdmin();
-  let query = supabase
-    .from("pc_entries")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  if (!canViewAll) {
-    query = query.or(buildVisibleEntriesFilter(email, session.user.name));
-  }
-
-  const { data } = await query;
-  const initialHistory = (data ?? []) as PcEntry[];
+  const initialHistory = await fetchRegistrationEntries<PcEntry>(
+    "pc_entries",
+    canViewAll ? undefined : buildVisibleEntriesFilter(email, session.user.name),
+  );
   const agentOptions = await fetchPcAgentNames();
 
   return (

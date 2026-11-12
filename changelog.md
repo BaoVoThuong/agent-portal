@@ -6,6 +6,13 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-12 — Supabase: các màn còn lại cũng đọc đủ khi dữ liệu vượt trần 1.000 dòng
+
+- Code Codex (plan `docs/superpowers/plans/2026-11-12-supabase-row-limit-remediation.md`), dùng chung `readAllRowsById` của entry dưới; mỗi request vẫn dưới `max_rows` 1.000, không đổi cấu hình Supabase.
+- Enrollment: Overview ACA (trước đọc OFFSET theo `created_at`), Overview các chương trình, stage cycles và comment của hồ sơ đọc theo keyset `id`, áp cùng quyền xem ở mọi trang.
+- Provider List/API/Export, Health/P&C Registration, Task Overview/cron, Task assignee/participant, notification fallback, Lead Overview và phép tính quỹ nghỉ phép theo năm đọc đủ tập kết quả theo scope. Task search không còn dừng sau 1.000 ứng viên.
+- Dashboard, AI, Provider Finder, health statement và Lead import vốn đã phân trang: lô 1.000 → 500. Giữ các giới hạn nghiệp vụ có chủ ý của import và Task/Lead list.
+
 ## 2026-11-12 — Enrollment: danh sách đọc theo trang, hết sập khi chương trình vượt 1.000 hồ sơ
 
 - Trước: `fetchEnrollmentRecords` đọc cả chương trình bằng một request; Supabase cắt mỗi response ở 1.000 dòng (`max_rows`), nên từ 18:35 UTC 11/11 khi ACA vượt 1.000 hồ sơ, code ném `EnrollmentListTruncatedError` và trang `/enrollment` sập ("This page couldn't load") cho Manager và CS xem toàn bộ; `/api/enrollment` và Export ACA trả 503. Agent/Assistant đọc phần của mình nên không bị.

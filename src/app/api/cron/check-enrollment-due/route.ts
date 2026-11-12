@@ -18,6 +18,7 @@ import {
   type DueRecordSchedule,
 } from "@/lib/enrollment/due-schedule";
 import { resolveReminderSettings } from "@/lib/tasks/reminder-settings";
+import { readAllRowsById } from "@/lib/pagination/all-rows";
 import { checkCronAuthorization } from "@/lib/cron-auth";
 import {
   enrollmentWatcherEmails,
@@ -38,26 +39,21 @@ type DueRecord = DueRecordSchedule & {
   stage_id: string | null;
 };
 
-const PAGE_SIZE = 1000;
 const BATCH_SIZE = 10;
 const DUE_SELECT =
   "id,program,custom_values,client_name,due_date,stage_id,caller_email,responsible_enroll_email,agent_email,due_soon_notified_at,overdue_notified_at,overdue_reminded_at,qc_stale_notified_at,qc_checked_at,closed_at";
 
 async function fetchEnrollmentRows(closed: boolean): Promise<DueRecord[]> {
-  const rows: DueRecord[] = [];
-  for (let offset = 0; ; offset += PAGE_SIZE) {
+  const result = await readAllRowsById<DueRecord>((afterId, pageSize, withCount) => {
     let query = getSupabaseAdmin()
       .from("enrollment_records")
-      .select(DUE_SELECT)
-      .order("id", { ascending: true })
-      .range(offset, offset + PAGE_SIZE - 1);
+      .select(DUE_SELECT, withCount ? { count: "exact" } : undefined);
     query = closed ? query.is("archived_at", null).not("closed_at", "is", null) : query.is("archived_at", null).is("closed_at", null);
-    const { data, error } = await query;
-    if (error) throw new Error(error.message);
-    const page = (data ?? []) as DueRecord[];
-    rows.push(...page);
-    if (page.length < PAGE_SIZE) return rows;
-  }
+    if (afterId) query = query.gt("id", afterId);
+    return query.order("id").limit(pageSize);
+  });
+  if (result.error) throw new Error(result.error.message);
+  return result.data ?? [];
 }
 
 async function releaseMarker(

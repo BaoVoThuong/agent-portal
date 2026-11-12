@@ -6,6 +6,7 @@ import type { PcEntryInput, PcEntry } from "@/lib/domain/pc-entry.types";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { buildVisibleEntriesFilter, normalizeAgentName } from "@/lib/agent-name";
+import { fetchRegistrationEntries } from "@/lib/registration/queries";
 
 const REQUIRED_PC_FIELDS = [
   "agency",
@@ -34,22 +35,15 @@ export async function GET() {
     session.user.permissions,
     PERMISSIONS.CUSTOMER_REGISTRATION_VIEW_ALL
   );
-  const supabase = getSupabaseAdmin();
-  let query = supabase
-    .from("pc_entries")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  if (!canViewAll) {
-    query = query.or(buildVisibleEntriesFilter(email, session.user.name));
+  try {
+    const entries = await fetchRegistrationEntries<PcEntry>(
+      "pc_entries",
+      canViewAll ? undefined : buildVisibleEntriesFilter(email, session.user.name),
+    );
+    return NextResponse.json({ entries });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Could not load entries." }, { status: 500 });
   }
-
-  const { data, error } = await query;
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-  return NextResponse.json({ entries: data ?? [] });
 }
 
 function sanitizeRow(row: Partial<PcEntryInput>): PcEntryInput | null {

@@ -6,6 +6,7 @@ import type { EntryInput, Entry } from "@/lib/domain/entry.types";
 import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { buildVisibleEntriesFilter, normalizeAgentName } from "@/lib/agent-name";
+import { fetchRegistrationEntries } from "@/lib/registration/queries";
 import { RouteTiming } from "@/lib/server-timing";
 
 export async function GET() {
@@ -22,24 +23,15 @@ export async function GET() {
     session.user.permissions,
     PERMISSIONS.CUSTOMER_REGISTRATION_VIEW_ALL
   );
-  const supabase = getSupabaseAdmin();
-  let query = supabase
-    .from("health_entries")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  if (!canViewAll) {
-    // Show entries the user submitted (agent_email) OR entries someone else
-    // submitted on this agent's behalf (selected_agent matches their name).
-    query = query.or(buildVisibleEntriesFilter(email, session.user.name));
+  try {
+    const entries = await fetchRegistrationEntries<Entry>(
+      "health_entries",
+      canViewAll ? undefined : buildVisibleEntriesFilter(email, session.user.name),
+    );
+    return NextResponse.json({ entries });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Could not load entries." }, { status: 500 });
   }
-
-  const { data, error } = await query;
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-  return NextResponse.json({ entries: data ?? [] });
 }
 
 function sanitizeRow(row: Partial<EntryInput>): EntryInput | null {

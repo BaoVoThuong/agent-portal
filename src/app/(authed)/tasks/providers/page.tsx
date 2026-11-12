@@ -10,10 +10,10 @@ import {
 } from "@/lib/providers/access";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { fetchTableColumnsWithOptions } from "@/lib/table-config/queries";
-import { PROVIDER_SELECT, PROVIDER_TABLE, type ProviderRow } from "@/lib/providers/types";
+import type { ProviderRow } from "@/lib/providers/types";
 import { RouteTiming } from "@/lib/server-timing";
 import { fetchProviderDisplayPeople } from "@/lib/providers/collaboration";
-import { fetchBacklogProviderRows } from "@/lib/providers/backlog-queries";
+import { fetchBacklogProviderRows, fetchLiveProviderRows } from "@/lib/providers/backlog-queries";
 import { personLabel } from "@/lib/tasks/people";
 import { ProviderListClient } from "./_components/ProviderListClient";
 
@@ -35,15 +35,13 @@ export default async function ProviderListPage() {
     timing.measure("columns", () =>
       fetchTableColumnsWithOptions("provider", supabase),
     ),
-    timing.measure("provider_query", async () =>
-      supabase
-        .from(PROVIDER_TABLE)
-        .select(PROVIDER_SELECT)
-        // Danh sách chỉ có dòng đã duyệt; dòng chờ duyệt nằm ở tab Backlog.
-        .eq("pending", false)
-        .is("archived_at", null)
-        .order("updated_at", { ascending: false })
-        .limit(5000),
+    timing.measure("provider_query", () =>
+      fetchLiveProviderRows(supabase)
+        .then((data) => ({ data, error: null as { message: string } | null }))
+        .catch((error) => ({
+          data: [] as ProviderRow[],
+          error: { message: error instanceof Error ? error.message : "Could not load providers." },
+        })),
     ),
     timing.measure("backlog_query", () =>
       fetchBacklogProviderRows(supabase)

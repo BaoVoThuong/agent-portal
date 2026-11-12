@@ -1,8 +1,25 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readAllRowsById } from "@/lib/pagination/all-rows";
 import { findProviderDuplicate } from "./backlog";
 import { PROVIDER_SELECT, PROVIDER_TABLE, type ProviderRow } from "./types";
 
 type DuplicateKeyRow = Parameters<typeof findProviderDuplicate>[1][number];
+
+/** Approved rows for the list and exports; every read stays below max_rows. */
+export async function fetchLiveProviderRows(supabase: SupabaseClient): Promise<ProviderRow[]> {
+  const result = await readAllRowsById<ProviderRow>(async (afterId, pageSize, withCount) => {
+    let query = supabase.from(PROVIDER_TABLE)
+      .select(PROVIDER_SELECT, withCount ? { count: "exact" } : undefined)
+      .eq("pending", false).is("archived_at", null);
+    if (afterId) query = query.gt("id", afterId);
+    const page = await query.order("id").limit(pageSize);
+    return { ...page, data: page.data as unknown as ProviderRow[] | null };
+  });
+  if (result.error) throw new Error(result.error.message);
+  return ((result.data ?? []) as ProviderRow[]).sort((a, b) =>
+    String(b.updated_at ?? "").localeCompare(String(a.updated_at ?? "")) || a.id.localeCompare(b.id),
+  );
+}
 
 /**
  * Dòng đang ở trong danh sách (đã duyệt, chưa xoá), chỉ những ô dùng để dò trùng

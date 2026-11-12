@@ -20,6 +20,7 @@ import type { TaskRow, TaskSlaRule } from "@/lib/tasks/types";
 import { checkCronAuthorization } from "@/lib/cron-auth";
 import { isTaskRowDueDateOverdue, readTaskDueDate } from "@/lib/tasks/due-date";
 import { WAITING_REMINDER_BILLING_DETAIL } from "@/lib/notifications/copy";
+import { fetchTaskSweepRows } from "@/lib/tasks/sweep";
 
 export const dynamic = "force-dynamic";
 
@@ -77,17 +78,16 @@ async function runReminderSweep(): Promise<NextResponse> {
   const waitingCutoffIso = new Date(now.getTime() - waitingReminderMs).toISOString();
   const qcCutoffIso = new Date(now.getTime() - qcReminderMs).toISOString();
 
-  const { data: taskRows, error: tasksError } = await supabase
-    .from("tasks")
-    .select(
-      "id,status,priority,category_id,agent_email,in_progress_at,in_progress_seconds,waiting_started_at,waiting_seconds,billing_started_at,billing_seconds,overdue_flagged_at,overdue_reminded_at,due_soon_notified_at,sla_minutes,overdue_count"
-    )
-    .eq("status", "in_progress")
-    .is("archived_at", null)
-    .not("in_progress_at", "is", null);
-  if (tasksError) return NextResponse.json({ error: tasksError.message }, { status: 500 });
+  const taskRows = await fetchTaskSweepRows<{ id: string }>(
+    "id,status,priority,category_id,agent_email,in_progress_at,in_progress_seconds,waiting_started_at,waiting_seconds,billing_started_at,billing_seconds,overdue_flagged_at,overdue_reminded_at,due_soon_notified_at,sla_minutes,overdue_count",
+    [
+      { op: "eq", column: "status", value: "in_progress" },
+      { op: "is", column: "archived_at", value: null },
+      { op: "not", column: "in_progress_at", operator: "is", value: null },
+    ],
+  );
 
-  const tasks = (taskRows ?? []) as Pick<
+  const tasks = taskRows as Pick<
     TaskRow,
     | "id"
     | "status"
@@ -136,16 +136,14 @@ async function runReminderSweep(): Promise<NextResponse> {
       isDueSoon(task, rules, settings.dueSoonMinutes, now)
   );
 
-  const { data: todoRows, error: todoError } = await supabase
-    .from("tasks")
-    .select("id,todo_started_at,todo_reminded_at")
-    .eq("status", "todo")
-    .is("archived_at", null)
-    .not("todo_started_at", "is", null)
-    .lte("todo_started_at", todoCutoffIso);
-  if (todoError) return NextResponse.json({ error: todoError.message }, { status: 500 });
+  const todoRows = await fetchTaskSweepRows<{ id: string }>("id,todo_started_at,todo_reminded_at", [
+    { op: "eq", column: "status", value: "todo" },
+    { op: "is", column: "archived_at", value: null },
+    { op: "not", column: "todo_started_at", operator: "is", value: null },
+    { op: "lte", column: "todo_started_at", value: todoCutoffIso },
+  ]);
   const todoReminderTasks = (
-    (todoRows ?? []) as Pick<
+    todoRows as Pick<
       TaskRow,
       "id" | "todo_started_at" | "todo_reminded_at"
     >[]
@@ -157,21 +155,20 @@ async function runReminderSweep(): Promise<NextResponse> {
   // Task có đặt Due Date và chưa kết thúc. Lọc "quá hạn hay chưa" ở Node chứ
   // không ở SQL: ranh giới ngày phụ thuộc múi giờ Texas, và nhét phép đổi múi
   // giờ vào PostgREST là để hai nơi định nghĩa "hết ngày" theo hai cách.
-  const { data: dueRows, error: dueError } = await supabase
-    .from("tasks")
-    .select(
-      "id,status,agent_email,custom_values,due_overdue_flagged_at,due_overdue_reminded_at"
-    )
-    .is("archived_at", null)
-    .not("status", "in", "(done,cancel)")
-    .not("custom_values->>due_date", "is", null);
-  if (dueError) return NextResponse.json({ error: dueError.message }, { status: 500 });
+  const dueRows = await fetchTaskSweepRows<{ id: string }>(
+    "id,status,agent_email,custom_values,due_overdue_flagged_at,due_overdue_reminded_at",
+    [
+      { op: "is", column: "archived_at", value: null },
+      { op: "not", column: "status", operator: "in", value: "(done,cancel)" },
+      { op: "not", column: "custom_values->>due_date", operator: "is", value: null },
+    ],
+  );
 
   type DueTaskRow = Pick<TaskRow, "id" | "status" | "agent_email" | "custom_values"> & {
     due_overdue_flagged_at: string | null;
     due_overdue_reminded_at: string | null;
   };
-  const dueTasks = ((dueRows ?? []) as DueTaskRow[]).filter((task) =>
+  const dueTasks = (dueRows as DueTaskRow[]).filter((task) =>
     isTaskRowDueDateOverdue(task, now)
   );
   // Lần đầu vỡ hạn — RPC là cổng chống bắn trùng khi hai lượt cron chồng nhau.
@@ -186,30 +183,22 @@ async function runReminderSweep(): Promise<NextResponse> {
   // Billing is a more specific form of Waiting: both parked stages use the
   // same threshold and notification type, while each keeps its own marker so
   // a transition between them starts a fresh parked-stage reminder interval.
-  const [waitingResult, billingResult] = await Promise.all([
-    supabase
-      .from("tasks")
-      .select("id,waiting_started_at,waiting_reminded_at")
-      .eq("status", "waiting")
-      .is("archived_at", null)
-      .not("waiting_started_at", "is", null)
-      .lte("waiting_started_at", waitingCutoffIso),
-    supabase
-      .from("tasks")
-      .select("id,billing_started_at,billing_reminded_at")
-      .eq("status", "billing")
-      .is("archived_at", null)
-      .not("billing_started_at", "is", null)
-      .lte("billing_started_at", waitingCutoffIso),
+  const [waitingRows, billingRows] = await Promise.all([
+    fetchTaskSweepRows<{ id: string }>("id,waiting_started_at,waiting_reminded_at", [
+      { op: "eq", column: "status", value: "waiting" },
+      { op: "is", column: "archived_at", value: null },
+      { op: "not", column: "waiting_started_at", operator: "is", value: null },
+      { op: "lte", column: "waiting_started_at", value: waitingCutoffIso },
+    ]),
+    fetchTaskSweepRows<{ id: string }>("id,billing_started_at,billing_reminded_at", [
+      { op: "eq", column: "status", value: "billing" },
+      { op: "is", column: "archived_at", value: null },
+      { op: "not", column: "billing_started_at", operator: "is", value: null },
+      { op: "lte", column: "billing_started_at", value: waitingCutoffIso },
+    ]),
   ]);
-  if (waitingResult.error) {
-    return NextResponse.json({ error: waitingResult.error.message }, { status: 500 });
-  }
-  if (billingResult.error) {
-    return NextResponse.json({ error: billingResult.error.message }, { status: 500 });
-  }
   const waitingReminderTasks = (
-    (waitingResult.data ?? []) as Pick<
+    waitingRows as Pick<
       TaskRow,
       "id" | "waiting_started_at" | "waiting_reminded_at"
     >[]
@@ -218,7 +207,7 @@ async function runReminderSweep(): Promise<NextResponse> {
       intervalDue(task.waiting_reminded_at, waitingReminderMs, now)
   );
   const billingReminderTasks = (
-    (billingResult.data ?? []) as Pick<
+    billingRows as Pick<
       TaskRow,
       "id" | "billing_started_at" | "billing_reminded_at"
     >[]
@@ -226,35 +215,32 @@ async function runReminderSweep(): Promise<NextResponse> {
 
   // Chỉ In Progress — To Do, Waiting, Billing đã có lời nhắc riêng (xem
   // shouldSendStaleReminder). Lấy thêm cột SLA để loại task đang quá hạn.
-  const { data: staleRows, error: staleError } = await supabase
-    .from("tasks")
-    .select(
-      "id,status,priority,category_id,sla_minutes,in_progress_at,in_progress_seconds,waiting_started_at,waiting_seconds,billing_started_at,billing_seconds,overdue_count,last_activity_at,stale_reminded_at"
-    )
-    .eq("status", "in_progress")
-    .is("archived_at", null);
-  if (staleError) return NextResponse.json({ error: staleError.message }, { status: 500 });
+  const staleRows = await fetchTaskSweepRows<{ id: string }>(
+    "id,status,priority,category_id,sla_minutes,in_progress_at,in_progress_seconds,waiting_started_at,waiting_seconds,billing_started_at,billing_seconds,overdue_count,last_activity_at,stale_reminded_at",
+    [
+      { op: "eq", column: "status", value: "in_progress" },
+      { op: "is", column: "archived_at", value: null },
+    ],
+  );
   // `rules` chỉ được nạp khi `tasks` (In Progress có in_progress_at) không rỗng.
   // Khi rỗng, mọi dòng ở đây đều thiếu in_progress_at nên không thể quá hạn —
   // rules rỗng vẫn cho kết quả đúng.
   const staleReminderTasks = (
-    (staleRows ?? []) as (Pick<TaskRow, "id"> &
+    staleRows as (Pick<TaskRow, "id"> &
       Parameters<typeof shouldSendStaleReminder>[0])[]
   ).filter((task) => shouldSendStaleReminder(task, rules, settings.staleHours, now));
 
   // Tasks that have been Done/Cancelled for longer than qcHours without a QC
   // review yet — nudge the agent owner/assistants (config in SLA settings).
-  const { data: qcRows, error: qcError } = await supabase
-    .from("tasks")
-    .select("id,agent_email,closed_at,qc_reminded_at")
-    .in("status", ["done", "cancel"])
-    .is("done_reviewed_by_email", null)
-    .is("archived_at", null)
-    .not("closed_at", "is", null)
-    .lte("closed_at", qcCutoffIso);
-  if (qcError) return NextResponse.json({ error: qcError.message }, { status: 500 });
+  const qcRows = await fetchTaskSweepRows<{ id: string }>("id,agent_email,closed_at,qc_reminded_at", [
+    { op: "in", column: "status", values: ["done", "cancel"] },
+    { op: "is", column: "done_reviewed_by_email", value: null },
+    { op: "is", column: "archived_at", value: null },
+    { op: "not", column: "closed_at", operator: "is", value: null },
+    { op: "lte", column: "closed_at", value: qcCutoffIso },
+  ]);
   const qcStaleTasks = (
-    (qcRows ?? []) as Pick<
+    qcRows as Pick<
       TaskRow,
       "id" | "agent_email" | "closed_at" | "qc_reminded_at"
     >[]

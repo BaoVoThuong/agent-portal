@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { auth } from "@/auth";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { readAllRowsById } from "@/lib/pagination/all-rows";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { fetchEmailsWithPermission } from "@/lib/rbac/permission-holders";
 import { createSharedLookup } from "@/lib/shared-lookup";
@@ -226,10 +227,14 @@ export async function fetchProviderViewers(): Promise<TaskAssignee[]> {
 // để Opened by của hồ sơ lịch sử vẫn hiện tên.
 const providerDisplayPeople = createSharedLookup(
   async (): Promise<TaskAssignee[]> => {
-    const { data, error } = await getSupabaseAdmin()
-      .from("portal_account")
-      .select("email,name")
-      .limit(5000);
+    const { data, error } = await readAllRowsById<{ id: string; email: string; name: string | null }>(
+      (afterId, pageSize, withCount) => {
+        let query = getSupabaseAdmin().from("portal_account")
+          .select("id,email,name", withCount ? { count: "exact" } : undefined);
+        if (afterId) query = query.gt("id", afterId);
+        return query.order("id").limit(pageSize);
+      },
+    );
     if (error) throw new Error(error.message);
     return ((data ?? []) as { email: string; name: string | null }[])
       .map((row) => ({ email: row.email.trim().toLowerCase(), name: row.name }))

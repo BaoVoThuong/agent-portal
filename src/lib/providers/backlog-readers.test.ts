@@ -10,14 +10,21 @@ const LIST_READERS = [
   "app/(authed)/tasks/providers/page.tsx",
   "app/api/automation/provider-list/route.ts",
   "app/api/automation/provider-list/export/route.ts",
-  "lib/provider-finder/search.ts",
 ];
 
 const SRC = join(process.cwd(), "src");
 
 describe("Backlog rows stay out of the Provider List", () => {
-  it.each(LIST_READERS)("%s filters Backlog rows out", (file) => {
+  it.each(LIST_READERS)("%s uses the scoped live reader", (file) => {
     const source = readFileSync(join(SRC, file), "utf8");
-    expect(source).toContain('.eq("pending", false)');
+    expect(source).toContain("fetchLiveProviderRows");
   });
+
+  it.each(["lib/providers/backlog-queries.ts", "lib/provider-finder/search.ts"])(
+    "%s filters Backlog rows out",
+    (file) => {
+      const source = readFileSync(join(SRC, file), "utf8");
+      expect(source).toContain('.eq("pending", false)');
+    },
+  );
 });

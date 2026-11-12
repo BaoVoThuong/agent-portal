@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { readAllRowsById } from "@/lib/pagination/all-rows";
 import { monthBounds } from "./business-days";
 import type {
   TimeOffBalance,
@@ -123,16 +124,20 @@ export async function fetchTimeOffDashboard(
       .eq("requester_id", params.accountId)
       .order("created_at", { ascending: false })
       .limit(100),
-    supabase
-      .from("time_off_requests")
-      .select("policy_code,total_days")
-      .eq("requester_id", params.accountId)
-      // Cùng luật với chốt chặn lúc gửi đơn: đơn chờ duyệt cũng trừ. Hai nơi
-      // đếm khác nhau thì màn hình báo còn 15 ngày trong khi API từ chối ở
-      // ngày thứ 6 — người dùng không cách nào hiểu vì sao.
-      .in("status", ["approved", "pending"])
-      .gte("start_date", yearStart)
-      .lte("end_date", yearEnd),
+    readAllRowsById<{ id: string; policy_code: string; total_days: number | string }>(
+      (afterId, pageSize, withCount) => {
+        let query = supabase.from("time_off_requests")
+          .select("id,policy_code,total_days", withCount ? { count: "exact" } : undefined)
+          .eq("requester_id", params.accountId)
+          .in("status", ["approved", "pending"])
+          .gte("start_date", yearStart).lte("end_date", yearEnd);
+        if (afterId) query = query.gt("id", afterId);
+        return query.order("id").limit(pageSize);
+      },
+    ).catch((error: unknown) => ({
+      data: null,
+      error: { message: error instanceof Error ? error.message : String(error) },
+    })),
     supabase
       .from("time_off_balances")
       .select("policy_code,entitlement_days,adjustment_days")
@@ -153,14 +158,19 @@ export async function fetchTimeOffDashboard(
           .eq("leave_year", year)
       : Promise.resolve({ data: [], error: null }),
     params.isManager
-      ? supabase
-          .from("time_off_requests")
-          .select("requester_id,policy_code,total_days")
-          // Giống hệt cột số dư cá nhân, nếu không admin và nhân viên nhìn hai
-          // con số khác nhau cho cùng một người.
-          .in("status", ["approved", "pending"])
-          .gte("start_date", yearStart)
-          .lte("end_date", yearEnd)
+      ? readAllRowsById<{ id: string; requester_id: string; policy_code: string; total_days: number | string }>(
+          (afterId, pageSize, withCount) => {
+            let query = supabase.from("time_off_requests")
+              .select("id,requester_id,policy_code,total_days", withCount ? { count: "exact" } : undefined)
+              .in("status", ["approved", "pending"])
+              .gte("start_date", yearStart).lte("end_date", yearEnd);
+            if (afterId) query = query.gt("id", afterId);
+            return query.order("id").limit(pageSize);
+          },
+        ).catch((error: unknown) => ({
+          data: null,
+          error: { message: error instanceof Error ? error.message : String(error) },
+        }))
       : Promise.resolve({ data: [], error: null }),
     params.isManager
       ? supabase

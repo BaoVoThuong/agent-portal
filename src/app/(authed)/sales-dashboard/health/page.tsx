@@ -62,7 +62,7 @@ type FilterOptions = {
   carriers: string[];
 };
 
-const HEALTH_SALES_PAGE_SIZE = 1000;
+const HEALTH_SALES_PAGE_SIZE = 500;
 
 export default async function HealthSalesDashboardPage({
   searchParams,

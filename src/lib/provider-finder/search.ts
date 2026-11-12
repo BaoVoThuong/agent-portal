@@ -41,7 +41,7 @@ export const routeCandidateCap = 20;
  * toạ độ thì hằng số này không lấy đi của ai cái gì.
  */
 export const noCoordinateQuota = 3;
-const pageSize = 1000;
+const pageSize = 500;
 const milesPerMeter = 0.000621371;
 
 function cleanText(value: unknown) {

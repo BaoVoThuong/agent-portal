@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readAllRowsById } from "@/lib/pagination/all-rows";
 
 // People who can see a task without being its assignee (added via @mention or
 // explicitly). During the additive rollout only a missing relation is treated
@@ -7,25 +8,35 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // visible to the caller instead of becoming a misleading authorization miss.
 
 export async function fetchParticipantTaskIds(email: string): Promise<string[]> {
-  const { data, error } = await getSupabaseAdmin()
-    .from("task_participants")
-    .select("task_id")
-    .eq("email", email);
+  const { data, error } = await readAllRowsById<{ id: string }>(
+    (afterId, pageSize, withCount) => {
+      let query = getSupabaseAdmin().from("task_participants")
+        .select("id:task_id", withCount ? { count: "exact" } : undefined)
+        .eq("email", email);
+      if (afterId) query = query.gt("task_id", afterId);
+      return query.order("task_id").limit(pageSize);
+    },
+  );
   if (error) {
     if (isMissingTaskParticipantsError(error)) return [];
     throw new Error(error.message);
   }
-  return [...new Set((data ?? []).map((r) => (r as { task_id: string }).task_id))];
+  return (data ?? []).map((row) => row.id);
 }
 
 export async function fetchTaskParticipantEmails(
   taskId: string,
   supabase: SupabaseClient = getSupabaseAdmin()
 ): Promise<string[]> {
-  const { data, error } = await supabase
-    .from("task_participants")
-    .select("email")
-    .eq("task_id", taskId);
+  const { data, error } = await readAllRowsById<{ id: string }>(
+    (afterEmail, pageSize, withCount) => {
+      let query = supabase.from("task_participants")
+        .select("id:email", withCount ? { count: "exact" } : undefined)
+        .eq("task_id", taskId);
+      if (afterEmail) query = query.gt("email", afterEmail);
+      return query.order("email").limit(pageSize);
+    },
+  );
   if (error) {
     if (isMissingTaskParticipantsError(error)) return [];
     throw new Error(error.message);
@@ -33,7 +44,7 @@ export async function fetchTaskParticipantEmails(
   return [
     ...new Set(
       (data ?? [])
-        .map((row) => (row as { email: string }).email?.trim())
+        .map((row) => row.id?.trim())
         .filter(Boolean)
     ),
   ];

@@ -5,6 +5,7 @@ import { summarizeLeads } from "@/lib/leads/overview";
 import { fetchLeadAlertSettings } from "@/lib/leads/queries";
 import type { LeadRow, LeadStatus } from "@/lib/leads/types";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { readAllRowsById } from "@/lib/pagination/all-rows";
 
 export const dynamic = "force-dynamic";
 
@@ -15,12 +16,8 @@ const SUMMARY_COLUMNS =
   "id,event_id,assigned_to_email,assigned_at,status_id,first_contacted_at," +
   "last_contacted_at,contact_attempt_count,next_follow_up_at,archived_at";
 
-// PostgREST caps a single response, so one unbounded select silently returns a
-// prefix once the table outgrows that cap — and a dashboard that quietly
-// under-reports is worse than one that errors, because nobody thinks to doubt
-// it. Page explicitly, and say so when the ceiling is hit.
-const SUMMARY_PAGE_SIZE = 1000;
-const SUMMARY_MAX_ROWS = 20_000;
+// The overview needs every live lead. Read by immutable id so inserts do not
+// shift later pages, and fail if the exact count cannot be satisfied.
 
 type SummaryRow = Pick<
   LeadRow,
@@ -33,34 +30,29 @@ async function fetchAllLeadsForSummary(
   supabase: ReturnType<typeof getSupabaseAdmin>,
 ): Promise<{ rows: LeadRow[]; truncated: boolean; error: string | null }> {
   const rows: LeadRow[] = [];
-  for (let offset = 0; offset < SUMMARY_MAX_ROWS; offset += SUMMARY_PAGE_SIZE) {
-    const query = supabase
-      .from("leads")
-      .select(SUMMARY_COLUMNS)
-      .is("archived_at", null)
-      .order("id", { ascending: true })
-      .range(offset, offset + SUMMARY_PAGE_SIZE - 1);
-    const { data, error } = await query;
-    if (error) return { rows, truncated: false, error: error.message };
-    const page = (data ?? []) as unknown as SummaryRow[];
-    for (const row of page) {
-      // summarizeLeads takes a LeadRow; the fields it never reads are filled in
-      // rather than widening its signature for one caller.
-      rows.push({
-        ...row,
-        display_number: 0,
-        full_name: null, phone: null, email: null, fub_link: null,
-        assigned_by_email: null, closed_at: null,
-        created_by_email: "", created_at: "",
-        updated_by_email: null, updated_at: "",
-        custom_values: {},
-      });
-    }
-    if (page.length < SUMMARY_PAGE_SIZE) {
-      return { rows, truncated: false, error: null };
-    }
+  const result = await readAllRowsById<SummaryRow>(async (afterId, pageSize, withCount) => {
+    let query = supabase.from("leads")
+      .select(SUMMARY_COLUMNS, withCount ? { count: "exact" } : undefined)
+      .is("archived_at", null);
+    if (afterId) query = query.gt("id", afterId);
+    const page = await query.order("id").limit(pageSize);
+    return { ...page, data: page.data as unknown as SummaryRow[] | null };
+  });
+  if (result.error) return { rows: [], truncated: false, error: result.error.message };
+  for (const row of result.data ?? []) {
+    // summarizeLeads takes a LeadRow; the fields it never reads are filled in
+    // rather than widening its signature for one caller.
+    rows.push({
+      ...row,
+      display_number: 0,
+      full_name: null, phone: null, email: null, fub_link: null,
+      assigned_by_email: null, closed_at: null,
+      created_by_email: "", created_at: "",
+      updated_by_email: null, updated_at: "",
+      custom_values: {},
+    });
   }
-  return { rows, truncated: true, error: null };
+  return { rows, truncated: false, error: null };
 }
 
 export async function GET() {

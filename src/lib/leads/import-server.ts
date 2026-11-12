@@ -5,7 +5,7 @@ import type { ImportAccount } from "./import-template";
 import type { MissingChoiceLabels } from "./import-custom-values";
 import { LEAD_MAX_ROWS } from "./page-plan";
 
-const CANDIDATE_PAGE_SIZE = 1000;
+const CANDIDATE_PAGE_SIZE = 500;
 const CANDIDATE_COLUMNS =
   "id,display_number,full_name,phone,email,fub_link,assigned_to_email,event_id,lead_events(name)";
 

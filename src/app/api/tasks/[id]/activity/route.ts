@@ -6,6 +6,7 @@ import { isTaskAssignee } from "@/lib/tasks/assignees";
 import { isTaskParticipant } from "@/lib/tasks/participants";
 import { fetchAgentsForCs, isAgentOwnerOrAssistant } from "@/lib/tasks/membership";
 import type { TaskRow } from "@/lib/tasks/types";
+import { readAllRowsById } from "@/lib/pagination/all-rows";
 
 export const dynamic = "force-dynamic";
 
@@ -59,11 +60,17 @@ export async function GET(_req: Request, { params }: Ctx) {
   if (!canViewNonCommentDetail)
     return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
 
-  const { data, error } = await supabase
-    .from("task_activity")
-    .select("id,actor_email,type,meta,created_at")
-    .eq("task_id", id)
-    .order("created_at", { ascending: false });
+  const { data, error } = await readAllRowsById<{ id: string; created_at: string }>(
+    (afterId, pageSize, withCount) => {
+      let query = supabase.from("task_activity")
+        .select("id,actor_email,type,meta,created_at", withCount ? { count: "exact" } : undefined)
+        .eq("task_id", id);
+      if (afterId) query = query.gt("id", afterId);
+      return query.order("id").limit(pageSize);
+    },
+  );
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ activity: data ?? [] });
+  return NextResponse.json({ activity: (data ?? []).sort((a, b) =>
+    b.created_at.localeCompare(a.created_at) || a.id.localeCompare(b.id)
+  ) });
 }

@@ -4,6 +4,7 @@ import { can } from "@/lib/rbac/client";
 import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { requirePermission } from "@/lib/rbac/server";
 import { buildVisibleEntriesFilter } from "@/lib/agent-name";
+import { fetchRegistrationEntries } from "@/lib/registration/queries";
 import EntryGrid from "./customer-registration/health/EntryGrid";
 
 export const dynamic = "force-dynamic";
@@ -18,19 +19,10 @@ export default async function Home() {
     PERMISSIONS.CUSTOMER_REGISTRATION_VIEW_ALL
   );
 
-  const supabase = getSupabaseAdmin();
-  let query = supabase
-    .from("health_entries")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  if (!canViewAll) {
-    // Show entries the user submitted OR entries entered on their behalf.
-    query = query.or(buildVisibleEntriesFilter(email, session.user.name));
-  }
-
-  const { data } = await query;
-  const initialHistory = (data ?? []) as Entry[];
+  const initialHistory = await fetchRegistrationEntries<Entry>(
+    "health_entries",
+    canViewAll ? undefined : buildVisibleEntriesFilter(email, session.user.name),
+  );
   const agentOptions = await fetchHealthAgentNames();
 
   return (

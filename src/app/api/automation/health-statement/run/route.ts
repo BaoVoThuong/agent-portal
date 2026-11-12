@@ -24,7 +24,7 @@ function getRequiredText(formData: FormData, key: string) {
 async function fetchHealthMartRows(carrier: string) {
   const supabase = getSupabaseAdmin();
   const rows: HealthMartRow[] = [];
-  const pageSize = 1000;
+  const pageSize = 500;
 
   for (let from = 0; ; from += pageSize) {
     const { data, error } = await supabase

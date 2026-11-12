@@ -3,9 +3,10 @@ import { auth } from "@/auth";
 import { canExportProviders } from "@/lib/providers/access";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { buildProviderExportMatrix } from "@/lib/providers/export";
-import { PROVIDER_SELECT, PROVIDER_TABLE, type ProviderRow } from "@/lib/providers/types";
+import type { ProviderRow } from "@/lib/providers/types";
 import { fetchTableColumns } from "@/lib/table-config/queries";
 import { writeXlsx } from "@/lib/table-config/sheet-io";
+import { fetchLiveProviderRows } from "@/lib/providers/backlog-queries";
 
 export const dynamic = "force-dynamic";
 
@@ -37,22 +38,10 @@ export async function POST(request: Request) {
   const requestedIds = toStringSet(body.ids);
 
   const supabase = getSupabaseAdmin();
-  const [columns, result] = await Promise.all([
+  const [columns, rows] = await Promise.all([
     fetchTableColumns("provider"),
-    supabase
-      .from(PROVIDER_TABLE)
-      .select(PROVIDER_SELECT)
-      // Dòng Backlog chưa ai duyệt: không bao giờ rời hệ thống qua file xuất.
-      .eq("pending", false)
-      .is("archived_at", null)
-      .order("updated_at", { ascending: false })
-      .limit(5000),
+    fetchLiveProviderRows(supabase),
   ]);
-  if (result.error) {
-    return NextResponse.json({ error: result.error.message }, { status: 500 });
-  }
-
-  const rows = (result.data ?? []) as unknown as ProviderRow[];
   // Không có danh sách cột thì xuất đúng những cột hiện mặc định — xuất cả cột
   // admin đã ẩn là đưa ra thứ người dùng chưa từng thấy trên màn hình.
   const exportColumns = columns.filter((column) =>

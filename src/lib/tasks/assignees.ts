@@ -8,6 +8,7 @@ import { PERMISSIONS } from "@/lib/rbac/permissions";
 import { createSharedLookup } from "@/lib/shared-lookup";
 import { fetchActiveRoleIdsWithAnyPermission } from "@/lib/rbac/permission-holders";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readAllRowsById, FULL_READ_PAGE_SIZE } from "@/lib/pagination/all-rows";
 import { buildTaskActor } from "./access";
 import { taskPositionKind, taskPositionLabel } from "./positions";
 
@@ -26,9 +27,7 @@ export type TaskAssigneeRow = { task_id: string; email: string; created_at: stri
 
 type SupabaseErrorLike = { code?: string; message?: string };
 type AttachAssigneeOptions = { currentEmail?: string | null };
-// Cùng lý do với TASK_METADATA_TASK_ID_CHUNK_SIZE: `.in("task_id", ...)` đi
-// trong URL nên chùm không được quá lớn, nhưng 50 là quá dè dặt — 300 UUID có
-// nháy là ~11 KB, vẫn dưới giới hạn URL thông dụng. Ở 5.000 task: 100 lượt → 17.
+// Keep the URL bounded; each chunk's result is paged separately below.
 const TASK_ASSIGNEE_TASK_ID_CHUNK_SIZE = 300;
 type AccountRoleRow = {
   id: string;
@@ -264,11 +263,15 @@ export async function fetchTaskAssigneeEmails(
   taskId: string,
   supabase: SupabaseClient = getSupabaseAdmin()
 ): Promise<string[]> {
-  const { data, error } = await supabase
-    .from("task_assignees")
-    .select("email,created_at")
-    .eq("task_id", taskId)
-    .order("created_at", { ascending: true });
+  const { data, error } = await readAllRowsById<{ id: string; created_at: string }>(
+    (afterEmail, pageSize, withCount) => {
+      let query = supabase.from("task_assignees")
+        .select("id:email,created_at", withCount ? { count: "exact" } : undefined)
+        .eq("task_id", taskId);
+      if (afterEmail) query = query.gt("email", afterEmail);
+      return query.order("email").limit(pageSize);
+    },
+  );
   if (error) {
     if (isTaskAssigneesMissingError(error)) return [];
     throw new Error(error.message);
@@ -276,8 +279,9 @@ export async function fetchTaskAssigneeEmails(
 
   return [
     ...new Set(
-      ((data ?? []) as unknown as { email: string }[])
-        .map((row) => row.email?.trim())
+      [...(data ?? [])]
+        .sort((a, b) => a.created_at.localeCompare(b.created_at))
+        .map((row) => row.id?.trim())
         .filter(Boolean)
     ),
   ];
@@ -287,10 +291,15 @@ export async function fetchAssignedTaskIdsForEmail(
   email: string,
   supabase: SupabaseClient = getSupabaseAdmin()
 ): Promise<string[]> {
-  const { data, error } = await supabase
-    .from("task_assignees")
-    .select("task_id")
-    .eq("email", email);
+  const { data, error } = await readAllRowsById<{ id: string }>(
+    (afterTaskId, pageSize, withCount) => {
+      let query = supabase.from("task_assignees")
+        .select("id:task_id", withCount ? { count: "exact" } : undefined)
+        .eq("email", email);
+      if (afterTaskId) query = query.gt("task_id", afterTaskId);
+      return query.order("task_id").limit(pageSize);
+    },
+  );
   if (error) {
     if (isTaskAssigneesMissingError(error)) return [];
     throw new Error(error.message);
@@ -298,8 +307,8 @@ export async function fetchAssignedTaskIdsForEmail(
 
   return [
     ...new Set(
-      ((data ?? []) as unknown as { task_id: string }[])
-        .map((row) => row.task_id)
+      ((data ?? []) as { id: string }[])
+        .map((row) => row.id)
         .filter(Boolean)
     ),
   ];
@@ -381,23 +390,33 @@ export async function fetchTaskAssigneeRowsForTaskIds(
     chunkValues(ids, TASK_ASSIGNEE_TASK_ID_CHUNK_SIZE),
     LIST_ENRICH_CONCURRENCY,
     async (chunk) => {
-      let result:
-        | {
-            data: unknown[] | null;
-            error: SupabaseErrorLike | null;
-          }
-        | null = null;
       try {
-        result = await supabase
-          .from("task_assignees")
-          .select("task_id,email,created_at")
-          .in("task_id", chunk)
-          .order("created_at", { ascending: true });
+        const chunkRows: TaskAssigneeRow[] = [];
+        let offset = 0;
+        let exactCount: number | null = null;
+        for (;;) {
+          const result = await supabase
+            .from("task_assignees")
+            .select("task_id,email,created_at", offset === 0 ? { count: "exact" } : undefined)
+            .in("task_id", chunk)
+            .order("task_id", { ascending: true })
+            .order("email", { ascending: true })
+            .range(offset, offset + FULL_READ_PAGE_SIZE - 1);
+          if (result.error) return { data: null, error: result.error };
+          if (offset === 0 && typeof result.count === "number") exactCount = result.count;
+          const batch = (result.data ?? []) as TaskAssigneeRow[];
+          chunkRows.push(...batch);
+          if (batch.length === 0 || (exactCount !== null && chunkRows.length >= exactCount)) break;
+          offset += batch.length;
+        }
+        if (exactCount !== null && chunkRows.length < exactCount) {
+          throw new Error(`Task assignee read incomplete: ${chunkRows.length} of ${exactCount}.`);
+        }
+        return { data: chunkRows, error: null };
       } catch (error) {
         if (isFetchFailedError(error)) return null;
         throw error;
       }
-      return result;
     }
   );
 

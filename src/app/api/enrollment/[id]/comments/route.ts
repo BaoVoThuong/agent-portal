@@ -15,6 +15,7 @@ import { loadScopedEnrollmentRecord } from "@/lib/enrollment/scope";
 import { parseMentions } from "@/lib/tasks/mentions";
 import { enrollmentWatcherEmails, loadEnrollmentWatcherContext } from "@/lib/enrollment/watchers";
 import type { EnrollmentRecord } from "@/lib/enrollment/types";
+import { readAllRowsById } from "@/lib/pagination/all-rows";
 
 export const dynamic = "force-dynamic";
 
@@ -32,16 +33,21 @@ export async function GET(_request: Request, { params }: Ctx) {
     return NextResponse.json({ error: loaded.error }, { status: loaded.status });
   }
 
-  const { data, error } = await loaded.supabase
-    .from("enrollment_comments")
-    .select(COMMENT_COLUMNS)
-    .eq("record_id", id)
-    .is("deleted_at", null)
-    .order("created_at", { ascending: true });
+  const { data, error } = await readAllRowsById<{ id: string; created_at: string }>(
+    (afterId, pageSize, withCount) => {
+      let query = loaded.supabase.from("enrollment_comments")
+        .select(COMMENT_COLUMNS, withCount ? { count: "exact" } : undefined)
+        .eq("record_id", id).is("deleted_at", null);
+      if (afterId) query = query.gt("id", afterId);
+      return query.order("id").limit(pageSize);
+    },
+  );
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({
-    comments: ((data ?? []) as { id: string }[]).map((comment) => ({
+    comments: [...(data ?? [])].sort((a, b) =>
+      a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id)
+    ).map((comment) => ({
       ...(comment as object),
       attachments: [],
     })),

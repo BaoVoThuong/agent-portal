@@ -9,6 +9,7 @@ import { countLeaveBusinessDays, isDateKey } from "@/lib/time-off/business-days"
 import { getTimeOffActor } from "@/lib/time-off/access";
 import { getUsFederalHolidaysInRange } from "@/lib/time-off/us-holidays";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { readAllRowsById } from "@/lib/pagination/all-rows";
 
 export const dynamic = "force-dynamic";
 
@@ -48,18 +49,17 @@ async function availableDays(
       .eq("policy_code", policyCode)
       .eq("leave_year", year)
       .maybeSingle(),
-    supabase
-      .from("time_off_requests")
-      .select("total_days")
-      .eq("requester_id", accountId)
-      .eq("policy_code", policyCode)
-      // `pending` GIỮ CHỖ, không chỉ `approved`. Nếu chỉ trừ đơn đã duyệt thì
-      // nhiều đơn chờ duyệt KHÔNG trùng kỳ đều lọt cửa, cộng lại vượt quỹ —
-      // và cái sai chỉ lộ ra lúc admin bấm duyệt đơn thứ hai, tức đẩy việc từ
-      // chối xuống người không gây ra nó.
-      .in("status", ["approved", "pending"])
-      .gte("start_date", `${year}-01-01`)
-      .lte("end_date", `${year}-12-31`),
+    readAllRowsById<{ id: string; total_days: number | string }>(
+      (afterId, pageSize, withCount) => {
+        let query = supabase.from("time_off_requests")
+          .select("id,total_days", withCount ? { count: "exact" } : undefined)
+          .eq("requester_id", accountId).eq("policy_code", policyCode)
+          .in("status", ["approved", "pending"])
+          .gte("start_date", `${year}-01-01`).lte("end_date", `${year}-12-31`);
+        if (afterId) query = query.gt("id", afterId);
+        return query.order("id").limit(pageSize);
+      },
+    ),
   ]);
   if (balanceResult.error) throw new Error(balanceResult.error.message);
   if (usedResult.error) throw new Error(usedResult.error.message);

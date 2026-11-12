@@ -36,7 +36,7 @@ type ReportMonthRange = {
 
 type TrendLevel = "month" | "quarter" | "year";
 
-const PC_PAGE_SIZE = 1000;
+const PC_PAGE_SIZE = 500;
 const PC_PAGE_CONCURRENCY = 3;
 const EXPIRED_POLICY_MONTH_COUNT = 12;
 const PC_SALES_ROW_SELECT = [
