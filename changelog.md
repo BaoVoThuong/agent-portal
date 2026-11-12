@@ -10,6 +10,7 @@ Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay tro
 
 - Task search: đặt lại trần quét 1.000 ứng viên mỗi nhóm (entry dưới đã gỡ). Mỗi trang 50 ứng viên tốn 3 truy vấn, nên không có trần thì một từ phổ biến, với người ít quyền xem, có thể quét cả bảng ở mỗi lần gõ. Chạm trần thì số đếm của nhóm hiện "+".
 - Bảng Task đọc mỗi trang 1.000 dòng (đúng trần `max_rows`) thay vì 500: các trang đi tuần tự, nên 500 nhân đôi số lượt đi-về mỗi lần nạp board.
+- Assignee của danh sách task (`fetchTaskAssigneeRowsForTaskIds`) đọc theo keyset khoá chính (task_id, email) thay vì OFFSET. OFFSET bỏ sót một dòng khi có người bị gỡ giữa hai trang, rồi ném "Task assignee read incomplete" làm hỏng cả lượt nạp board, và đọc lặp khi có người được thêm.
 
 ## 2026-11-12 — Supabase: các màn còn lại cũng đọc đủ khi dữ liệu vượt trần 1.000 dòng
 

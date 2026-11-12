@@ -391,26 +391,32 @@ export async function fetchTaskAssigneeRowsForTaskIds(
     LIST_ENRICH_CONCURRENCY,
     async (chunk) => {
       try {
+        // Keyset on the primary key (task_id, email), the same stop rule as
+        // readAllRowsById. OFFSET skipped a row when an assignee was removed
+        // between pages (and the count check then failed the whole board) and
+        // read one twice when an assignee was added.
         const chunkRows: TaskAssigneeRow[] = [];
-        let offset = 0;
-        let exactCount: number | null = null;
+        let after: TaskAssigneeRow | null = null;
+        let total: number | null = null;
         for (;;) {
-          const result = await supabase
+          let query = supabase
             .from("task_assignees")
-            .select("task_id,email,created_at", offset === 0 ? { count: "exact" } : undefined)
-            .in("task_id", chunk)
+            .select("task_id,email,created_at", after ? undefined : { count: "exact" })
+            .in("task_id", chunk);
+          if (after) query = query.or(assigneesAfter(after));
+          const result = await query
             .order("task_id", { ascending: true })
             .order("email", { ascending: true })
-            .range(offset, offset + FULL_READ_PAGE_SIZE - 1);
+            .limit(FULL_READ_PAGE_SIZE);
           if (result.error) return { data: null, error: result.error };
-          if (offset === 0 && typeof result.count === "number") exactCount = result.count;
+          if (!after && typeof result.count === "number") total = result.count;
           const batch = (result.data ?? []) as TaskAssigneeRow[];
+          if (batch.length === 0) break;
           chunkRows.push(...batch);
-          if (batch.length === 0 || (exactCount !== null && chunkRows.length >= exactCount)) break;
-          offset += batch.length;
-        }
-        if (exactCount !== null && chunkRows.length < exactCount) {
-          throw new Error(`Task assignee read incomplete: ${chunkRows.length} of ${exactCount}.`);
+          after = batch[batch.length - 1];
+          if (batch.length < FULL_READ_PAGE_SIZE && total !== null && chunkRows.length >= total) {
+            break;
+          }
         }
         return { data: chunkRows, error: null };
       } catch (error) {
@@ -434,6 +440,15 @@ export async function fetchTaskAssigneeRowsForTaskIds(
     (a, b) =>
       new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
   );
+}
+
+/**
+ * PostgREST `or` filter for rows after `row` in (task_id, email) order. The
+ * email is quoted so an unusual address cannot alter the filter grammar.
+ */
+export function assigneesAfter(row: Pick<TaskAssigneeRow, "task_id" | "email">): string {
+  const email = `"${row.email.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  return `task_id.gt.${row.task_id},and(task_id.eq.${row.task_id},email.gt.${email})`;
 }
 
 function sortPeople<T extends TaskAssignee>(people: T[]): T[] {
