@@ -129,8 +129,14 @@ export function isHitVisible(
 
 const GROUP_LIMIT = 6;
 const SEARCH_PAGE_SIZE = 50;
-// Visibility is resolved after joining task membership. Continue past every
-// hidden candidate until the visible group is complete or no rows remain.
+// Visibility is resolved after joining task membership, so a fixed raw
+// candidate limit can hide the first visible hit behind many out-of-scope
+// matches. Page until the visible group is complete, with a safety ceiling so
+// a hostile/common query cannot make the search unbounded: every page of 50
+// costs three queries (candidates, task meta, assignees), so 1,000 candidates
+// is already 60 queries per group, three groups per keystroke. Hitting the
+// ceiling reports `truncated` (the group count shows "+").
+export const MAX_SEARCH_SCAN = 1000;
 
 type TaskMetaRow = {
   id: string;
@@ -244,15 +250,17 @@ async function collectVisibleHits<Row, Hit>(params: {
 }): Promise<{ hits: Hit[]; truncated: boolean }> {
   const hits: Hit[] = [];
   let offset = 0;
+  let scanned = 0;
   let hasMoreRows = false;
 
-  while (hits.length <= GROUP_LIMIT) {
+  while (hits.length <= GROUP_LIMIT && scanned < MAX_SEARCH_SCAN) {
     const page = await params.fetchPage(offset, SEARCH_PAGE_SIZE);
     if (page.error) throw new Error(page.error.message);
     const rows = page.data ?? [];
     if (rows.length === 0) break;
 
     offset += rows.length;
+    scanned += rows.length;
     const taskIds = [...new Set(rows.map(params.taskIdOf))];
     const { metaById, scope } = await loadSearchVisibility(
       params.supabase,
@@ -295,6 +303,10 @@ async function collectVisibleHits<Row, Hit>(params: {
       break;
     }
     if (rows.length < SEARCH_PAGE_SIZE) break;
+    if (scanned >= MAX_SEARCH_SCAN) {
+      hasMoreRows = true;
+      break;
+    }
   }
 
   return {

@@ -6,6 +6,10 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-12 — Task: gỡ 3 điểm chậm của đợt đọc vượt trần 1.000 dòng
+
+- Task search: đặt lại trần quét 1.000 ứng viên mỗi nhóm (entry dưới đã gỡ). Mỗi trang 50 ứng viên tốn 3 truy vấn, nên không có trần thì một từ phổ biến, với người ít quyền xem, có thể quét cả bảng ở mỗi lần gõ. Chạm trần thì số đếm của nhóm hiện "+".
+
 ## 2026-11-12 — Supabase: các màn còn lại cũng đọc đủ khi dữ liệu vượt trần 1.000 dòng
 
 - Code Codex (plan `docs/superpowers/plans/2026-11-12-supabase-row-limit-remediation.md`), dùng chung `readAllRowsById` của entry dưới; mỗi request vẫn dưới `max_rows` 1.000, không đổi cấu hình Supabase.
