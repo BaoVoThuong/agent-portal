@@ -13,6 +13,12 @@ Ba thư mục, ba vai trò khác nhau:
 
 ---
 
+## 2026-11-12 — Task Search lọc quyền trong PostgreSQL
+
+Đã chạy `rollouts/2026-11-12-task-search-visible-content.sql` trên Portal production lúc 18:02 (user duyệt), TRƯỚC khi deploy code gọi hàm. Chạy thử trong transaction rồi rollback trước. Hàm `search_visible_task_content(text, text[], boolean, text)` dùng cùng luật phạm vi với `tasks_visible_to_worker`, thêm cờ xem toàn bộ; chỉ `service_role` được gọi (đã kiểm `anon`/`authenticated` không có quyền). Kiểm sau khi chạy: người không có task nào ra 0 kết quả, Manager ra 7 (6 hiện + 1 cho dấu "+").
+
+---
+
 ## 2026-11-09 → 2026-11-12 — Enrollment list stats, ACA Consent dropdown, nhập file QDI vào Provider List
 
 - `rollouts/2026-11-09-enrollment-list-child-stats.sql`: hàm `enrollment_list_child_stats(uuid[])`. Kiểm ngày 12/11: đã có trên Portal production (code 87948f7 gọi hàm này).

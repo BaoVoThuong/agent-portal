@@ -6,6 +6,11 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-12 — Task Search tìm trong tập hợp quyền trước khi giới hạn kết quả
+
+- Thay vòng quét tối đa 1.000 ứng viên mỗi nhóm bằng RPC `search_visible_task_content`: lọc quyền Task Board trong PostgreSQL rồi mới lấy tối đa 7 kết quả mỗi nhóm (6 hiển thị và 1 để xác định dấu `+`). Tìm trong tiêu đề, bình luận và tệp đính kèm không còn bỏ sót kết quả hợp quyền nằm sau nhiều bản ghi bị ẩn.
+- RPC chỉ cho service role gọi; ứng dụng vẫn kiểm `task.work`/`task.manage` và truyền scope Agent/Assistant/CS. Cần áp dụng rollout SQL trước khi deploy ứng dụng gọi RPC.
+
 ## 2026-11-12 — Keyset: không bỏ sót dòng khi có insert giữa các trang
 
 - Enrollment và các luồng dùng reader chung: nếu Supabase trả trang đầu ngắn hơn kích thước yêu cầu do `max_rows` thấp hơn, việc đạt COUNT ban đầu ở trang sau chưa chứng minh đã tới cuối. Tiếp tục đến trang rỗng để không bỏ sót dòng cũ khi có dòng mới được thêm giữa lúc đọc.
