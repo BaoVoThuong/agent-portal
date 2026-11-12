@@ -62,6 +62,7 @@ export async function fetchAllByKeyset<T extends { id: string }>(
    */
   let exactCount: number | null = null;
   let sawFirstPage = false;
+  let firstBatchSize = 0;
 
   while (rows.length < opts.maxRows) {
     let page = await fetchPage(afterId);
@@ -77,20 +78,27 @@ export async function fetchAllByKeyset<T extends { id: string }>(
     const batch = page.rows ?? [];
     if (!sawFirstPage) {
       sawFirstPage = true;
+      firstBatchSize = batch.length;
       exactCount = typeof page.count === "number" ? page.count : null;
     }
 
-    // Trang RỖNG là điều kiện dừng duy nhất ngoài trần. Cố ý không dừng khi
-    // "trang ngắn hơn kích thước yêu cầu": nếu trần của server nhỏ hơn kích
-    // thước ta xin thì MỌI trang đều ngắn, và dừng ở trang đầu là mất dữ liệu.
+    // Trang rỗng luôn là điểm kết thúc. Không dừng chỉ vì trang ngắn: trần của
+    // server có thể nhỏ hơn kích thước ta xin.
     if (batch.length === 0) break;
 
     rows.push(...batch);
     afterId = batch[batch.length - 1].id;
 
-    // Chỉ đi đường tắt khi server ĐÃ nói tổng là bao nhiêu. Không biết tổng thì
-    // phải đi tiếp tới trang rỗng, đổi lấy một lượt đi-về cuối.
-    if (exactCount !== null && rows.length >= exactCount) break;
+    // Dùng COUNT để bỏ lượt thăm dò cuối chỉ khi trang hiện tại thực sự là
+    // trang cuối. Một trang đầy tại mốc COUNT cũ có thể đã chứa dòng mới,
+    // đẩy một dòng cũ sang trang sau.
+    // A full page at the old count may have displaced an original row after
+    // an insert between requests. A shorter later page proves exhaustion only
+    // when the server's page cap stayed at least as large as the first batch.
+    if (
+      exactCount !== null && rows.length >= exactCount &&
+      (rows.length === batch.length || batch.length < firstBatchSize)
+    ) break;
   }
 
   const hitCap = rows.length >= opts.maxRows;

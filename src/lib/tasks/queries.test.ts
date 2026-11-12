@@ -207,14 +207,16 @@ describe("fetchTasksForActor keyset paging", () => {
       isManager: false,
       isWorker: true,
     } as never);
-    expect(workerScopeCalls).toHaveLength(2);
+    expect(workerScopeCalls).toHaveLength(3);
     expect(workerScopeCalls.map(([, args]) => args)).toEqual([
+      { p_email: "cs@x.com", p_agent_emails: [] },
       { p_email: "cs@x.com", p_agent_emails: [] },
       { p_email: "cs@x.com", p_agent_emails: [] },
     ]);
     // Đếm chính xác chỉ ở trang đầu, như nhánh không phạm vi.
     expect(workerScopeCalls.map(([, , options]) => options)).toEqual([
       { count: "exact" },
+      {},
       {},
     ]);
     expect(orCalls).toEqual([]);
@@ -432,7 +434,7 @@ async function loadFetchTasksForActor(options: {
       return builder;
     }),
     then: (resolve: (value: { data: unknown[]; error: null }) => void) => {
-      const page = pages[Math.min(pageIndex, pages.length - 1)];
+      const page = pages[pageIndex] ?? { data: [], error: null };
       pageIndex += 1;
       return resolve(page);
     },

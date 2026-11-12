@@ -22,7 +22,8 @@ describe("readAllRowsById", () => {
     const result = await readAllRowsById(readPage, 3);
     expect(result.data?.map((row) => row.id)).toEqual(ids);
     expect(result.count).toBe(5);
-    expect(readPage).toHaveBeenCalledTimes(3);
+    // A capped page can look like the last page; probe once more for inserts.
+    expect(readPage).toHaveBeenCalledTimes(4);
   });
 
   it("loads all 1001 rows in pages of 500", async () => {
@@ -54,6 +55,17 @@ describe("readAllRowsById", () => {
     const result = await readAllRowsById(readPage, 2);
     expect(result.data?.map((row) => row.id)).toEqual(["a", "b", "bb", "c", "d"]);
     expect(readPage).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not stop at the old count when the server caps pages below the requested size", async () => {
+    const ids = ["a", "b", "c", "d"];
+    const readPage = keysetServer(() => ids, 2);
+    readPage.mockImplementationOnce(async () => {
+      ids.splice(2, 0, "bb");
+      return { data: [{ id: "a" }, { id: "b" }], error: null, count: 4 };
+    });
+    const result = await readAllRowsById(readPage, 3);
+    expect(result.data?.map((row) => row.id)).toEqual(["a", "b", "bb", "c", "d"]);
   });
 
   it("returns the rows that stayed when the set shrinks during the walk", async () => {

@@ -75,6 +75,17 @@ describe("fetchAllByKeyset", () => {
     expect(fetchPage).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps an original row when a new row fills the page at the old count", async () => {
+    const live = ["a", "b", "c", "d"];
+    const fetchPage = vi.fn(async (afterId: string | null) => {
+      const page = fakeTable(live, 2)(afterId);
+      if (afterId === null) live.splice(2, 0, "bb");
+      return page;
+    });
+    const result = await fetchAllByKeyset(fetchPage, permissive);
+    expect(result.rows.map((row) => row.id)).toEqual(["a", "b", "bb", "c", "d"]);
+  });
+
   it("retries a transient failure exactly once", async () => {
     const ids = ["a", "b"];
     let calls = 0;

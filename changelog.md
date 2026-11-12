@@ -6,6 +6,11 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-12 — Keyset: không bỏ sót dòng khi có insert giữa các trang
+
+- Enrollment và các luồng dùng reader chung: nếu Supabase trả trang đầu ngắn hơn kích thước yêu cầu do `max_rows` thấp hơn, việc đạt COUNT ban đầu ở trang sau chưa chứng minh đã tới cuối. Tiếp tục đến trang rỗng để không bỏ sót dòng cũ khi có dòng mới được thêm giữa lúc đọc.
+- Task Board và bảng assignee: khi một trang đầy vừa đạt COUNT cũ, vẫn đọc tiếp để lấy dòng cũ có thể đã bị dòng mới đẩy sang trang sau. Trang đầu hoàn chỉnh và trang cuối thực sự ngắn vẫn giữ đường dừng nhanh.
+
 ## 2026-11-12 — Task: gỡ 3 điểm chậm của đợt đọc vượt trần 1.000 dòng
 
 - Task search: đặt lại trần quét 1.000 ứng viên mỗi nhóm (entry dưới đã gỡ). Mỗi trang 50 ứng viên tốn 3 truy vấn, nên không có trần thì một từ phổ biến, với người ít quyền xem, có thể quét cả bảng ở mỗi lần gõ. Chạm trần thì số đếm của nhóm hiện "+".

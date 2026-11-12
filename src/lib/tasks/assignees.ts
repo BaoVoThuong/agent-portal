@@ -398,7 +398,9 @@ export async function fetchTaskAssigneeRowsForTaskIds(
         const chunkRows: TaskAssigneeRow[] = [];
         let after: TaskAssigneeRow | null = null;
         let total: number | null = null;
+        let firstPageFilledRequest = false;
         for (;;) {
+          const isFirstPage = after === null;
           let query = supabase
             .from("task_assignees")
             .select("task_id,email,created_at", after ? undefined : { count: "exact" })
@@ -411,10 +413,14 @@ export async function fetchTaskAssigneeRowsForTaskIds(
           if (result.error) return { data: null, error: result.error };
           if (!after && typeof result.count === "number") total = result.count;
           const batch = (result.data ?? []) as TaskAssigneeRow[];
+          if (isFirstPage) firstPageFilledRequest = batch.length === FULL_READ_PAGE_SIZE;
           if (batch.length === 0) break;
           chunkRows.push(...batch);
           after = batch[batch.length - 1];
-          if (batch.length < FULL_READ_PAGE_SIZE && total !== null && chunkRows.length >= total) {
+          if (
+            batch.length < FULL_READ_PAGE_SIZE && total !== null && chunkRows.length >= total &&
+            (isFirstPage || firstPageFilledRequest)
+          ) {
             break;
           }
         }

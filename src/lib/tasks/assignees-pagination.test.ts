@@ -125,6 +125,19 @@ describe("fetchTaskAssigneeRowsForTaskIds", () => {
     expect(new Set(emails).size).toBe(emails.length);
     expect(emails).toContain("agent-0599@example.com");
   });
+
+  it("does not lose an old assignee when a capped page reaches the old count", async () => {
+    const rows = Array.from({ length: 600 }, (_, index) => assignee("task-1", index));
+    const fake = assigneeTable(rows, {
+      serverCap: 300,
+      onRequest: (n) => {
+        if (n === 1) fake.table.push({ ...assignee("task-1", 300), email: "agent-0300a@example.com" });
+      },
+    });
+    const result = await fetchTaskAssigneeRowsForTaskIds(["task-1"], fake.supabase);
+    expect(result?.map((row) => row.email)).toContain("agent-0599@example.com");
+    expect(result).toHaveLength(601);
+  });
 });
 
 describe("assigneesAfter", () => {

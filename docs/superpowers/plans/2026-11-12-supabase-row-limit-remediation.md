@@ -1,16 +1,16 @@
 # Khắc phục trần 1.000 dòng Supabase trên Agent Portal
 
-Ngày lập: 12/11/2026 (Asia/Ho_Chi_Minh). Trạng thái: **đã triển khai trong worktree; chưa deploy production**.
+Ngày lập: 12/11/2026 (Asia/Ho_Chi_Minh). Trạng thái: **P0/P1 đã commit trên `main`; P2 và kiểm chứng staging còn mở**.
 
-## Tiến độ triển khai local
+## Tiến độ và giới hạn hiện tại
 
 - Đã thêm reader keyset 500 dòng/trang, kiểm COUNT, retry lỗi tạm thời và báo lỗi nếu đọc thiếu. Áp dụng cho ACA Enrollment (gồm mọi nhánh schema fallback), hai Overview, stage cycles, comment/activity, Provider List/API/Export, Health/P&C Registration, Task Overview/cron/fallback metadata, Task assignee/participant, notification fallback, Lead Overview và phép tính quỹ nghỉ phép theo năm.
-- Các vòng đọc vốn đã phân trang của dashboard, AI, Provider Finder, health statement, Task và Lead import candidate đã giảm từ 1.000 xuống 500 dòng/request. Task search tiếp tục quét đến khi đủ kết quả hợp quyền hoặc hết ứng viên.
+- Các vòng đọc vốn đã phân trang của dashboard, AI, Provider Finder, health statement và Lead import candidate dùng 500 dòng/request. Task Board quay lại 1.000 dòng/request để giảm lượt đi về tuần tự, vẫn phân trang. Task Search đã đổi sang RPC lọc quyền trong DB trước khi lấy 7 kết quả/nhóm, không còn trần quét 1.000 ứng viên trong ứng dụng; cần áp dụng `supabase/rollouts/2026-11-12-task-search-visible-content.sql` trước khi deploy code mới.
 - Đã đối chiếu read-only trên Supabase: ACA 1.060 dòng = COUNT 1.060 qua ba request 500/500/60; alias cursor cho `task_assignees` và `task_participants` trả HTTP 200. Chưa kiểm UI theo từng vai trò trên staging hoặc production.
-- Kiểm chứng local: 256 file / 2.043 test qua, test riêng cho nhóm 1.001 Task assignee qua, typecheck qua, lint 0 lỗi (2 warning có sẵn), build production qua. `git diff --check` qua.
+- Kiểm chứng tại lượt triển khai ban đầu: 256 file / 2.043 test qua, test riêng cho nhóm 1.001 Task assignee qua, typecheck qua, lint 0 lỗi (2 warning có sẵn), build production qua. Các lượt review sau có test bổ sung cho race khi insert giữa các trang.
 - Task/Lead list vẫn có trần nghiệp vụ 5.000/20.000 dòng với cờ `truncated`; import có giới hạn file riêng. Các giới hạn này không phải trần 1.000 dòng của PostgREST.
 - Chưa triển khai giãn broadcast theo Task 2b của plan 09/11 vì thay đổi đó có thể làm người khác thấy cập nhật chậm thêm khoảng 12 giây. Tỷ lệ `reason=broadcast` đo được là khoảng 65%, nên đây là bước tối ưu hiệu năng nên làm sau khi kiểm chính xác và đo tải của bản sửa.
-- Chưa deploy hoặc thử workflow ghi trên DB. Cần kiểm theo tài khoản manager/agent và đo p95/API count trên staging trước rollout; các lookup cấu hình và danh sách tài khoản/vai trò hiện nhỏ nên chưa đổi sang phân trang trong lượt sửa này.
+- Chưa có bằng chứng trong plan này về kiểm thử workflow ghi trên DB, kiểm UI theo manager/agent hoặc đo p95/API count sau rollout. Các lookup cấu hình và danh sách tài khoản/vai trò hiện nhỏ nên chưa đổi sang phân trang trong lượt sửa này.
 
 ## Mục tiêu và phạm vi
 
@@ -44,7 +44,7 @@ Vercel có thể ghi HTTP 200 cho trang SSR đã bắt đầu stream dù nội d
 | P1 | `src/app/(authed)/page.tsx`, `customer-registration/pc/page.tsx`, GET `/api/entries`, GET `/api/pc-entries` | Health/P&C Registration đọc tất cả entry một lần; hiện mỗi bảng 2 dòng. | Một hàm đọc có phân trang và áp đúng `buildVisibleEntriesFilter` trên từng trang; sau đó cân nhắc server-side UI pagination khi số dòng tăng. |
 | P1 | `src/lib/tasks/queries.ts` nhánh `TASK_COLUMNS_LEGACY` | Đường chính đã keyset; fallback thiếu `custom_values` còn đọc một lần và sẽ 503 ở >1.000. | Cho fallback dùng cùng cơ chế keyset/scope của đường chính. |
 | P1 | GET `/api/enrollment/[id]/comments` | Đọc toàn bộ comment của một hồ sơ; drawer chính đã phân trang qua `loadEnrollmentComments()`. | Dùng cùng cursor contract hoặc đổi endpoint legacy thành một trang có `hasMore`; kiểm tra caller trước khi đổi response. |
-| P2 | `src/lib/tasks/search.ts` | `MAX_SEARCH_SCAN = 1000` là trần scan ứng dụng; có thể không tìm được kết quả hợp quyền nằm sau ứng viên thứ 1.000. | Đẩy điều kiện quyền xuống query/RPC, tiếp tục quét theo cursor tới khi đủ 6 kết quả hiển thị hoặc hết tập; giữ giới hạn thời gian/tài nguyên và báo `truncated` rõ ràng. |
+| P2 | `src/lib/tasks/search.ts` | Đã sửa local: trước đây `MAX_SEARCH_SCAN = 1000` có thể che kết quả hợp quyền nằm sau ứng viên thứ 1.000. | RPC lọc quyền trong PostgreSQL trước `LIMIT 7` từng nhóm; ứng dụng hiển thị 6 kết quả và đặt `truncated` khi có kết quả thứ 7. Còn áp dụng rollout SQL trước deploy. |
 | P2 | Lookup/notification/metadata theo mảng ID và dữ liệu tham chiếu | Một số `.in(...)` hoặc `.select()` không phân trang ở `enrollment/recipients`, `tasks/queries` fallback enrich, RBAC, account/role manager, option/config, time-off, notification enrichment. Phần lớn hiện có cardinality nhỏ hoặc đã chunk, nhưng chưa có bảo đảm chung. | Kiểm từng call site theo tập kết quả thực tế; chunk đầu vào không đồng nghĩa đầu ra <1.000. Thêm phân trang/COUNT guard tại nơi cần toàn bộ dòng. |
 
 Đã phân trang ở đường chính: Task list, Lead list và overview, Provider backlog, nhiều dashboard/mart, cron Enrollment due và comment drawer chính. Kiểm tra lại kích thước trang đang đặt đúng 1.000; đổi thành 500 để chịu được cấu hình Supabase thấp hơn và dùng khóa sắp xếp duy nhất. Những query `head: true` chỉ lấy COUNT, `.single()`/`.maybeSingle()` và `.limit()` theo nghiệp vụ có chủ ý không phải lỗi này.
@@ -75,7 +75,7 @@ Vercel có thể ghi HTTP 200 cho trang SSR đã bắt đầu stream dù nội d
 
 - Duyệt mọi `.select()`/`.rpc().select()` trả danh sách trong `src/app` và `src/lib`. Với từng call site, ghi rõ: **single / bounded-by-business / full-set / paged / count-only**, phạm vi filter, khả năng đầu ra >500, và cách xử lý thiếu dòng. Bổ sung các call site chưa có trong bảng trên vào checklist thực thi, không kết thúc audit khi còn full-set unpaged.
 - Kiểm tra đặc biệt notification summary fallback, truy vấn `.in(ids)` ở enrich, `time-off` team/year totals, account/role manager, provider collaboration và các bảng option/config. Total table count >1.000 chỉ là tín hiệu điều tra; phải xét cardinality sau filter.
-- Thay scan cap 1.000 của Task search bằng tìm kiếm có scope ở DB. Giữ giới hạn số kết quả và bảo vệ tài nguyên với trạng thái `truncated` minh bạch.
+- Đã thay scan cap 1.000 của Task Search bằng RPC có scope ở DB. Giữ giới hạn 6 kết quả/nhóm và đặt `truncated` khi có kết quả hợp quyền thứ 7; rollout SQL phải chạy trước code.
 - Thêm static check hoặc checklist review để query full-set mới buộc khai báo phân trang/giới hạn nghiệp vụ. Không cấm các query đọc một dòng hay count-only.
 
 ### 4. Kiểm chứng và rollout

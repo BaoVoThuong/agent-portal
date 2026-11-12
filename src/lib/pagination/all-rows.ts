@@ -16,15 +16,16 @@ export type FullReadPage<T, E extends PageError = PageError> = {
  *
  * Pages walk the immutable `id` keyset in order, one request at a time. The
  * walk stops at an empty page, or at a short page once the first page's exact
- * count has been reached.
+ * count has been reached and the first page established that the server honors
+ * the requested page size.
  *
  * It never stops just because the count was reached on a FULL page. A row
  * inserted above the cursor during the walk would push an original row past
  * that point, and the original row would be dropped silently.
  *
  * A short page below the count is not treated as the end: the server may cap
- * pages below `pageSize`. If the set only shrank, the next page comes back
- * empty and the walk ends.
+ * pages below `pageSize`. In that case even reaching the old count does not
+ * prove the current page is last when records were inserted during the walk.
  *
  * Every row that matched for the whole walk is returned. Rows that left the
  * filter between pages (archived, closed, moved out of scope) are not, so
@@ -47,6 +48,7 @@ export async function readAllRowsById<T extends { id: string }, E extends PageEr
   const seenIds = new Set<string>();
   let afterId: string | null = null;
   let count: number | null = null;
+  let firstPageFilledRequest = false;
   for (;;) {
     const withCount = afterId === null;
     let page = await readPage(afterId, pageSize, withCount);
@@ -57,6 +59,7 @@ export async function readAllRowsById<T extends { id: string }, E extends PageEr
     if (page.data === null) throw new Error("Full read returned no rows without an error.");
     if (withCount && typeof page.count === "number") count = page.count;
     const batch = page.data;
+    if (withCount) firstPageFilledRequest = batch.length === pageSize;
     if (batch.length === 0) break;
     for (const row of batch) {
       if (typeof row.id !== "string" || seenIds.has(row.id)) {
@@ -66,7 +69,10 @@ export async function readAllRowsById<T extends { id: string }, E extends PageEr
       afterId = row.id;
       rows.push(row);
     }
-    if (batch.length < pageSize && count !== null && rows.length >= count) break;
+    if (
+      batch.length < pageSize && count !== null && rows.length >= count &&
+      (withCount || firstPageFilledRequest)
+    ) break;
   }
   return { data: rows, error: null, count };
 }
