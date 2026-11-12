@@ -10,12 +10,13 @@ describe("fetchEnrollmentListChildStats", () => {
   afterEach(() => vi.restoreAllMocks());
 
   const thenable = (rows: unknown[]) => {
-    const result = Promise.resolve({ data: rows, error: null });
     const builder = {
       select: () => builder,
       in: () => builder,
-      is: () => result,
-      then: result.then.bind(result),
+      is: () => builder,
+      gt: () => builder,
+      order: () => builder,
+      limit: () => Promise.resolve({ data: rows, error: null, count: rows.length }),
     };
     return builder;
   };
@@ -54,8 +55,8 @@ describe("fetchEnrollmentListChildStats", () => {
     });
     const from = vi.fn((table: string) =>
       table === "enrollment_comments"
-        ? thenable([{ record_id: "a", body: "hi" }, { record_id: "a", body: "" }])
-        : thenable([{ record_id: "a" }]),
+        ? thenable([{ id: "1", record_id: "a", body: "hi" }, { id: "2", record_id: "a", body: "" }])
+        : thenable([{ id: "1", record_id: "a" }]),
     );
     const stats = await fetchEnrollmentListChildStats({ rpc, from } as never, ["a", "b"]);
     expect(stats.get("a")).toEqual({
@@ -108,5 +109,205 @@ describe("assertEnrollmentRecordsComplete", () => {
     expect(() => assertEnrollmentRecordsComplete([{ id: "one" }], 1)).not.toThrow();
     expect(() => assertEnrollmentRecordsComplete([{ id: "one" }], null)).not.toThrow();
     expect(() => assertEnrollmentRecordsComplete(null, undefined)).not.toThrow();
+  });
+});
+
+describe("fetchEnrollmentRecords paging", () => {
+  type Row = { id: string; program: string; created_at: string; updated_at: string };
+  type Served = {
+    data: unknown[] | null;
+    error: { code?: string; message: string } | null;
+    count: number | null;
+    status?: number;
+  };
+  type Request = {
+    columns: string;
+    withCount: boolean;
+    afterId: string | null;
+    limit: number | null;
+    scoped: string | null;
+  };
+
+  afterEach(() => {
+    vi.doUnmock("@/lib/supabase");
+    vi.resetModules();
+    vi.restoreAllMocks();
+  });
+
+  const makeRows = (length: number) =>
+    Array.from({ length }, (_, index): Row => ({
+      id: `rec-${String(index).padStart(5, "0")}`,
+      program: "aca",
+      created_at: "2026-11-11T00:00:00.000Z",
+      updated_at: `2026-11-11T00:${String(index % 60).padStart(2, "0")}:00.000Z`,
+    }));
+
+  /** Each page is its own query chain, served by id keyset like PostgREST. */
+  async function load(options: {
+    rows: () => Row[];
+    /** Replace or observe the response to the n-th request (0-based). */
+    respond?: (request: number, served: Served) => Served;
+  }) {
+    vi.resetModules();
+    const requests: Request[] = [];
+    const from = vi.fn(() => {
+      const request: Request = {
+        columns: "",
+        withCount: false,
+        afterId: null,
+        limit: null,
+        scoped: null,
+      };
+      const builder = {
+        select: (columns: string, opts?: { count?: string }) => {
+          request.columns = columns;
+          request.withCount = opts?.count === "exact";
+          return builder;
+        },
+        eq: () => builder,
+        is: () => builder,
+        or: (filter: string) => {
+          request.scoped = filter;
+          return builder;
+        },
+        gt: (_column: string, value: string) => {
+          request.afterId = value;
+          return builder;
+        },
+        order: () => builder,
+        limit: (size: number) => {
+          request.limit = size;
+          return builder;
+        },
+        then: (
+          resolve: (value: Served) => unknown,
+          reject?: (reason: unknown) => unknown,
+        ) => {
+          const index = requests.push(request) - 1;
+          const all = options.rows();
+          const cursor = request.afterId;
+          const found = cursor === null ? 0 : all.findIndex((row) => row.id > cursor);
+          const begin = found === -1 ? all.length : found;
+          let served: Served = {
+            data: all.slice(begin, begin + (request.limit ?? all.length)),
+            error: null,
+            count: request.withCount ? all.length : null,
+            status: 200,
+          };
+          if (options.respond) served = options.respond(index, served);
+          return Promise.resolve(served).then(resolve, reject);
+        },
+      };
+      return builder;
+    });
+    const rpc = vi.fn(async () => ({ data: {}, error: null }));
+    vi.doMock("@/lib/supabase", () => ({
+      getSupabaseAdmin: () => ({ from, rpc }),
+    }));
+    const queries = await import("@/lib/enrollment/queries");
+    return { queries, requests, rpc };
+  }
+
+  it("reads every record past the 1,000-row cap, 500 per request", async () => {
+    const all = makeRows(1060);
+    const { queries, requests, rpc } = await load({ rows: () => all });
+    const records = await queries.fetchEnrollmentRecords("aca", { seeAll: true });
+    expect(records).toHaveLength(1060);
+    expect(new Set(records.map((record) => record.id)).size).toBe(1060);
+    expect(requests.map((request) => [request.afterId, request.limit, request.withCount])).toEqual([
+      [null, 500, true],
+      ["rec-00499", 500, false],
+      ["rec-00999", 500, false],
+    ]);
+    const stamps = records.map((record) => record.updated_at);
+    expect([...stamps].sort().reverse()).toEqual(stamps);
+    expect(rpc).toHaveBeenCalledOnce();
+  });
+
+  it("applies the viewer's scope to every page", async () => {
+    const all = makeRows(1001);
+    const { queries, requests } = await load({ rows: () => all });
+    await queries.fetchEnrollmentRecords("aca", {
+      seeAll: false,
+      agentEmails: ["agent@example.com"],
+      viewerEmail: "cs@example.com",
+      personColumns: [],
+    } as never);
+    expect(requests).toHaveLength(3);
+    expect(requests[0].scoped).toContain("agent_email.in.");
+    expect(requests.every((request) => request.scoped === requests[0].scoped)).toBe(true);
+  });
+
+  it("keeps an existing record when another is created mid-read", async () => {
+    const all = makeRows(1000);
+    const { queries } = await load({
+      rows: () => all,
+      respond: (request, served) => {
+        // Lands above the cursor after page 1. Stopping once the loaded rows
+        // reach page 1's count (1,000) would drop rec-00999.
+        if (request === 0) all.splice(601, 0, { ...all[600], id: "rec-00600a" });
+        return served;
+      },
+    });
+    const records = await queries.fetchEnrollmentRecords("aca", { seeAll: true });
+    expect(records).toHaveLength(1001);
+    expect(records.map((record) => record.id)).toContain("rec-00999");
+  });
+
+  it("does not fail the page when a record is archived mid-read", async () => {
+    const all = makeRows(1001);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { queries } = await load({
+      rows: () => all,
+      respond: (request, served) => {
+        if (request === 0) all.splice(600, 1);
+        return served;
+      },
+    });
+    const records = await queries.fetchEnrollmentRecords("aca", { seeAll: true });
+    expect(records).toHaveLength(1000);
+    expect(records.some((record) => record.id === "rec-00600")).toBe(false);
+    expect(warn).toHaveBeenCalledWith("[enrollment-list] list changed while paging", {
+      program: "aca",
+      total: 1001,
+      loaded: 1000,
+    });
+  });
+
+  it("pages the schema fallback too", async () => {
+    const all = makeRows(600);
+    const { queries, requests } = await load({
+      rows: () => all,
+      respond: (request, served) =>
+        request === 0
+          ? {
+              data: null,
+              error: {
+                code: "42703",
+                message: "column enrollment_records.carrier_ids does not exist",
+              },
+              count: null,
+              status: 400,
+            }
+          : served,
+    });
+    const records = await queries.fetchEnrollmentRecords("aca", { seeAll: true });
+    expect(records).toHaveLength(600);
+    expect(requests[0].columns).toContain("carrier_ids");
+    expect(requests.slice(1).every((request) => !request.columns.includes("carrier_ids"))).toBe(true);
+    expect(requests.slice(1).map((request) => request.afterId)).toEqual([null, "rec-00499"]);
+  });
+
+  it("fails instead of returning a partial list when a later page errors", async () => {
+    const all = makeRows(1001);
+    const timeout = { code: "57014", message: "canceling statement due to statement timeout" };
+    const { queries } = await load({
+      rows: () => all,
+      respond: (request, served) =>
+        request >= 1 ? { data: null, error: timeout, count: null, status: 500 } : served,
+    });
+    await expect(queries.fetchEnrollmentRecords("aca", { seeAll: true })).rejects.toThrow(
+      "canceling statement due to statement timeout",
+    );
   });
 });

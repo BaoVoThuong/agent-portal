@@ -6,6 +6,12 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-12 — Enrollment: danh sách đọc theo trang, hết sập khi chương trình vượt 1.000 hồ sơ
+
+- Trước: `fetchEnrollmentRecords` đọc cả chương trình bằng một request; Supabase cắt mỗi response ở 1.000 dòng (`max_rows`), nên từ 18:35 UTC 11/11 khi ACA vượt 1.000 hồ sơ, code ném `EnrollmentListTruncatedError` và trang `/enrollment` sập ("This page couldn't load") cho Manager và CS xem toàn bộ; `/api/enrollment` và Export ACA trả 503. Agent/Assistant đọc phần của mình nên không bị.
+- Giờ đọc tuần tự từng trang 500 dòng theo keyset `id` (`src/lib/pagination/all-rows.ts`, code Codex), `count: exact` chỉ ở trang đầu, phạm vi xem áp cho mọi trang, các nhánh tương thích schema cũng đọc theo trang; sắp lại theo `updated_at` như cũ. Activity của hồ sơ và đường dự phòng đếm comment/file (khi thiếu RPC) cũng đọc theo trang.
+- Vòng đọc chỉ dừng ở trang rỗng, hoặc trang ngắn khi đã đủ COUNT của trang đầu: không dừng chỉ vì đủ COUNT trên một trang đầy, vì hồ sơ mới tạo giữa chừng sẽ đẩy hồ sơ cũ ra ngoài và làm mất nó không báo. Hồ sơ bị archive hoặc rời phạm vi xem giữa các trang chỉ log `[enrollment-list] list changed while paging`, không làm sập trang.
+
 ## 2026-11-11 — Table Configuration: Consent thêm / đổi tên / archive như bộ lựa chọn thường
 
 - Gỡ ràng buộc "Consent đúng 2 lựa chọn (Yes / khác)", khoá đổi tên và chặn archive dưới 2 — chỉ cần khi Consent còn là ô tick. Stage vẫn khoá đổi tên. Route `option-sets/[id]` bỏ chặn đổi tên Consent theo.

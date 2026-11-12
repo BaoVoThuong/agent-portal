@@ -1,4 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { readAllRowsById } from "@/lib/pagination/all-rows";
+import { mapWithConcurrency } from "@/lib/pagination/concurrency";
 import {
   applyEnrollmentScope,
   type EnrollmentScope,
@@ -30,8 +32,9 @@ const ENROLLMENT_RECORD_COLUMNS_LEGACY_WITHOUT_DESCRIPTION =
 
 type LooseSupabaseRowsResult = {
   data: unknown[] | null;
-  error: SupabaseLikeError;
+  error: { code?: string; message: string } | null;
   count?: number | null;
+  status?: number;
 };
 type LooseSupabaseRowResult = {
   data: unknown | null;
@@ -48,7 +51,9 @@ type LooseSupabaseQueryBuilder = {
   order: (
     column: string,
     options: { ascending: boolean }
-  ) => Promise<LooseSupabaseRowsResult>;
+  ) => LooseSupabaseQueryBuilder;
+  gt: (column: string, value: unknown) => LooseSupabaseQueryBuilder;
+  limit: (count: number) => PromiseLike<LooseSupabaseRowsResult>;
   maybeSingle: () => Promise<LooseSupabaseRowResult>;
 };
 type LooseSupabaseClient = {
@@ -106,22 +111,23 @@ async function fetchEnrollmentListChildren(
   // comment/attachment hydration.
   const chunks = chunkEnrollmentRecordIds(recordIds);
   const [commentResults, attachmentResults] = await Promise.all([
-    Promise.all(
-      chunks.map((chunk) =>
-        supabase
-          .from("enrollment_comments")
-          .select("record_id,body")
-          .in("record_id", chunk)
-          .is("deleted_at", null),
-      ),
+    mapWithConcurrency(chunks, 4, (chunk) =>
+      readAllRowsById<{ id: string; record_id: string; body: string | null }>((afterId, pageSize, withCount) => {
+        let query = supabase.from("enrollment_comments")
+          .select("id,record_id,body", withCount ? { count: "exact" } : undefined)
+          .in("record_id", chunk).is("deleted_at", null);
+        if (afterId) query = query.gt("id", afterId);
+        return query.order("id").limit(pageSize);
+      }),
     ),
-    Promise.all(
-      chunks.map((chunk) =>
-        supabase
-          .from("enrollment_attachments")
-          .select("record_id")
-          .in("record_id", chunk),
-      ),
+    mapWithConcurrency(chunks, 4, (chunk) =>
+      readAllRowsById<{ id: string; record_id: string }>((afterId, pageSize, withCount) => {
+        let query = supabase.from("enrollment_attachments")
+          .select("id,record_id", withCount ? { count: "exact" } : undefined)
+          .in("record_id", chunk);
+        if (afterId) query = query.gt("id", afterId);
+        return query.order("id").limit(pageSize);
+      }),
     ),
   ]);
 
@@ -199,18 +205,21 @@ export async function fetchEnrollmentRecords(
 ): Promise<EnrollmentRecordWithStats[]> {
   const supabase = getSupabaseAdmin();
   const queryClient = supabase as unknown as LooseSupabaseClient;
-  const readPrimary = (columns: string) =>
-    applyEnrollmentScope(
-      queryClient
+  const readList = (columns: string) =>
+    readAllRowsById<{ id: string }>((afterId, pageSize, withCount) => {
+      let query = queryClient
         .from("enrollment_records")
-        .select(columns, { count: "exact" })
+        .select(columns, withCount ? { count: "exact" } : undefined)
         .eq("program", program)
-        .is("archived_at", null),
-      scope
-    ).order("updated_at", { ascending: false });
-  let primary = await readPrimary(ENROLLMENT_RECORD_COLUMNS);
+        .is("archived_at", null);
+      if (afterId) query = query.gt("id", afterId);
+      return applyEnrollmentScope(query, scope)
+        .order("id", { ascending: true })
+        .limit(pageSize) as PromiseLike<LooseSupabaseRowsResult & { data: { id: string }[] | null }>;
+    });
+  let primary = await readList(ENROLLMENT_RECORD_COLUMNS);
   if (isMissingCarrierIdsColumn(primary.error)) {
-    primary = await readPrimary(ENROLLMENT_RECORD_COLUMNS_WITHOUT_CARRIER_IDS);
+    primary = await readList(ENROLLMENT_RECORD_COLUMNS_WITHOUT_CARRIER_IDS);
   }
   const { data, error, count } = primary;
   let rows: unknown[] | null = data;
@@ -220,13 +229,7 @@ export async function fetchEnrollmentRecords(
     throw new EnrollmentSchemaOutOfDateError();
   }
   if (isMissingEnrollmentDescriptionColumn(error)) {
-    const fallbackQuery = queryClient
-      .from("enrollment_records")
-      .select(ENROLLMENT_RECORD_COLUMNS_WITHOUT_DESCRIPTION, { count: "exact" })
-      .eq("program", program)
-      .is("archived_at", null);
-    const fallback = await applyEnrollmentScope(fallbackQuery, scope)
-      .order("updated_at", { ascending: false });
+    const fallback = await readList(ENROLLMENT_RECORD_COLUMNS_WITHOUT_DESCRIPTION);
     rows = fallback.data;
     queryError = fallback.error;
     rowCount = fallback.count;
@@ -235,13 +238,7 @@ export async function fetchEnrollmentRecords(
     const legacyColumns = isMissingEnrollmentDescriptionColumn(queryError)
       ? ENROLLMENT_RECORD_COLUMNS_LEGACY_WITHOUT_DESCRIPTION
       : ENROLLMENT_RECORD_COLUMNS_LEGACY;
-    const legacyQuery = queryClient
-      .from("enrollment_records")
-      .select(legacyColumns, { count: "exact" })
-      .eq("program", program)
-      .is("archived_at", null);
-    const fallback = await applyEnrollmentScope(legacyQuery, scope)
-      .order("updated_at", { ascending: false });
+    const fallback = await readList(legacyColumns);
     rows = fallback.data;
     queryError = fallback.error;
     rowCount = fallback.count;
@@ -250,9 +247,25 @@ export async function fetchEnrollmentRecords(
     throw new EnrollmentSchemaOutOfDateError();
   }
   if (queryError) throw new Error(queryError.message ?? "Could not fetch records.");
-  assertEnrollmentRecordsComplete(rows, rowCount);
+  // readAllRowsById walks every page, so a count above the rows loaded means
+  // records left the list (archived, or out of this viewer's scope) while the
+  // pages were being read. Every record that stayed is here, and the next
+  // refresh shows the settled list. Throwing would show the 2026-11-12
+  // "This page couldn't load" over a race that fixes itself, so log it.
+  const loaded = rows?.length ?? 0;
+  if (typeof rowCount === "number" && rowCount > loaded) {
+    console.warn("[enrollment-list] list changed while paging", {
+      program,
+      total: rowCount,
+      loaded,
+    });
+  }
 
   const records = (rows ?? []).map(coerceEnrollmentRecord);
+  records.sort((a, b) =>
+    String(b.updated_at ?? "").localeCompare(String(a.updated_at ?? "")) ||
+    a.id.localeCompare(b.id)
+  );
   const ids = records.map((record) => record.id);
   if (ids.length === 0) return [];
 
@@ -384,13 +397,19 @@ export async function fetchEnrollmentPeople(): Promise<EnrollmentPerson[]> {
 export async function fetchEnrollmentActivity(
   recordId: string
 ): Promise<EnrollmentActivityRow[]> {
-  const { data, error } = await getSupabaseAdmin()
-    .from("enrollment_activity")
-    .select("id,actor_email,type,meta,created_at")
-    .eq("record_id", recordId)
-    .order("created_at", { ascending: false });
+  const { data, error } = await readAllRowsById<EnrollmentActivityRow>(
+    (afterId, pageSize, withCount) => {
+      let query = getSupabaseAdmin().from("enrollment_activity")
+        .select("id,actor_email,type,meta,created_at", withCount ? { count: "exact" } : undefined)
+        .eq("record_id", recordId);
+      if (afterId) query = query.gt("id", afterId);
+      return query.order("id").limit(pageSize);
+    },
+  );
   if (error) throw new Error(error.message);
-  return (data ?? []) as EnrollmentActivityRow[];
+  return (data ?? []).sort((a, b) =>
+    b.created_at.localeCompare(a.created_at) || a.id.localeCompare(b.id),
+  );
 }
 
 function countByRecord(rows: { record_id?: string | null }[]): Map<string, number> {
