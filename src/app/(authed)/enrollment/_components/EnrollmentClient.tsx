@@ -189,6 +189,7 @@ import {
   sumColumnValues,
 } from "@/lib/enrollment/column-totals";
 import { uploadAttachment } from "@/lib/tasks/upload-attachment";
+import { fetchJsonWithEtag, type EtagSnapshot } from "@/lib/http/etag-fetch";
 
 type SortKey =
   | "key"
@@ -1010,6 +1011,8 @@ export function EnrollmentClient({
   // between snapshots. A trigger that arrives during a request becomes one
   // trailing refresh, matching the task board's stale-while-revalidate flow.
   const recordsRefetchInFlightRef = useRef<Promise<void> | null>(null);
+  // Bản danh sách lần tải trước + ETag của nó: poll không đổi gì thì server trả 304.
+  const recordsEtagRef = useRef<EtagSnapshot | null>(null);
   const recordsRefetchQueuedRef = useRef(false);
   const recordsRefetchQueuedReasonRef = useRef<EnrollmentRefetchReason | null>(null);
   const enrollmentLayoutHydratedRef = useRef(false);
@@ -1436,11 +1439,13 @@ export function EnrollmentClient({
         // like later.
         const hadPendingAtIssue = pendingRef.current.size > 0;
         try {
-          const response = await fetch(`/api/enrollment?program=${program}&reason=${runReason}`, {
-            cache: "no-store",
-          });
-          if (!response.ok) continue;
-          const data = (await response.json()) as {
+          const result = await fetchJsonWithEtag(
+            `/api/enrollment?program=${program}&reason=${runReason}`,
+            program,
+            recordsEtagRef,
+          );
+          if (!result.ok) continue;
+          const data = result.data as {
             records: EnrollmentRecordWithStats[];
           };
           // A newer sequence is not expected while single-flight is active,

@@ -50,6 +50,7 @@ import {
 } from "@/lib/tasks/category-mutation";
 import { RouteTiming } from "@/lib/server-timing";
 import { safeErrorFields } from "@/lib/server-error-log";
+import { jsonWithEtag } from "@/lib/http/json-etag";
 
 export const dynamic = "force-dynamic";
 
@@ -65,7 +66,7 @@ function startEarly<T>(operation: PromiseLike<T>): Promise<T> {
   return pending;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const timing = new RouteTiming("tasks-list");
   let stage: "auth" | "tasks" = "auth";
   const respond = (body: unknown, status = 200) => {
@@ -91,7 +92,11 @@ export async function GET() {
     // nạp được kèm cờ `truncated` — thiếu một phần và NÓI RA vẫn dùng được hơn
     // là không có gì. Nhánh 503 TASK_LIST_TRUNCATED dưới đây chỉ còn phục vụ
     // đường legacy.
-    return respond({ tasks: page.tasks, truncated: page.truncated });
+    // Poll mà danh sách không đổi → 304 không body (xem lib/http/json-etag).
+    const response = jsonWithEtag(request, { tasks: page.tasks, truncated: page.truncated });
+    response.headers.set("Server-Timing", timing.headerValue());
+    timing.log(response.status);
+    return response;
   } catch (error) {
     if (error instanceof TaskListTruncatedError) {
       return respond(

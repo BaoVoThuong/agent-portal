@@ -62,6 +62,7 @@ import {
 import { resolveEnrollmentScope } from "@/lib/enrollment/scope";
 import { RouteTiming } from "@/lib/server-timing";
 import { parseEnrollmentRefetchReason } from "@/lib/enrollment/live-sync";
+import { jsonWithEtag } from "@/lib/http/json-etag";
 
 export const dynamic = "force-dynamic";
 
@@ -118,7 +119,11 @@ export async function GET(request: Request) {
     const records = await timing.measure("records", () =>
       fetchEnrollmentRecords(program, scope),
     );
-    return respond({ records });
+    // Poll mà danh sách không đổi → 304 không body (xem lib/http/json-etag).
+    const response = jsonWithEtag(request, { records });
+    response.headers.set("Server-Timing", timing.headerValue());
+    timing.log(response.status);
+    return response;
   } catch (error) {
     const schemaResponse = enrollmentSchemaErrorResponse(error);
     if (schemaResponse) return schemaResponse;

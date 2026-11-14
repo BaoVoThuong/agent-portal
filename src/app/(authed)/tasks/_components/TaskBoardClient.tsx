@@ -125,6 +125,7 @@ import {
 import type { OverviewSnapshot } from "@/lib/tasks/overview-types";
 import { uploadAttachment } from "@/lib/tasks/upload-attachment";
 import type { TableColumn, TableColumnOption } from "@/lib/table-config/types";
+import { fetchJsonWithEtag, type EtagSnapshot } from "@/lib/http/etag-fetch";
 
 // Countdown/overdue labels only need to refresh every so often, not on every
 // render — 30s keeps the board close to live without a timer per card.
@@ -284,6 +285,8 @@ export function TaskBoardClient({
   // optimistic local move and cause the card to flash back for a second.
   const tasksWriteVersionRef = useRef(0);
   const tasksRefetchInFlightRef = useRef<Promise<void> | null>(null);
+  // Bản danh sách lần tải trước + ETag của nó: poll không đổi gì thì server trả 304.
+  const tasksEtagRef = useRef<EtagSnapshot | null>(null);
   const tasksRefetchQueuedRef = useRef(false);
   const pendingTaskMutationsRef = useRef(new Map<string, number>());
   // Set when a refetch response was withheld because a local write was in
@@ -589,15 +592,13 @@ export function TaskBoardClient({
         tasksRefetchQueuedRef.current = false;
         const writeVersionAtStart = tasksWriteVersionRef.current;
         try {
-          const res = await fetch("/api/tasks", { cache: "no-store" });
+          const res = await fetchJsonWithEtag("/api/tasks", "tasks", tasksEtagRef);
           if (!res.ok) {
-            const data = (await res.json().catch(() => null)) as
-              | { error?: string }
-              | null;
+            const data = res.data as { error?: string } | null;
             if (data?.error) setError(data.error);
             continue;
           }
-          const data = (await res.json()) as {
+          const data = res.data as {
             tasks?: TaskRow[];
             truncated?: boolean;
           };

@@ -6,6 +6,12 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-14 — List Enrollment và Task Board: poll không đổi thì trả 304
+
+- `GET /api/enrollment` và `GET /api/tasks` gắn `ETag` (sha1 của JSON) và `Cache-Control: private, no-store`. Client gửi lại `If-None-Match`; nếu danh sách y hệt lần trước thì server trả 304 không body. Mục đích là cắt Fast Origin Transfer của Vercel: hai route này chiếm ~85% (~120 KB/lượt Enrollment, ~200 KB/lượt Task, ~19.000 lượt/ngày làm việc).
+- Server vẫn đọc DB và kiểm quyền đầy đủ mỗi lần như cũ; chỉ bỏ việc gửi lại body. Không giảm request Supabase hay Observability events.
+- Client (`lib/http/etag-fetch.ts`) giữ text của lần tải trước trong bộ nhớ trang (không cache đĩa), theo key: chương trình Enrollment, hoặc `tasks`. Gặp 304 thì parse lại text đó và đi tiếp đúng nhánh xử lý như một phản hồi 200 (single-flight, defer/retry khi đang có mutation, authoritative snapshot không đổi). ETag yếu `W/` do CDN nén vẫn khớp.
+
 ## 2026-11-14 — Slack Bot access and Enrollment import dry-run
 
 - Thêm quyền `slack_bot.manage`, trang `/slack-bot` và API quản lý danh sách người dùng bot theo Slack email. Quyền Change access, Edit code và Approve yêu cầu gắn account portal active; người quản lý không được gắn account có quyền vượt quá quyền của mình.
