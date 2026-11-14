@@ -50,6 +50,28 @@ export function importHeaderLabel(header: string): string {
   return header.split(DUPLICATE_MARK)[0];
 }
 
+/** Read a sheet by position while retaining the visible Excel row number. */
+export function recordsFromMatrix(
+  matrix: readonly (readonly unknown[])[],
+  firstRow = 1,
+): { headers: string[]; records: Record<string, unknown>[]; rowNumbers: number[] } {
+  const keys = uniqueImportHeaders((matrix[0] ?? []).map((value) => String(value ?? "").trim()));
+  const headers = keys.filter((key) => importHeaderLabel(key) !== "");
+  if (headers.length === 0) throw new Error("The first row must contain column headers.");
+  const records: Record<string, unknown>[] = [];
+  const rowNumbers: number[] = [];
+  matrix.forEach((row, index) => {
+    if (index === 0 || !row.some((cell) => cell != null && String(cell).trim() !== "")) return;
+    const record: Record<string, unknown> = {};
+    keys.forEach((key, column) => {
+      if (key) record[key] = row[column] ?? null;
+    });
+    records.push(record);
+    rowNumbers.push(firstRow + index);
+  });
+  return { headers, records, rowNumbers };
+}
+
 /**
  * Cột không nhận giá trị từ file.
  *
@@ -308,14 +330,15 @@ export function parseEnrollmentImportRows(
   records: readonly Record<string, unknown>[],
   matched: EnrollmentHeaderMatch,
   columns: readonly TableColumn[],
-  context: EnrollmentImportContext
+  context: EnrollmentImportContext,
+  rowNumbers?: readonly number[],
 ): EnrollmentImportParse {
   const columnByKey = new Map(columns.map((column) => [column.key, column]));
   const rows: ParsedEnrollmentRow[] = [];
   const skipped: EnrollmentImportParse["skipped"] = [];
 
   records.forEach((record, index) => {
-    const excelRow = index + 2;
+    const excelRow = rowNumbers?.[index] ?? index + 2;
 
     let id: string | null = null;
     if (matched.idHeader) {

@@ -16,6 +16,16 @@ import {
   PLACED_PERMISSION_KEYS,
 } from "@/lib/rbac/permission-matrix";
 
+describe("slack bot permission", () => {
+  it("has its own group outside the permission matrix", () => {
+    expect(PERMISSIONS.SLACK_BOT_MANAGE).toBe("slack_bot.manage");
+    expect(PERMISSION_DEFINITIONS).toContainEqual(
+      expect.objectContaining({ key: "slack_bot.manage", groupKey: "slack_bot", groupLabel: "Slack Bot" }),
+    );
+    expect(PLACED_PERMISSION_KEYS.has("slack_bot.manage")).toBe(false);
+  });
+});
+
 describe("personal Settings", () => {
   it("does not offer the retired Settings permission for role assignment", () => {
     expect(Object.values(PERMISSIONS)).not.toContain("settings.access");

@@ -17,6 +17,7 @@ const REGISTRATION = /^CUSTOMER_REGISTRATION_/;
 const DASHBOARD = /^(AGENT_DASHBOARD_|COMPANY_DASHBOARD_|COMPANY_VIEW_ALL$)/;
 const ACCOUNT_MANAGER = /^ACCOUNT_MANAGER$/;
 const ROLE_MANAGER = /^ROLE_MANAGER$/;
+const SLACK_BOT = /^SLACK_BOT_MANAGE$/;
 const HEALTH_LICENSING = /^HEALTH_LICENSING_/;
 
 const MODULES: Array<{ prefix: string; allowed: RegExp; module: string }> = [
@@ -47,6 +48,9 @@ const MODULES: Array<{ prefix: string; allowed: RegExp; module: string }> = [
   { prefix: "app/api/admin/roles/", allowed: ROLE_MANAGER, module: "Role Manager" },
   { prefix: "app/api/admin/positions/", allowed: ROLE_MANAGER, module: "Role Manager" },
   { prefix: "app/(authed)/role-manager/", allowed: ROLE_MANAGER, module: "Role Manager" },
+  { prefix: "lib/slack-bot/", allowed: SLACK_BOT, module: "Slack Bot" },
+  { prefix: "app/api/slack-bot/", allowed: SLACK_BOT, module: "Slack Bot" },
+  { prefix: "app/(authed)/slack-bot/", allowed: SLACK_BOT, module: "Slack Bot" },
   { prefix: "lib/health-licensing/", allowed: HEALTH_LICENSING, module: "State Licensing" },
   { prefix: "app/api/health-licensing/", allowed: HEALTH_LICENSING, module: "State Licensing" },
   { prefix: "app/(authed)/health/", allowed: HEALTH_LICENSING, module: "State Licensing" },

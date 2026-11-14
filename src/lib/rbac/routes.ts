@@ -89,6 +89,10 @@ const ACCESSIBLE_ROUTES: PermissionRoute[] = [
     href: "/health/licensing",
     anyPermission: [PERMISSIONS.HEALTH_LICENSING_VIEW, PERMISSIONS.HEALTH_LICENSING_MANAGE],
   },
+  {
+    href: "/slack-bot",
+    permission: PERMISSIONS.SLACK_BOT_MANAGE,
+  },
 ];
 
 export function getFirstAccessiblePath(permissions: readonly string[]) {

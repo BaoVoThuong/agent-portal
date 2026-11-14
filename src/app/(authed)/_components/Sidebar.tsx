@@ -189,7 +189,7 @@ const menuData: MenuItem[] = [
   },
   {
     title: "Account Management",
-    anyPermission: [PERMISSIONS.ACCOUNT_MANAGER, PERMISSIONS.ROLE_MANAGER],
+    anyPermission: [PERMISSIONS.ACCOUNT_MANAGER, PERMISSIONS.ROLE_MANAGER, PERMISSIONS.SLACK_BOT_MANAGE],
     children: [
       {
         href: "/account-manager",
@@ -200,6 +200,11 @@ const menuData: MenuItem[] = [
         href: "/role-manager",
         label: "Role Manager",
         permission: PERMISSIONS.ROLE_MANAGER,
+      },
+      {
+        href: "/slack-bot",
+        label: "Slack Bot",
+        permission: PERMISSIONS.SLACK_BOT_MANAGE,
       },
     ],
   },
@@ -234,6 +239,7 @@ function groupForPath(pathname: string): string | null {
   if (
     pathname.startsWith("/account-manager") ||
     pathname.startsWith("/role-manager") ||
+    pathname.startsWith("/slack-bot") ||
     pathname.startsWith("/management")
   ) {
     return "Account Management";

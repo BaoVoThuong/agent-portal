@@ -11,10 +11,9 @@ import {
   buildEnrollmentTemplateSpec,
   ENROLLMENT_PERSON_COLUMNS,
   enrollmentImportPayload,
-  importHeaderLabel,
   matchEnrollmentHeaders,
   parseEnrollmentImportRows,
-  uniqueImportHeaders,
+  recordsFromMatrix,
   type EnrollmentImportParse,
 } from "@/lib/enrollment/import";
 import { personLabel } from "@/lib/tasks/people";
@@ -66,6 +65,7 @@ export function EnrollmentImportDialog({
   const [file, setFile] = useState<File | null>(null);
   const [headers, setHeaders] = useState<string[]>([]);
   const [records, setRecords] = useState<Record<string, unknown>[]>([]);
+  const [rowNumbers, setRowNumbers] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -81,8 +81,8 @@ export function EnrollmentImportDialog({
     [headers, columns, records]
   );
   const parsed: EnrollmentImportParse = useMemo(
-    () => parseEnrollmentImportRows(records, matched, columns, context),
-    [records, matched, columns, context]
+    () => parseEnrollmentImportRows(records, matched, columns, context, rowNumbers),
+    [records, matched, columns, context, rowNumbers]
   );
 
   const createCount = parsed.rows.filter((row) => row.mode === "create").length;
@@ -116,6 +116,7 @@ export function EnrollmentImportDialog({
     setFile(null);
     setHeaders([]);
     setRecords([]);
+    setRowNumbers([]);
     setError(null);
     setResult(null);
     setFreshness(null);
@@ -150,28 +151,12 @@ export function EnrollmentImportDialog({
       const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
         header: 1,
         defval: null,
+        blankrows: true,
       });
-      // Read by position, not with sheet_to_json's object mode: two columns with
-      // the same title (old ACA exports had two "ID") must keep their own cells.
-      const keys = uniqueImportHeaders(
-        (matrix[0] ?? []).map((value) => String(value ?? "").trim())
+      const { headers: nextHeaders, records: nextRecords, rowNumbers: nextRowNumbers } = recordsFromMatrix(
+        matrix,
+        XLSX.utils.decode_range(sheet["!ref"] ?? "A1").s.r + 1,
       );
-      const nextHeaders = keys.filter((key) => importHeaderLabel(key) !== "");
-      if (nextHeaders.length === 0) {
-        throw new Error("The first row must contain column headers.");
-      }
-      const nextRecords = matrix
-        .slice(1)
-        .filter((row) =>
-          row.some((cell) => cell !== null && cell !== undefined && String(cell).trim() !== "")
-        )
-        .map((row) => {
-          const record: Record<string, unknown> = {};
-          keys.forEach((key, index) => {
-            if (key) record[key] = row[index] ?? null;
-          });
-          return record;
-        });
       if (nextRecords.length > MAX_ROWS) {
         throw new Error(
           `That file has ${nextRecords.length} rows. The limit is ${MAX_ROWS}.`
@@ -180,6 +165,7 @@ export function EnrollmentImportDialog({
       setFile(next);
       setHeaders(nextHeaders);
       setRecords(nextRecords);
+      setRowNumbers(nextRowNumbers);
       setFreshness(templateFreshness(readTemplateMarker(workbook), templateSpec));
     } catch (readError) {
       reset();

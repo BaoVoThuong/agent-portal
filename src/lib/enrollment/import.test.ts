@@ -9,11 +9,26 @@ import {
   importHeaderLabel,
   matchEnrollmentHeaders,
   parseEnrollmentImportRows,
+  recordsFromMatrix,
   toIsoDate,
   uniqueImportHeaders,
   type EnrollmentImportContext,
 } from "@/lib/enrollment/import";
 import type { TableColumn } from "@/lib/table-config/types";
+
+describe("recordsFromMatrix", () => {
+  it("preserves duplicate headers and source row numbers across blank rows", () => {
+    const { headers, records, rowNumbers } = recordsFromMatrix(
+      [["Client Name", "ID", "ID"], ["Ann", "A", null], [null, null, null], ["Bob", null, "B"]],
+      3,
+    );
+    expect(headers.map(importHeaderLabel)).toEqual(["Client Name", "ID", "ID"]);
+    expect(records).toHaveLength(2);
+    expect(records[0][headers[1]]).toBe("A");
+    expect(records[1][headers[2]]).toBe("B");
+    expect(rowNumbers).toEqual([4, 6]);
+  });
+});
 
 function column(key: string, label: string, type: TableColumn["type"] = "text"): TableColumn {
   return {
@@ -285,6 +300,17 @@ describe("parseEnrollmentImportRows", () => {
     ["ID", "Client Name", "Agent", "Stage", "Carrier", "Due Date", "Note"],
     COLUMNS
   );
+
+  it("uses the original Excel row after blank rows", () => {
+    const parsed = parseEnrollmentImportRows(
+      [{ "Client Name": "A" }, { "Client Name": "" }],
+      matched,
+      COLUMNS,
+      CTX,
+      [2, 7],
+    );
+    expect(parsed.skipped.some((item) => item.row === 7)).toBe(true);
+  });
 
   it("có ID là cập nhật, không có là thêm mới", () => {
     const parsed = parseEnrollmentImportRows(

@@ -15,6 +15,7 @@ export const PERMISSIONS = {
   COMPANY_VIEW_ALL: "company.view_all",
   ACCOUNT_MANAGER: "management.account_manager",
   ROLE_MANAGER: "management.role_manager",
+  SLACK_BOT_MANAGE: "slack_bot.manage",
   TIME_OFF_USER: "timeoff.user",
   TIME_OFF_ADMIN: "timeoff.admin",
   TASK_MANAGE: "task.manage",
@@ -249,6 +250,14 @@ export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
     groupLabel: "Management",
     description: "Create roles and manage role permissions.",
     sortOrder: 200,
+  },
+  {
+    key: PERMISSIONS.SLACK_BOT_MANAGE,
+    label: "Slack Bot - Manage",
+    groupKey: "slack_bot",
+    groupLabel: "Slack Bot",
+    description: "Choose who can use the Slack bot in #agent_portal and what each person can ask it to do.",
+    sortOrder: 100,
   },
   {
     key: PERMISSIONS.TIME_OFF_USER,

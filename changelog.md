@@ -6,6 +6,14 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-14 — Slack Bot access and Enrollment import dry-run
+
+- Thêm quyền `slack_bot.manage`, trang `/slack-bot` và API quản lý danh sách người dùng bot theo Slack email. Quyền Change access, Edit code và Approve yêu cầu gắn account portal active; người quản lý không được gắn account có quyền vượt quá quyền của mình.
+- Bảng `slack_bot_users` dùng `on delete cascade`: xoá account thì xoá luôn quyền bot đã gắn. Khoá account thì bot từ chối cho đến khi mở lại.
+- Tách vòng kiểm import Enrollment để route import thật và route dry-run dùng chung logic. Dry-run xác thực bằng `BOT_PORTAL_SECRET`, kiểm theo `actor_email`, không ghi hồ sơ hay broadcast. Lỗi chỉ phát sinh khi ghi DB thật không thể được dự báo bởi dry-run.
+- Đọc ma trận Excel bằng hàm chung và giữ số dòng gốc qua các dòng trống hoặc sheet bắt đầu dưới dòng 1; lỗi import nay chỉ đúng dòng trong file.
+- Rollout `2026-11-14-slack-bot-users.sql` và env `BOT_PORTAL_SECRET` cần được áp dụng trước khi dùng chức năng mới. Rollout production chưa chạy trong worktree này.
+
 ## 2026-11-14 — Health State Licensing Map
 
 - Trang mới `/health/licensing` (menu **Task Management → State Licensing Map**, sau Provider List; nhóm hiện cả với người chỉ có quyền licensing) thay ảnh poster licensing: bản đồ Mỹ tô bang theo appointment, bảng hãng theo bang × sản phẩm, chi tiết từng bang kèm Activity, History toàn trang.
