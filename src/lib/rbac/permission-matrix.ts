@@ -56,6 +56,13 @@ export const LEVEL_ROWS: LevelRow[] = [
     lowLabel: "User",
     highLabel: "Admin",
   },
+  {
+    name: "State Licensing",
+    low: PERMISSIONS.HEALTH_LICENSING_VIEW,
+    high: PERMISSIONS.HEALTH_LICENSING_MANAGE,
+    lowLabel: "View",
+    highLabel: "Manage",
+  },
 ];
 
 /** Single-tick tools, listed under Modules → Statement Tool (2026-11-01). */

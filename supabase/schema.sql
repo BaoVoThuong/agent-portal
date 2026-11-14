@@ -760,7 +760,9 @@ values
   ('task.export', 'Tasks - Export', 'Export the Health CS task and Enrollment tables to Excel.', 'tasks', 'Tasks', 300),
   ('task.import', 'Tasks - Import', 'Import Enrollment tables from Excel. Separate from Export because it overwrites rows in bulk.', 'tasks', 'Tasks', 350),
   ('lead.manage', 'Manage Leads', 'Import, assign and manage every lead, Lead settings and the Lead table configuration. Includes Work Leads.', 'leads', 'Lead Management', 100),
-  ('lead.work', 'Work Leads', 'See and log interactions on leads assigned to you.', 'leads', 'Lead Management', 200)
+  ('lead.work', 'Work Leads', 'See and log interactions on leads assigned to you.', 'leads', 'Lead Management', 200),
+  ('health_licensing.manage', 'State Licensing - Manage', 'Everything in State Licensing - View, plus: add, edit and remove appointments and their agents, and change the product columns.', 'health_licensing', 'State Licensing', 100),
+  ('health_licensing.view', 'State Licensing - View', 'Open the Health State Licensing Map and see every appointment and its history.', 'health_licensing', 'State Licensing', 200)
 on conflict (key) do update set
   label = excluded.label,
   description = excluded.description,
@@ -819,7 +821,9 @@ where key not in (
   'task.export',
   'task.import',
   'lead.manage',
-  'lead.work'
+  'lead.work',
+  'health_licensing.manage',
+  'health_licensing.view'
 );
 
 do $$
@@ -4579,7 +4583,7 @@ create index if not exists enrollment_options_set_position_idx
 
 create table if not exists table_column (
   id uuid primary key default gen_random_uuid(),
-  scope text not null check (scope in ('cs','aca','medicare','medicaid','other_service','lead_pc','lead_health','lead','provider')),
+  scope text not null check (scope in ('cs','aca','medicare','medicaid','other_service','lead_pc','lead_health','lead','provider','licensing')),
   key text not null,
   label text not null,
   type text not null
@@ -4622,7 +4626,7 @@ language sql
 immutable
 set search_path = public
 as $$
-  select p_scope in ('cs', 'aca', 'medicare', 'medicaid', 'other_service', 'lead', 'provider');
+  select p_scope in ('cs', 'aca', 'medicare', 'medicaid', 'other_service', 'lead', 'provider', 'licensing');
 $$;
 
 create or replace function reorder_table_columns_atomic(
@@ -5002,7 +5006,7 @@ alter table table_column
 create table if not exists user_table_layout (
   id uuid primary key default gen_random_uuid(),
   user_email text not null,
-  scope text not null check (scope in ('cs','aca','medicare','medicaid','other_service','lead_pc','lead_health','lead','provider')),
+  scope text not null check (scope in ('cs','aca','medicare','medicaid','other_service','lead_pc','lead_health','lead','provider','licensing')),
   layout jsonb not null default '[]'::jsonb,
   updated_at timestamptz not null default now(),
   unique (user_email, scope)
@@ -5220,7 +5224,11 @@ begin
     raise exception 'CONFIG_OPTION_NOT_FOUND';
   end if;
 
-  if column_row.scope = 'provider' then
+  if column_row.scope = 'licensing' then
+    select count(*)::bigint into usage_count
+    from licensing_appointments a
+    where a.option_id = p_option_id and a.deleted_at is null;
+  elsif column_row.scope = 'provider' then
     select count(*)::bigint into usage_count
     from provider_address provider_row
     where provider_row.archived_at is null
@@ -8339,6 +8347,225 @@ revoke all on function adjust_time_off_balance(uuid, text, integer, numeric, dat
   from public, anon, authenticated;
 grant execute on function adjust_time_off_balance(uuid, text, integer, numeric, date, text, uuid)
   to service_role;
+
+-- Health State Licensing Map (rollouts 2026-11-14-health-licensing*.sql).
+-- Sản phẩm = table_column scope 'licensing' (multiselect); hãng = option của cột đó.
+create table if not exists licensing_appointments (
+  id uuid primary key default gen_random_uuid(),
+  state_code text not null check (state_code ~ '^[A-Z]{2}$'),
+  option_id uuid not null references table_column_option(id),
+  status text not null default 'active' check (status in ('active', 'pending', 'terminated')),
+  appointed_on date,
+  note text check (note is null or length(note) <= 1000),
+  sort_order int not null default 0,
+  created_at timestamptz not null default now(),
+  created_by uuid references portal_account(id),
+  updated_at timestamptz not null default now(),
+  updated_by uuid references portal_account(id),
+  deleted_at timestamptz
+);
+create unique index if not exists licensing_appointments_state_option_key
+  on licensing_appointments (state_code, option_id) where deleted_at is null;
+create index if not exists licensing_appointments_state_idx
+  on licensing_appointments (state_code) where deleted_at is null;
+create index if not exists licensing_appointments_option_idx on licensing_appointments (option_id);
+
+create table if not exists licensing_appointment_agents (
+  id uuid primary key default gen_random_uuid(),
+  appointment_id uuid not null references licensing_appointments(id) on delete cascade,
+  account_id uuid not null references portal_account(id) on delete restrict,
+  appointed_on date,
+  unique (appointment_id, account_id)
+);
+create index if not exists licensing_appointment_agents_account_idx
+  on licensing_appointment_agents (account_id);
+
+create table if not exists licensing_events (
+  id bigint generated always as identity primary key,
+  appointment_id uuid references licensing_appointments(id) on delete set null,
+  product_key text,
+  state_code text,
+  action text not null check (action in (
+    'appointment.import', 'appointment.create', 'appointment.update', 'appointment.delete',
+    'products.update')),
+  before jsonb,
+  after jsonb,
+  actor_id uuid references portal_account(id),
+  created_at timestamptz not null default now()
+);
+create index if not exists licensing_events_state_idx on licensing_events (state_code, id desc);
+
+alter table licensing_appointments enable row level security;
+alter table licensing_appointment_agents enable row level security;
+alter table licensing_events enable row level security;
+
+-- 5. Option hợp lệ cho licensing: còn hoạt động, thuộc cột multiselect còn hoạt động.
+create or replace function public.licensing_option_column(p_option_id uuid)
+returns table_column
+language sql stable security definer set search_path = public as $$
+  select c.*
+  from table_column_option o
+  join table_column c on c.id = o.column_id
+  where o.id = p_option_id
+    and o.archived_at is null
+    and c.archived_at is null
+    and c.scope = 'licensing'
+    and c.type = 'multiselect'
+$$;
+
+-- Ảnh chụp cho lịch sử: giữ khoá carrier / product_key như bản cũ để mọi dòng
+-- lịch sử (cũ lẫn mới) đọc cùng một cách.
+create or replace function public.licensing_appointment_snapshot(p_id uuid)
+returns jsonb
+language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'carrier', o.label, 'option_id', a.option_id, 'state_code', a.state_code, 'product_key', c.key,
+    'status', a.status, 'appointed_on', a.appointed_on, 'note', a.note,
+    'agents', coalesce((
+      select jsonb_agg(jsonb_build_object('account_id', x.account_id, 'appointed_on', x.appointed_on)
+                       order by x.account_id)
+      from licensing_appointment_agents x where x.appointment_id = a.id), '[]'::jsonb))
+  from licensing_appointments a
+  join table_column_option o on o.id = a.option_id
+  join table_column c on c.id = o.column_id
+  where a.id = p_id
+$$;
+
+-- Thêm / sửa chi tiết một appointment. p_id null = thêm (cần p_state_code + p_option_id).
+-- Sửa thì bang và hãng giữ nguyên: đổi hãng = bỏ chọn ở ô sản phẩm rồi chọn hãng khác.
+create or replace function public.licensing_save_appointment(
+  p_id uuid, p_state_code text, p_option_id uuid, p_status text,
+  p_appointed_on date, p_note text, p_agents jsonb, p_actor uuid
+) returns uuid
+language plpgsql security definer set search_path = public as $$
+declare
+  v_id uuid;
+  v_before jsonb;
+  v_column table_column;
+begin
+  if p_id is not null then
+    perform 1 from licensing_appointments where id = p_id and deleted_at is null for update;
+    if not found then raise exception 'LICENSING_NOT_FOUND'; end if;
+    v_before := public.licensing_appointment_snapshot(p_id);
+    update licensing_appointments set
+      status = p_status, appointed_on = p_appointed_on, note = nullif(btrim(coalesce(p_note, '')), ''),
+      updated_at = now(), updated_by = p_actor
+    where id = p_id
+    returning id into v_id;
+  else
+    select * into v_column from public.licensing_option_column(p_option_id);
+    if v_column.id is null then raise exception 'LICENSING_OPTION_NOT_FOUND'; end if;
+    insert into licensing_appointments (state_code, option_id, status, appointed_on, note, created_by, updated_by)
+    values (p_state_code, p_option_id, p_status, p_appointed_on, nullif(btrim(coalesce(p_note, '')), ''),
+            p_actor, p_actor)
+    returning id into v_id;
+  end if;
+
+  delete from licensing_appointment_agents where appointment_id = v_id;
+  insert into licensing_appointment_agents (appointment_id, account_id, appointed_on)
+  select v_id, (e->>'account_id')::uuid, nullif(e->>'appointed_on', '')::date
+  from jsonb_array_elements(coalesce(p_agents, '[]'::jsonb)) e;
+
+  insert into licensing_events (appointment_id, product_key, state_code, action, before, after, actor_id)
+  select v_id, s->>'product_key', s->>'state_code',
+         case when p_id is null then 'appointment.create' else 'appointment.update' end,
+         v_before, s, p_actor
+  from (select public.licensing_appointment_snapshot(v_id) as s) t;
+  return v_id;
+exception when unique_violation then
+  raise exception 'LICENSING_DUPLICATE_CARRIER';
+end $$;
+
+-- Lưu các ô chọn nhiều của một bang: p_selection = {"<column_id>": ["<option_id>", …], …}.
+-- Chỉ đụng các cột có trong p_selection. Hãng mới → appointment Active; hãng bỏ
+-- chọn → xoá mềm (giữ lịch sử). Trả về số dòng thêm / bỏ.
+create or replace function public.licensing_save_state(p_state_code text, p_selection jsonb, p_actor uuid)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_column_id uuid;
+  v_ids uuid[];
+  v_row record;
+  v_new uuid;
+  v_added int := 0;
+  v_removed int := 0;
+begin
+  for v_column_id, v_ids in
+    select key::uuid, coalesce(array(select jsonb_array_elements_text(value)::uuid), '{}')
+    from jsonb_each(coalesce(p_selection, '{}'::jsonb))
+  loop
+    if not exists (select 1 from table_column where id = v_column_id and scope = 'licensing'
+                   and type = 'multiselect' and archived_at is null) then
+      raise exception 'LICENSING_PRODUCT_NOT_FOUND';
+    end if;
+    -- Kiểm trước khi đổi gì: mọi option phải còn hoạt động và thuộc đúng cột này.
+    if exists (select 1 from unnest(v_ids) as want(option_id)
+               where not exists (select 1 from table_column_option o
+                                 where o.id = want.option_id and o.column_id = v_column_id
+                                   and o.archived_at is null)) then
+      raise exception 'LICENSING_OPTION_NOT_FOUND';
+    end if;
+
+    -- bỏ chọn
+    for v_row in
+      select a.id from licensing_appointments a
+      join table_column_option o on o.id = a.option_id
+      where a.state_code = p_state_code and a.deleted_at is null
+        and o.column_id = v_column_id and not (a.option_id = any(v_ids))
+      for update of a
+    loop
+      insert into licensing_events (appointment_id, product_key, state_code, action, before, actor_id)
+      select v_row.id, s->>'product_key', p_state_code, 'appointment.delete', s, p_actor
+      from (select public.licensing_appointment_snapshot(v_row.id) as s) t;
+      update licensing_appointments set deleted_at = now(), updated_at = now(), updated_by = p_actor
+      where id = v_row.id;
+      v_removed := v_removed + 1;
+    end loop;
+
+    -- chọn thêm
+    for v_row in
+      select o.id as option_id from table_column_option o
+      where o.column_id = v_column_id and o.archived_at is null and o.id = any(v_ids)
+        and not exists (select 1 from licensing_appointments a
+                        where a.state_code = p_state_code and a.option_id = o.id and a.deleted_at is null)
+    loop
+      insert into licensing_appointments (state_code, option_id, status, created_by, updated_by)
+      values (p_state_code, v_row.option_id, 'active', p_actor, p_actor)
+      returning id into v_new;
+      insert into licensing_events (appointment_id, product_key, state_code, action, after, actor_id)
+      select v_new, s->>'product_key', p_state_code, 'appointment.create', s, p_actor
+      from (select public.licensing_appointment_snapshot(v_new) as s) t;
+      v_added := v_added + 1;
+    end loop;
+
+  end loop;
+  return jsonb_build_object('added', v_added, 'removed', v_removed);
+end $$;
+
+-- Xoá mềm một appointment (từ dialog chi tiết). Snapshot đã có carrier / product_key.
+create or replace function public.licensing_delete_appointment(p_id uuid, p_actor uuid)
+returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  v_snap jsonb;
+begin
+  perform 1 from licensing_appointments where id = p_id and deleted_at is null for update;
+  if not found then raise exception 'LICENSING_NOT_FOUND'; end if;
+  v_snap := public.licensing_appointment_snapshot(p_id);
+  insert into licensing_events (appointment_id, product_key, state_code, action, before, actor_id)
+  values (p_id, v_snap->>'product_key', v_snap->>'state_code', 'appointment.delete', v_snap, p_actor);
+  update licensing_appointments set deleted_at = now(), updated_at = now(), updated_by = p_actor where id = p_id;
+end $$;
+
+revoke all on function public.licensing_option_column(uuid) from public, anon, authenticated;
+revoke all on function public.licensing_appointment_snapshot(uuid) from public, anon, authenticated;
+revoke all on function public.licensing_save_appointment(uuid, text, uuid, text, date, text, jsonb, uuid)
+  from public, anon, authenticated;
+revoke all on function public.licensing_save_state(text, jsonb, uuid) from public, anon, authenticated;
+revoke all on function public.licensing_delete_appointment(uuid, uuid) from public, anon, authenticated;
+grant execute on function public.licensing_save_appointment(uuid, text, uuid, text, date, text, jsonb, uuid) to service_role;
+grant execute on function public.licensing_save_state(text, jsonb, uuid) to service_role;
+grant execute on function public.licensing_delete_appointment(uuid, uuid) to service_role;
 
 -- SECURITY DEFINER ACL — must remain the LAST executable block in this file.
 -- ---------------------------------------------------------------------------

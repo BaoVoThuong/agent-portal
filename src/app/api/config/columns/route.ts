@@ -70,6 +70,13 @@ export async function POST(request: Request) {
   if (!admin.ok) {
     return NextResponse.json({ error: admin.error }, { status: admin.status });
   }
+  // State Licensing: mỗi cột là một sản phẩm, giá trị là các hãng.
+  if (scope === "licensing" && type && type !== "multiselect") {
+    return NextResponse.json(
+      { error: "State Licensing columns are products. Choose Multi dropdown and add carriers as its values." },
+      { status: 400 },
+    );
+  }
   const supabase = getSupabaseAdmin();
   if (body?.restore === true) {
     const archivedId = typeof body?.archived_column_id === "string" ? body.archived_column_id : "";

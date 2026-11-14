@@ -93,6 +93,7 @@ export const REQUIRED_CAPABLE_SYSTEM_KEYS: Record<TableScope, ReadonlySet<string
     "state", "zip_code", "accepting_new_patients", "business_hours",
     "obamacare", "medicare", "other_plans", "verified_by", "date",
   ]),
+  licensing: new Set(),
   // "assignee" (cs) is deliberately absent from that set: an unassigned task
   // is a valid, intentional state in this system (unassigning is what sends
   // a task back to Backlog — see StatusPill's comment in TaskRowItem.tsx),
@@ -111,6 +112,7 @@ const OPTIONAL_SYSTEM_DETAIL_KEYS: Record<TableScope, ReadonlySet<string>> = {
   medicaid: new Set(),
   other_service: new Set(),
   provider: new Set(),
+  licensing: new Set(),
   lead: new Set(["createdAt"]),
 };
 

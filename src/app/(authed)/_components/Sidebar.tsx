@@ -105,6 +105,10 @@ const menuData: MenuItem[] = [
       PERMISSIONS.LEAD_WORK,
       PERMISSIONS.AUTOMATION_PROVIDER_FINDER,
       PERMISSIONS.AUTOMATION_PROVIDER_MANAGE,
+      // State Licensing Map (2026-11-14) cũng nằm ở đây: người chỉ có quyền
+      // licensing phải thấy nhóm này.
+      PERMISSIONS.HEALTH_LICENSING_VIEW,
+      PERMISSIONS.HEALTH_LICENSING_MANAGE,
     ],
     children: [
       {
@@ -157,6 +161,11 @@ const menuData: MenuItem[] = [
         anyPermission: [PERMISSIONS.AUTOMATION_PROVIDER_FINDER, PERMISSIONS.AUTOMATION_PROVIDER_MANAGE],
       },
       {
+        href: "/health/licensing",
+        label: "State Licensing Map",
+        anyPermission: [PERMISSIONS.HEALTH_LICENSING_VIEW, PERMISSIONS.HEALTH_LICENSING_MANAGE],
+      },
+      {
         // MỘT mục cho mọi bảng. Mỗi người chỉ thấy bảng mình quản — người chỉ
         // có quyền Provider List - Manage chỉ thấy Provider List; xem
         // configScopesFor ở lib/table-config. Quyền Provider Finder một mình
@@ -167,6 +176,8 @@ const menuData: MenuItem[] = [
           PERMISSIONS.TASK_MANAGE,
           PERMISSIONS.LEAD_MANAGE,
           PERMISSIONS.AUTOMATION_PROVIDER_MANAGE,
+          // Sản phẩm + hãng của State Licensing Map (2026-11-14).
+          PERMISSIONS.HEALTH_LICENSING_MANAGE,
         ],
       },
     ],
@@ -213,6 +224,7 @@ function groupForPath(pathname: string): string | null {
     return "Dashboard";
   }
   if (
+    pathname.startsWith("/health") ||
     pathname.startsWith("/tasks") ||
     pathname.startsWith("/enrollment") ||
     pathname.startsWith("/config")

@@ -81,6 +81,12 @@ export async function PATCH(request: Request, { params }: Ctx) {
     if (!isColumnType(body.type)) {
       return NextResponse.json({ error: "Invalid column type." }, { status: 400 });
     }
+    if (column.scope === "licensing" && body.type !== "multiselect") {
+      return NextResponse.json(
+        { error: "State Licensing columns stay Multi dropdown: their values are the carriers." },
+        { status: 400 },
+      );
+    }
     patch.type = body.type;
   }
   if ("required" in body) {

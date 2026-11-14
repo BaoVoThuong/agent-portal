@@ -112,7 +112,11 @@ const LEAD_TABS: readonly Tab[] = ["table", "value", "alert"];
  * Tab theo SCOPE đang chọn, không theo trang. Một màn hình nay phục vụ cả bốn
  * bảng, và tab chỉ có nghĩa với bảng đang mở.
  */
+/** State Licensing chỉ có cột (sản phẩm) và giá trị (hãng): không SLA, không category. */
+const LICENSING_TABS: readonly Tab[] = ["table", "value"];
+
 function tabsForScope(scope: TableScope): readonly Tab[] {
+  if (scope === "licensing") return LICENSING_TABS;
   return scope === "lead" ? LEAD_TABS : ALL_TABS;
 }
 
@@ -124,6 +128,7 @@ const SCOPE_LABEL: Record<TableScope, string> = {
   other_service: "Health Other Service Enrollment",
   lead: "Lead Management",
   provider: "Provider List",
+  licensing: "State Licensing Map",
 };
 
 // Each page passes the scopes it owns. Sharing one screen across every scope
@@ -149,6 +154,8 @@ const COLUMN_TYPE_OPTIONS: SelectOption<ColumnType>[] = COLUMN_TYPES.map((type) 
   value: type,
   label: COLUMN_TYPE_LABEL[type],
 }));
+/** Cột của State Licensing là sản phẩm: chỉ có một kiểu, Multi dropdown (hãng). */
+const LICENSING_COLUMN_TYPE_OPTIONS = COLUMN_TYPE_OPTIONS.filter((option) => option.value === "multiselect");
 
 type EnrollmentOptionData = {
   sets: EnrollmentOptionSet[];
@@ -202,8 +209,11 @@ export function ConfigClient({
   initialLeadVocabulary = EMPTY_LEAD_VOCABULARY,
   initialLeadAlertSettings = [],
   sectionStatus,
+  initialScope,
 }: {
   title: string;
+  /** Bảng mở sẵn (vd `/config?scope=licensing`); phải nằm trong `scopes`. */
+  initialScope?: TableScope;
   /** The scopes this page owns; the Table dropdown lists exactly these. */
   scopes?: readonly TableScope[];
   /**
@@ -226,7 +236,9 @@ export function ConfigClient({
 }) {
   const [tab, setTab] = useState<Tab>("table");
   const [leadAlertSettings, setLeadAlertSettings] = useState(initialLeadAlertSettings);
-  const [scope, setScope] = useState<TableScope>(scopes[0] ?? "cs");
+  const [scope, setScope] = useState<TableScope>(
+    initialScope && scopes.includes(initialScope) ? initialScope : (scopes[0] ?? "cs"),
+  );
   const tabs = tabsForScope(scope);
   const columnsReady = columnsReadyByScope[scope];
   // Đổi sang một bảng không có tab đang mở thì kéo về tab đầu tiên. Không có
@@ -581,7 +593,7 @@ function ConfigTableSection({
   refreshScope: (scope?: TableScope) => Promise<void>;
 }) {
   const [newLabel, setNewLabel] = useState("");
-  const [newType, setNewType] = useState<ColumnType>("text");
+  const [newType, setNewType] = useState<ColumnType>(scope === "licensing" ? "multiselect" : "text");
   const [dragReady, setDragReady] = useState(false);
   const [confirmArchiveColumnId, setConfirmArchiveColumnId] = useState<string | null>(null);
   // Cột cũ trùng tên vừa chặn một lần thêm cột. Giữ cả số liệu server đếm được
@@ -803,7 +815,7 @@ function ConfigTableSection({
         <DropdownSelect
           label="Column type"
           value={newType}
-          options={COLUMN_TYPE_OPTIONS}
+          options={scope === "licensing" ? LICENSING_COLUMN_TYPE_OPTIONS : COLUMN_TYPE_OPTIONS}
           onChange={setNewType}
           className="w-[200px]"
         />

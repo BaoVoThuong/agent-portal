@@ -7,11 +7,13 @@ import { fetchLeadVocabulary } from "@/lib/leads/queries";
 import { loadConfigAdmin } from "@/lib/table-config/access";
 import { configScopesFor } from "@/lib/table-config/scope-access";
 import { canManageProviders } from "@/lib/providers/access";
+import { canManageLicensing } from "@/lib/health-licensing/access";
 import {
   fetchAllTableColumnOptions,
   fetchAllTableColumns,
 } from "@/lib/table-config/queries";
 import {
+  parseTableScope,
   TABLE_SCOPES,
   type TableColumnOption,
   type TableScope,
@@ -58,7 +60,13 @@ async function loadOptional<T>(label: string, loader: () => Promise<T>): Promise
 }
 
 
-export default async function ConfigPage() {
+export default async function ConfigPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = searchParams ? await searchParams : {};
+  const requestedScope = parseTableScope(Array.isArray(params.scope) ? params.scope[0] : params.scope);
   // HAI cổng song song, mỗi cổng giữ đúng luật của nó. Gộp làm một là hoặc nới
   // quyền Health cho người không có `task.manage` (`loadConfigAdmin`), hoặc
   // chặn mất hai tài khoản trên production chỉ có quyền lead.
@@ -75,10 +83,13 @@ export default async function ConfigPage() {
   // lib/table-config/access.ts.
   const isProviderManager = canManageProviders(session?.user?.permissions);
 
+  const isLicensingManager = session?.user ? canManageLicensing(session.user) : false;
+
   const scopes = configScopesFor({
     isTaskAdmin: admin.ok,
     isLeadManager,
     isProviderManager,
+    isLicensingManager,
   });
   if (scopes.length === 0) {
     // 401 khi chưa đăng nhập, 403 khi đăng nhập rồi mà không quản bảng nào.
@@ -92,7 +103,7 @@ export default async function ConfigPage() {
   // Người chỉ có quyền Automation cũng không được kéo theo danh bạ công ty và
   // dữ liệu Health mà họ không có quyền đọc — cùng lý do với scope lead.
   const needsTaskData = scopes.some(
-    (scope) => scope !== "lead" && scope !== "provider"
+    (scope) => scope !== "lead" && scope !== "provider" && scope !== "licensing"
   );
   const needsLeadData = scopes.includes("lead");
 
@@ -192,6 +203,7 @@ export default async function ConfigPage() {
     <ConfigClient
       title="Table Configuration"
       scopes={scopes}
+      initialScope={requestedScope ?? undefined}
       columnsReadyByScope={columnsReadyByScope}
       initialColumns={columns}
       initialOptions={options}
@@ -232,6 +244,7 @@ export default async function ConfigPage() {
           // Provider List không có bộ tuỳ chọn riêng như enrollment; ô này chỉ
           // để bản đồ đủ khoá cho mọi scope.
           provider: { available: true },
+          licensing: { available: true },
           ...(Object.fromEntries(
             ENROLLMENT_PROGRAMS.map((program, index) => {
               const result = enrollmentOptionResults[index];

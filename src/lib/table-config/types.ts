@@ -8,6 +8,9 @@ export const TABLE_SCOPES = [
   // Provider List: bảng tra cứu bác sĩ/cơ sở trong Automation Tool. Dùng chung
   // quyền `automation.provider_finder` với Provider Finder.
   "provider",
+  // Health State Licensing Map (2026-11-14): mỗi cột multiselect là một sản
+  // phẩm, lựa chọn của nó là các hãng (có màu). Quyền health_licensing.*.
+  "licensing",
 ] as const;
 export type TableScope = (typeof TABLE_SCOPES)[number];
 

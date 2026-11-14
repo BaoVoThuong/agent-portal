@@ -25,6 +25,8 @@ export const PERMISSIONS = {
   LEAD_WORK: "lead.work",
   LEAD_EXPORT: "lead.export",
   LEAD_IMPORT: "lead.import",
+  HEALTH_LICENSING_VIEW: "health_licensing.view",
+  HEALTH_LICENSING_MANAGE: "health_licensing.manage",
 } as const;
 
 export type PermissionKey = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -61,6 +63,8 @@ export const IMPLIED_PERMISSIONS: Readonly<Record<string, readonly string[]>> = 
   // Time Off (2026-10-31): Admin bao gồm User — canUseTimeOff đã nhận Admin; Role
   // Manager dạng ma trận cần cặp này để hiện User là "included" dưới Admin.
   [PERMISSIONS.TIME_OFF_ADMIN]: [PERMISSIONS.TIME_OFF_USER],
+  // State Licensing (2026-11-14): Manage sửa được thì phải xem được.
+  [PERMISSIONS.HEALTH_LICENSING_MANAGE]: [PERMISSIONS.HEALTH_LICENSING_VIEW],
 };
 
 /** Bỏ các quyền đã được một quyền khác bao gồm. Dùng khi LƯU quyền của role. */
@@ -90,6 +94,25 @@ export function permissionImpliedBy(key: string): string | null {
 }
 
 export const PERMISSION_DEFINITIONS: PermissionDefinition[] = [
+  // Health State Licensing Map (2026-11-14). Chữ phải khớp rollout
+  // 2026-11-14-health-licensing.sql.
+  {
+    key: PERMISSIONS.HEALTH_LICENSING_MANAGE,
+    label: "State Licensing - Manage",
+    groupKey: "health_licensing",
+    groupLabel: "State Licensing",
+    description:
+      "Everything in State Licensing - View, plus: add, edit and remove appointments and their agents, and change the product columns.",
+    sortOrder: 100,
+  },
+  {
+    key: PERMISSIONS.HEALTH_LICENSING_VIEW,
+    label: "State Licensing - View",
+    groupKey: "health_licensing",
+    groupLabel: "State Licensing",
+    description: "Open the Health State Licensing Map and see every appointment and its history.",
+    sortOrder: 200,
+  },
   {
     key: PERMISSIONS.CUSTOMER_REGISTRATION_HEALTH,
     label: "Health Registration",

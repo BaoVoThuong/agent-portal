@@ -163,6 +163,8 @@ const DEFAULT_TABLE_COLUMNS: Record<TableScope, TableColumn[]> = {
     col("lead", "event", "Event", "text", 100, false, false, true),
     col("lead", "createdAt", "Created date", "date", 110, true),
   ],
+  // State Licensing không có cột hệ thống: mọi cột (sản phẩm) do admin tạo.
+  licensing: [],
 };
 
 export function defaultTableColumns(scope: TableScope): TableColumn[] {

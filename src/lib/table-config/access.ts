@@ -9,6 +9,7 @@ import {
   canManageLeads,
   canWorkLeads,
 } from "@/lib/leads/access";
+import { canManageLicensing, canViewLicensing } from "@/lib/health-licensing/access";
 import { canManageProviders, canViewProviders } from "@/lib/providers/access";
 import type { TableScope } from "./types";
 
@@ -81,9 +82,23 @@ async function loadProviderConfigGate(mode: "read" | "write"): Promise<ScopeGate
   return { ok: true, actor: { email } };
 }
 
+/**
+ * State Licensing Map (2026-11-14): đọc cột cần View, sửa cột / hãng cần Manage —
+ * cùng hai tầng với trang /health/licensing.
+ */
+async function loadLicensingConfigGate(mode: "read" | "write"): Promise<ScopeGateResult> {
+  const session = await auth();
+  const email = session?.user?.email;
+  if (!email) return { ok: false, error: "Unauthorized", status: 401 };
+  const allowed = mode === "write" ? canManageLicensing(session.user) : canViewLicensing(session.user);
+  if (!allowed) return { ok: false, error: "Forbidden", status: 403 };
+  return { ok: true, actor: { email } };
+}
+
 export async function loadConfigAdminForScope(scope: TableScope): Promise<ScopeGateResult> {
   if (scope === "lead") return loadLeadConfigGate("manage");
   if (scope === "provider") return loadProviderConfigGate("write");
+  if (scope === "licensing") return loadLicensingConfigGate("write");
   return loadConfigAdmin();
 }
 
@@ -98,5 +113,6 @@ export async function loadConfigAdminForScope(scope: TableScope): Promise<ScopeG
 export async function loadConfigActorForScope(scope: TableScope): Promise<ScopeGateResult> {
   if (scope === "lead") return loadLeadConfigGate("work");
   if (scope === "provider") return loadProviderConfigGate("read");
+  if (scope === "licensing") return loadLicensingConfigGate("read");
   return loadConfigActor();
 }

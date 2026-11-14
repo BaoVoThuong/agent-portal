@@ -5,6 +5,8 @@ const TASK_SCOPES: readonly TableScope[] = ["cs", "aca", "medicare", "medicaid",
 const LEAD_SCOPES: readonly TableScope[] = ["lead"];
 /** Bảng Provider List do quyền Automation Tool quản. */
 const PROVIDER_SCOPES: readonly TableScope[] = ["provider"];
+/** Bảng State Licensing Map do quyền State Licensing - Manage quản. */
+const LICENSING_SCOPES: readonly TableScope[] = ["licensing"];
 
 /**
  * Người này được sửa cấu hình bảng của những scope nào.
@@ -26,6 +28,7 @@ export function configScopesFor(input: {
   isTaskAdmin: boolean;
   isLeadManager: boolean;
   isProviderManager: boolean;
+  isLicensingManager?: boolean;
 }): TableScope[] {
   const scopes: TableScope[] = [];
   if (input.isTaskAdmin) scopes.push(...TASK_SCOPES);
@@ -33,5 +36,7 @@ export function configScopesFor(input: {
   // Provider List đứng CUỐI: thêm vào giữa sẽ đẩy vị trí của Lead Management trong
   // dropdown, mà người dùng bấm theo trí nhớ vị trí.
   if (input.isProviderManager) scopes.push(...PROVIDER_SCOPES);
+  // Thêm cuối, cùng lý do với Provider List.
+  if (input.isLicensingManager) scopes.push(...LICENSING_SCOPES);
   return scopes;
 }

@@ -6,6 +6,18 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-14 — Health State Licensing Map
+
+- Trang mới `/health/licensing` (menu **Task Management → State Licensing Map**, sau Provider List; nhóm hiện cả với người chỉ có quyền licensing) thay ảnh poster licensing: bản đồ Mỹ tô bang theo appointment, bảng hãng theo bang × sản phẩm, chi tiết từng bang kèm Activity, History toàn trang.
+- Một appointment = 1 hãng × 1 sản phẩm × 1 bang, có trạng thái Active/Pending/Terminated, ngày appoint, ghi chú và danh sách agent (account active có Position loại Agent; agent cũ vẫn giữ được khi sửa). Bang tô xanh khi có ít nhất một hãng Active, sọc khi chỉ có Pending; Terminated không tô và ẩn khỏi bảng trừ khi lọc "All". Một hãng chỉ xuất hiện một lần trong mỗi ô (bang + sản phẩm).
+- Lọc như các bảng khác: ô tìm (tên hãng, mã hoặc tên bang) + State / Product / Carrier / Status / Agent (chọn nhiều). Status mặc định Active + Pending; "Clear all" đưa về mặc định. Lọc hãng / agent / bang / tìm làm mờ bang không khớp trên bản đồ và chỉ giữ dòng bang có khớp trong bảng; Product ẩn cột không chọn.
+- Sản phẩm và hãng quản ở **Table Configuration → State Licensing Map** (scope mới `licensing`): mỗi sản phẩm là một cột Multi dropdown, hãng là giá trị có màu của cột đó (mỗi sản phẩm một danh sách riêng). Cột licensing chỉ được là Multi dropdown (API chặn tạo/đổi kiểu khác). Đọc cấu hình cần State Licensing - View, sửa cần Manage; `/config?scope=licensing` mở thẳng bảng này. Archive hãng / cột ở đó thì appointment của nó ẩn khỏi trang (dữ liệu giữ nguyên); ô "đang dùng" đếm appointment còn hiệu lực.
+- Dialog chi tiết bang: mỗi sản phẩm là ô chọn nhiều chip màu; Save changes lưu cả bang một lần (`licensing_save_state`): hãng mới chọn thành appointment Active, hãng bỏ chọn bị xoá mềm, mỗi thay đổi một dòng lịch sử. Bấm chip mở chi tiết hãng (trạng thái, ngày, ghi chú, agent); bang + hãng của một appointment không sửa ở đó. Bỏ dialog Columns và bảng `licensing_products` (rollout `2026-11-14-health-licensing-table-config.sql` chuyển 5 sản phẩm thành cột, mỗi cặp sản phẩm–hãng thành một giá trị, màu theo tên hãng). Sau đó `2026-11-14-health-licensing-colors.sql` đặt 22 màu khác nhau cho 22 hãng (bảng 7 màu chung làm nhiều hãng trùng màu).
+- Mở một hãng là mở dialog appointment kiểu dialog sửa Provider: người chỉ có View xem ở chế độ chỉ đọc; có Activity riêng của appointment đó (`/api/health-licensing/history?appointment=<id>`) và hàng Added by / Updated by (nạp từ file thì hiện "Appointment list"). Remove xác nhận ngay ở footer.
+- Mọi thay đổi ghi `licensing_events` trong cùng transaction qua các hàm `licensing_save_appointment` / `licensing_save_state` / `licensing_delete_appointment` (xoá mềm); "Last updated" = event mới nhất.
+- Quyền mới `health_licensing.view` / `health_licensing.manage` (Manage bao gồm View), hàng "State Licensing" trong ma trận Role Manager; rollout cấp Manage cho Admin. Trang nằm cuối `ACCESSIBLE_ROUTES` nên không đổi trang đích sau đăng nhập của ai.
+- Rollout `2026-11-14-health-licensing.sql` rồi `2026-11-14-health-licensing-seed.sql` (283 appointment từ "Appointment list.csv", sinh bởi `scripts/licensing-seed-from-csv.mjs`) phải chạy trước khi deploy.
+
 ## 2026-11-12 — Task Search tìm trong tập hợp quyền trước khi giới hạn kết quả
 
 - Thay vòng quét tối đa 1.000 ứng viên mỗi nhóm bằng RPC `search_visible_task_content`: lọc quyền Task Board trong PostgreSQL rồi mới lấy tối đa 7 kết quả mỗi nhóm (6 hiển thị và 1 để xác định dấu `+`). Tìm trong tiêu đề, bình luận và tệp đính kèm không còn bỏ sót kết quả hợp quyền nằm sau nhiều bản ghi bị ẩn.

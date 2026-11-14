@@ -68,6 +68,7 @@ const ACCESSIBLE_ROUTES: PermissionRoute[] = [
       PERMISSIONS.TASK_MANAGE,
       PERMISSIONS.LEAD_MANAGE,
       PERMISSIONS.AUTOMATION_PROVIDER_MANAGE,
+      PERMISSIONS.HEALTH_LICENSING_MANAGE,
     ],
   },
   {
@@ -81,6 +82,12 @@ const ACCESSIBLE_ROUTES: PermissionRoute[] = [
   {
     href: "/role-manager",
     permission: PERMISSIONS.ROLE_MANAGER,
+  },
+  {
+    // Cuối danh sách (2026-11-14): trang mới không được đổi trang đích sau
+    // đăng nhập của ai đang có quyền khác.
+    href: "/health/licensing",
+    anyPermission: [PERMISSIONS.HEALTH_LICENSING_VIEW, PERMISSIONS.HEALTH_LICENSING_MANAGE],
   },
 ];
 
