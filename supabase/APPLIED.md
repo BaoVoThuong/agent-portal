@@ -13,6 +13,13 @@ Ba thư mục, ba vai trò khác nhau:
 
 ---
 
+## 2026-11-14 — Slack Bot: danh sách người dùng bot + role riêng của bot
+
+- Đã chạy `rollouts/2026-11-14-slack-bot-users.sql` trên Portal production (user duyệt "check oke thì chạy"), TRƯỚC khi deploy code. Chạy thử trong transaction rồi rollback trước, kèm kiểm `on delete cascade` (tạo account tạm → dòng bot → xoá account → dòng bot mất). Kiểm sau khi chạy: có bảng `slack_bot_users`, bật RLS, `anon`/`authenticated` không đọc được; quyền `slack_bot.manage` cấp cho role Admin.
+- Đã chạy `eps-slack-bot/sql/2026-11-14-bot-roles.sql` (repo bot) ngay sau đó, cũng chạy thử + rollback trước. Tạo role `slack_bot_reader` / `slack_bot_writer` (CHƯA đặt mật khẩu — đặt lúc cấu hình Vercel env của bot), 12 policy `slack_bot_reader_select`, schema `slack_bot` với `events`, `requests` (bảng `vercel_errors` tạo kèm lần đầu đã được xoá ngay sau đó khi bỏ Log Drain — bảng rỗng; bot đọc log qua Vercel Observability API). Kiểm sau khi chạy: reader không đọc được `portal_account.password_hash` và `enrollment_records`; writer không đọc được bảng nào ở `public`.
+
+---
+
 ## 2026-11-12 — Task Search lọc quyền trong PostgreSQL
 
 Đã chạy `rollouts/2026-11-12-task-search-visible-content.sql` trên Portal production lúc 18:02 (user duyệt), TRƯỚC khi deploy code gọi hàm. Chạy thử trong transaction rồi rollback trước. Hàm `search_visible_task_content(text, text[], boolean, text)` dùng cùng luật phạm vi với `tasks_visible_to_worker`, thêm cờ xem toàn bộ; chỉ `service_role` được gọi (đã kiểm `anon`/`authenticated` không có quyền). Kiểm sau khi chạy: người không có task nào ra 0 kết quả, Manager ra 7 (6 hiện + 1 cho dấu "+").

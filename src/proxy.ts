@@ -15,8 +15,10 @@ import { authConfig } from "@/auth.config";
 const { auth } = NextAuth(authConfig);
 export const proxy = auth;
 
+// api/enrollment/import/dry-run: Slack bot gọi từ server khác, không có phiên
+// đăng nhập; route tự kiểm BOT_PORTAL_SECRET (2026-11-14).
 export const config = {
   matcher: [
-    "/((?!api/auth|api/cron|signin|_next/static|_next/image|favicon.ico|image|images|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico)$).*)",
+    "/((?!api/auth|api/cron|api/enrollment/import/dry-run|signin|_next/static|_next/image|favicon.ico|image|images|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico)$).*)",
   ],
 };

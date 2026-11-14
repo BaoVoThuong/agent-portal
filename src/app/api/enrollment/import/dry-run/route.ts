@@ -21,6 +21,9 @@ import { botSecretMatches } from "@/lib/enrollment/bot-secret";
 
 export const dynamic = "force-dynamic";
 
+/** Trần thô cho cả ma trận (dòng trống tính luôn); giới hạn thật là ENROLLMENT_IMPORT_MAX_ROWS dòng có dữ liệu. */
+const MAX_MATRIX_ROWS = 20_000;
+
 /**
  * Chạy thử import Enrollment cho Slack bot (2026-11-14). KHÔNG ghi gì.
  *
@@ -52,9 +55,10 @@ export async function POST(request: Request) {
   if (!Array.isArray(body?.rows) || !body.rows.every(Array.isArray)) {
     return NextResponse.json({ error: "rows must be the sheet as an array of rows." }, { status: 400 });
   }
-  // +1: dòng tiêu đề.
-  if (body.rows.length > ENROLLMENT_IMPORT_MAX_ROWS + 1) {
-    return NextResponse.json({ error: `At most ${ENROLLMENT_IMPORT_MAX_ROWS} rows per import.` }, { status: 400 });
+  // Chặn thô theo kích thước ma trận (kể cả dòng trống) để không phải đọc một
+  // payload khổng lồ; giới hạn THẬT đếm dòng có dữ liệu, ngay sau recordsFromMatrix.
+  if (body.rows.length > MAX_MATRIX_ROWS) {
+    return NextResponse.json({ error: "That sheet is too large." }, { status: 400 });
   }
 
   const access = await getUserAccessByEmail(actorEmail);
@@ -71,6 +75,9 @@ export async function POST(request: Request) {
     sheet = recordsFromMatrix(body.rows as unknown[][], firstRow);
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unreadable sheet." }, { status: 400 });
+  }
+  if (sheet.records.length > ENROLLMENT_IMPORT_MAX_ROWS) {
+    return NextResponse.json({ error: `At most ${ENROLLMENT_IMPORT_MAX_ROWS} rows per import.` }, { status: 400 });
   }
 
   const [columns, columnOptions, optionData, people] = await Promise.all([
