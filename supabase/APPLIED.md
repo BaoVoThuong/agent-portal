@@ -20,6 +20,19 @@ Ba thư mục, ba vai trò khác nhau:
 
 ---
 
+## 2026-11-14 — Health State Licensing Map
+
+Bốn file chạy trên Portal production theo đúng thứ tự dưới (user duyệt từng lượt), trước khi deploy code 5399d7b:
+
+1. `rollouts/2026-11-14-health-licensing.sql`: bảng `licensing_products`, `licensing_appointments`, `licensing_appointment_agents`, `licensing_events`, các hàm ghi, quyền `health_licensing.view` / `.manage` (cấp Manage cho Admin). Kiểm: 2 quyền, Admin có Manage, hàm chỉ `service_role` gọi được.
+2. `rollouts/2026-11-14-health-licensing-seed.sql` (sinh bởi `scripts/licensing-seed-from-csv.mjs` từ "Appointment list.csv"): 283 appointment, 30 bang, 1 dòng lịch sử import.
+3. `rollouts/2026-11-14-health-licensing-table-config.sql`: scope `licensing` cho table-config (2 ràng buộc + `is_table_scope` + `table_column_option_usage_count`); 5 sản phẩm thành 5 cột multiselect, 36 cặp sản phẩm–hãng thành option; appointment trỏ `option_id`; **xoá** `licensing_products`, cột `carrier` / `product_key` và các hàm cũ. Kiểm: 283 appointment → 36 option, không dòng nào lạc.
+4. `rollouts/2026-11-14-health-licensing-colors.sql`: 22 màu khác nhau cho 22 hãng.
+
+**Không chạy lại file 1–2 sau file 3**: chúng tạo lại cấu trúc cũ (cột `carrier`, `licensing_products`) mà file 3 đã bỏ, nên sẽ lỗi. Trên DB mới thì chạy cả bốn theo thứ tự, hoặc dùng `schema.sql` (đã là cấu trúc sau file 3) rồi nạp dữ liệu riêng.
+
+---
+
 ## 2026-11-12 — Task Search lọc quyền trong PostgreSQL
 
 Đã chạy `rollouts/2026-11-12-task-search-visible-content.sql` trên Portal production lúc 18:02 (user duyệt), TRƯỚC khi deploy code gọi hàm. Chạy thử trong transaction rồi rollback trước. Hàm `search_visible_task_content(text, text[], boolean, text)` dùng cùng luật phạm vi với `tasks_visible_to_worker`, thêm cờ xem toàn bộ; chỉ `service_role` được gọi (đã kiểm `anon`/`authenticated` không có quyền). Kiểm sau khi chạy: người không có task nào ra 0 kết quả, Manager ra 7 (6 hiện + 1 cho dấu "+").
