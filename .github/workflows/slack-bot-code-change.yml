@@ -1,0 +1,175 @@
+name: Slack bot code change
+
+# Giai đoạn 3 của Slack bot (2026-11-15). Bot gọi workflow này (workflow_dispatch)
+# SAU KHI một người có quyền Approve bấm duyệt trong Slack. Claude Code sửa code
+# trên một nhánh bot/*, workflow chạy lint + typecheck + vitest rồi mở PR vào main.
+# Không merge, không deploy: Bảo review và merge như mọi PR khác.
+# Kiểm tra lỗi thì PR mở ở dạng DRAFT, tiêu đề "[checks failed]" (draft không merge
+# được cho tới khi bấm Ready for review), và bot báo "kiểm tra lỗi, đừng merge".
+#
+# Workflow KHÔNG có secret DB nào, nên không thể chạm vào production.
+# Secret cần đặt trong repo: ANTHROPIC_API_KEY, BOT_CALLBACK_SECRET.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action_id:
+        description: "slack_bot.pending_actions id"
+        required: true
+      request:
+        description: "What to change (written by the bot from the Slack thread)"
+        required: true
+      slug:
+        description: "Short branch slug"
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write # gọi portal-pr-checks.yml cho PR vừa mở
+
+concurrency:
+  group: slack-bot-code-change-${{ inputs.action_id }}
+  cancel-in-progress: false
+
+env:
+  BOT_CALLBACK_URL: https://eps-slack-bot.vercel.app/api/github/callback
+
+jobs:
+  change:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Create branch
+        id: branch
+        env:
+          SLUG: ${{ inputs.slug }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          clean=$(printf '%s' "$SLUG" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-*//; s/-*$//' | cut -c1-40)
+          branch="bot/$(date -u +%Y%m%d)-${clean:-change}-${RUN_ID}"
+          git checkout -b "$branch"
+          echo "name=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Let Claude Code make the change
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          REQUEST: ${{ inputs.request }}
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          cat > /tmp/prompt.md <<'PROMPT'
+          You are changing the EPS Portal codebase in this repository (Next.js 16 + Supabase).
+          Read AGENTS.md first and follow it.
+
+          The change was requested in Slack and approved by the portal owner:
+          ---
+          PROMPT
+          printf '%s\n' "$REQUEST" >> /tmp/prompt.md
+          cat >> /tmp/prompt.md <<'PROMPT'
+          ---
+
+          Rules:
+          - Make the smallest change that does what was asked. Do not refactor unrelated code.
+          - Add or update vitest tests for the behaviour you change.
+          - If you change business logic, permissions or data flow, add an entry at the top of changelog.md in the same style as the existing entries.
+          - If the change needs a database change, write it as a new file in supabase/rollouts/ (never run it) and say so in your summary.
+          - Never touch .env files, secrets or .github/.
+          - Run `npm run lint`, `npm run typecheck` and `npx vitest run` and fix what you broke.
+          - Do not commit or push; the workflow does that.
+          - End with a short summary (under 15 lines) of what you changed and why, written for the reviewer.
+          PROMPT
+          claude -p "$(cat /tmp/prompt.md)" \
+            --model claude-opus-5-5 \
+            --permission-mode acceptEdits \
+            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(npm run lint*),Bash(npm run typecheck*),Bash(npx vitest*),Bash(npm run test:run*),Bash(git diff*),Bash(git status*),Bash(ls*)" \
+            --max-turns 80 \
+            > /tmp/summary.md
+          cat /tmp/summary.md
+
+      - name: Run checks
+        id: checks
+        run: |
+          lint=pass; types=pass; tests=pass
+          npm run lint || lint=fail
+          npm run typecheck || types=fail
+          npx vitest run || tests=fail
+          echo "summary=lint: $lint, typecheck: $types, tests: $tests" >> "$GITHUB_OUTPUT"
+          if [ "$lint$types$tests" = "passpasspass" ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else echo "ok=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Commit, push and open the PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUEST: ${{ inputs.request }}
+          BRANCH: ${{ steps.branch.outputs.name }}
+          CHECKS: ${{ steps.checks.outputs.summary }}
+          CHECKS_OK: ${{ steps.checks.outputs.ok }}
+          ACTION_ID: ${{ inputs.action_id }}
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "url=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "eps-slack-bot"
+          git config user.email "eps-slack-bot@users.noreply.github.com"
+          title=$(printf '%s' "$REQUEST" | head -n1 | cut -c1-70)
+          draft=""; prefix="bot: "
+          if [ "$CHECKS_OK" != "true" ]; then draft="--draft"; prefix="[checks failed] bot: "; fi
+          git commit -q -m "bot: ${title}" -m "Requested in Slack, approved (pending action ${ACTION_ID})."
+          git push -q origin "$BRANCH"
+          {
+            if [ "$CHECKS_OK" != "true" ]; then
+              echo "> **Checks failed — do not merge.** Fix the branch or close this PR."
+              echo
+            fi
+            echo "## Request (from Slack, approved)"
+            printf '%s\n\n' "$REQUEST"
+            echo "## What Claude Code changed"
+            cat /tmp/summary.md
+            echo
+            echo "## Checks"
+            echo "$CHECKS"
+            echo
+            echo "Opened by the Slack bot. Review before merging: merging main deploys production."
+          } > /tmp/body.md
+          url=$(gh pr create $draft --base main --head "$BRANCH" --title "${prefix}${title}" --body-file /tmp/body.md)
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          # PR do GITHUB_TOKEN mở không tự chạy pull_request: gọi CI trên nhánh này để
+          # PR có check lint-typecheck-tests (branch protection đòi check đó).
+          gh workflow run portal-pr-checks.yml --ref "$BRANCH" || echo "::warning::Could not start portal-pr-checks"
+
+      - name: Tell the bot
+        if: always()
+        env:
+          BOT_CALLBACK_SECRET: ${{ secrets.BOT_CALLBACK_SECRET }}
+          ACTION_ID: ${{ inputs.action_id }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+          CHECKS: ${{ steps.checks.outputs.summary }}
+          CHECKS_OK: ${{ steps.checks.outputs.ok }}
+          JOB_STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$JOB_STATUS" != "success" ]; then status=failed
+          elif [ -z "$PR_URL" ]; then status=no_changes
+          elif [ "$CHECKS_OK" != "true" ]; then status=opened_failing
+          else status=opened; fi
+          summary=$(head -c 1500 /tmp/summary.md 2>/dev/null || true)
+          jq -n --arg action_id "$ACTION_ID" --arg status "$status" --arg pr_url "$PR_URL" \
+                --arg run_url "$RUN_URL" --arg checks "$CHECKS" --arg summary "$summary" \
+                '{action_id: $action_id, status: $status, pr_url: $pr_url, run_url: $run_url, checks: $checks, summary: $summary}' > /tmp/callback.json
+          curl --silent --show-error --max-time 30 -X POST "$BOT_CALLBACK_URL" \
+            -H "Authorization: Bearer $BOT_CALLBACK_SECRET" -H "content-type: application/json" \
+            --data @/tmp/callback.json

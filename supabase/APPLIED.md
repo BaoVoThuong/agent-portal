@@ -13,6 +13,10 @@ Ba thư mục, ba vai trò khác nhau:
 
 ---
 
+## 2026-11-15 — Slack Bot: bảng yêu cầu chờ duyệt
+
+- Đã chạy `eps-slack-bot/sql/2026-11-15-pending-actions.sql` (repo bot) trên Portal production (user duyệt "chạy SQL + push"), TRƯỚC khi deploy code bot và route `/api/slack-bot/actions`. Tạo `slack_bot.pending_actions` (cột `event_id`, `idempotency_key`, trạng thái `interrupted`), index `pending_actions_status_idx`, `pending_actions_event_idx`, index duy nhất `pending_actions_once_idx`; `slack_bot_writer` được select/insert/update. Kiểm sau khi chạy: đủ cột, writer có quyền insert.
+
 ## 2026-11-14 — Slack Bot: danh sách người dùng bot + role riêng của bot
 
 - Đã chạy `rollouts/2026-11-14-slack-bot-users.sql` trên Portal production (user duyệt "check oke thì chạy"), TRƯỚC khi deploy code. Chạy thử trong transaction rồi rollback trước, kèm kiểm `on delete cascade` (tạo account tạm → dòng bot → xoá account → dòng bot mất). Kiểm sau khi chạy: có bảng `slack_bot_users`, bật RLS, `anon`/`authenticated` không đọc được; quyền `slack_bot.manage` cấp cho role Admin.

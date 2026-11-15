@@ -6,6 +6,16 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-15 — Slack bot: thay đổi quyền và import thật sau khi được duyệt
+
+- Route mới `POST /api/slack-bot/actions` (xác thực `BOT_PORTAL_SECRET`, bỏ qua middleware như route dry-run). Slack bot chỉ gọi nó sau khi một người có quyền Approve trong `/slack-bot` bấm duyệt trong Slack.
+- Các thay đổi: tick/bỏ tick một quyền trên role, đổi role của account, đổi Position, gán/gỡ Assistant cho một Agent, khoá/mở account. Mỗi thay đổi chạy như chính người duyệt tự làm trên Account Manager / Role Manager: cùng quyền đòi hỏi (Role Manager hoặc Account Manager), cùng kiểm uỷ quyền (`checkRolePermissionChange`, `checkAccountChange`, `checkMembershipChange`) và cùng hàm ghi (`update_role_atomic`, `update_account_atomic` kèm `expected` để chặn ghi đè).
+- Bot không bao giờ sửa Admin, role đang có Role Manager hoặc Slack Bot - Manage, hay account đang giữ hai quyền đó, và không đưa ai vào role có hai quyền đó.
+- Code: thao tác role ở `lib/rbac/bot-role-change.ts` (Role Manager), thao tác account ở `lib/admin/bot-account-change.ts` (Account Manager), luật "không đụng quyền quản trị" ở `lib/rbac/bot-changes.ts`; `lib/slack-bot/actions.ts` chỉ điều phối, đúng luật module-boundaries. Admin bị chặn vì giữ Role Manager, không so tên role.
+- Import Enrollment thật qua bot chạy với quyền của người yêu cầu (`requester_email`), đúng đường import của dialog. Logic đọc file chuyển sang `lib/enrollment/bot-import.ts`, dùng chung với dry-run.
+- Workflow `.github/workflows/slack-bot-code-change.yml`: bot gọi sau khi sửa code được duyệt; Claude Code sửa trên nhánh `bot/*`, chạy lint + typecheck + vitest rồi mở PR (không merge). Kiểm tra lỗi thì PR mở ở dạng draft, tiêu đề `[checks failed]`, không merge được cho tới khi bấm Ready for review.
+- Workflow mới `.github/workflows/portal-pr-checks.yml`: mọi PR vào main chạy lint + typecheck + test (job `lint-typecheck-tests`, không dùng secret, commit mới huỷ lượt cũ). PR của bot do `GITHUB_TOKEN` mở không tự kích hoạt `pull_request`, nên workflow sửa code gọi nó bằng `workflow_dispatch` trên nhánh `bot/*`.
+
 ## 2026-11-14 — List Enrollment và Task Board: poll không đổi thì trả 304
 
 - `GET /api/enrollment` và `GET /api/tasks` gắn `ETag` (sha1 của JSON) và `Cache-Control: private, no-store`. Client gửi lại `If-None-Match`; nếu danh sách y hệt lần trước thì server trả 304 không body. Mục đích là cắt Fast Origin Transfer của Vercel: hai route này chiếm ~85% (~120 KB/lượt Enrollment, ~200 KB/lượt Task, ~19.000 lượt/ngày làm việc).

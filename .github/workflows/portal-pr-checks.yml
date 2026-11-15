@@ -1,0 +1,32 @@
+name: Portal PR checks
+
+# PR do GITHUB_TOKEN mở (PR của Slack bot) không kích hoạt pull_request, nên workflow
+# slack-bot-code-change.yml gọi workflow này bằng workflow_dispatch trên nhánh bot/*;
+# check chạy trên đúng commit đầu PR nên vẫn tính cho branch protection.
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: portal-pr-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: lint-typecheck-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:run
