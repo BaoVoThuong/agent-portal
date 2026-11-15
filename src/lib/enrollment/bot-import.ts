@@ -17,6 +17,7 @@ import {
   recordsFromMatrix,
 } from "@/lib/enrollment/import";
 import { processEnrollmentImportRows } from "@/lib/enrollment/import-rows";
+import { collectRowProblems, fillEnrollmentTemplate } from "@/lib/enrollment/bot-template";
 
 /** Trần thô cho cả ma trận (dòng trống tính luôn); giới hạn thật là ENROLLMENT_IMPORT_MAX_ROWS dòng có dữ liệu. */
 const MAX_MATRIX_ROWS = 20_000;
@@ -29,6 +30,8 @@ const MAX_MATRIX_ROWS = 20_000;
  * import thật. Quyền kiểm theo actor_email (account portal của người yêu cầu) để kết
  * quả giống hệt khi chính người đó bấm Import. `dryRun: false` chỉ được gọi sau khi
  * một người có quyền Approve bấm duyệt trong Slack (route /api/slack-bot/actions).
+ * Chạy thử với `fill_template: true` trả kèm file mẫu Import đã điền dữ liệu
+ * (lib/enrollment/bot-template.ts), để bot đăng và import đúng file đó.
  */
 export async function runBotEnrollmentImport(raw: unknown, options: { dryRun: boolean }): Promise<NextResponse> {
   const { dryRun } = options;
@@ -37,6 +40,7 @@ export async function runBotEnrollmentImport(raw: unknown, options: { dryRun: bo
     actor_email?: unknown;
     rows?: unknown;
     first_row?: unknown;
+    fill_template?: unknown;
   } | null;
   const program = parseEnrollmentProgram(body?.program);
   if (!program) return NextResponse.json({ error: "Invalid enrollment program." }, { status: 400 });
@@ -92,7 +96,32 @@ export async function runBotEnrollmentImport(raw: unknown, options: { dryRun: bo
   });
   if (!outcome.ok) return outcome.response;
 
+  let template: Awaited<ReturnType<typeof fillEnrollmentTemplate>> | undefined;
+  if (dryRun && body.fill_template === true) {
+    const problems = collectRowProblems({
+      records: sheet.records,
+      rowNumbers: sheet.rowNumbers,
+      skipped: parsed.skipped,
+      failed: outcome.result.failed,
+      matched,
+      columns,
+      context,
+    });
+    template = await fillEnrollmentTemplate({
+      program,
+      columns,
+      options: optionData.options,
+      columnOptions,
+      people,
+      matched,
+      records: sheet.records,
+      rowNumbers: sheet.rowNumbers,
+      problems,
+    });
+  }
+
   return NextResponse.json({
+    ...(template ? { template } : {}),
     header_matches: {
       matched: [...matched.byHeader].map(([header, key]) => ({ header: importHeaderLabel(header), key })),
       id_header: matched.idHeader ? importHeaderLabel(matched.idHeader) : null,

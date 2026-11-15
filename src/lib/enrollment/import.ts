@@ -697,6 +697,11 @@ export const ENROLLMENT_IMPORT_MAX_ROWS = 1000;
  * - Cột người: tên; tên trùng thì email (Import từ chối tên trùng).
  * - Checkbox: Yes / No.
  */
+/** Cột có trong file mẫu Import, theo đúng thứ tự file mẫu (bỏ cột đã archive và cột hệ thống tự quản). */
+export function importableEnrollmentColumns(columns: readonly TableColumn[]): TableColumn[] {
+  return columns.filter((column) => !column.archived_at && !MANAGED_KEYS.has(column.key));
+}
+
 export function buildEnrollmentTemplateSpec(
   program: string,
   columns: readonly TableColumn[],
@@ -710,9 +715,7 @@ export function buildEnrollmentTemplateSpec(
   }[],
   people: readonly { email: string; name?: string | null }[]
 ): ImportTemplateSpec {
-  const importable = columns.filter(
-    (column) => !column.archived_at && !MANAGED_KEYS.has(column.key)
-  );
+  const importable = importableEnrollmentColumns(columns);
   const personLabels = personChoiceLabels(people, normalize);
 
   const dropdownFor = (column: TableColumn): TemplateDropdown | undefined => {

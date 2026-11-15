@@ -14,6 +14,19 @@ const REQUIRED_FILL = {
   fgColor: { argb: "FFFFFF00" },
 } as const;
 
+/** Dòng điền sẵn mà Import sẽ bỏ qua: cả dòng đỏ nhạt, ô cần sửa đỏ đậm hơn (Slack bot, 2026-11-15). */
+const PROBLEM_ROW_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFDE2E2" } } as const;
+const PROBLEM_CELL_FILL = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF4A3A3" } } as const;
+
+/**
+ * Một dòng điền sẵn, đúng thứ tự `spec.columns`. `problem`: dòng mà Import sẽ bỏ
+ * qua — `cells` là chỉ số cột cần sửa / cần điền, `note` là lý do (ghi chú trên ô).
+ */
+export type TemplateDataRow = {
+  values: readonly unknown[];
+  problem?: { cells: readonly number[]; note: string };
+};
+
 /**
  * Ghi file mẫu có dropdown thật (Data validation) và tải về.
  *
@@ -26,6 +39,11 @@ const REQUIRED_FILL = {
  */
 export async function buildImportTemplateWorkbook(
   spec: ImportTemplateSpec,
+  /**
+   * Dòng dữ liệu điền sẵn dưới tiêu đề (Slack bot dùng để trả file đã sửa đúng y
+   * template, 2026-11-15). Mặc định: không có dòng nào.
+   */
+  rows: readonly TemplateDataRow[] = [],
 ): Promise<ArrayBuffer> {
   const { default: ExcelJS } = await import("exceljs");
   const book = new ExcelJS.Workbook();
@@ -45,6 +63,16 @@ export async function buildImportTemplateWorkbook(
     sheetColumn.width = Math.min(40, Math.max(14, column.header.length + 4));
     if (column.required) sheetColumn.fill = REQUIRED_FILL;
   });
+  // Dòng điền sẵn thêm SAU khi tô cột Required: tô cột ghi đè màu của ô đã có.
+  for (const row of rows) {
+    const added = data.addRow(spec.columns.map((_, index) => row.values[index] ?? null));
+    if (!row.problem) continue;
+    spec.columns.forEach((_, index) => {
+      added.getCell(index + 1).fill = row.problem!.cells.includes(index) ? PROBLEM_CELL_FILL : PROBLEM_ROW_FILL;
+    });
+    const noteCell = added.getCell((row.problem.cells[0] ?? 0) + 1);
+    noteCell.note = row.problem.note;
+  }
 
   let listIndex = 0;
   const lastRow = spec.rows + 1;
