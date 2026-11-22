@@ -1,6 +1,12 @@
 /** The deployment this bundle was built for; empty outside Vercel. See next.config.ts. */
 export const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? "";
 
+export const MIN_VERSION_CHECK_GAP_MS = 10_000;
+
+export function versionCheckDue(lastCheckedAt: number | null, now: number): boolean {
+  return lastCheckedAt === null || now - lastCheckedAt >= MIN_VERSION_CHECK_GAP_MS;
+}
+
 /**
  * A tab is out of date only when both sides know their deployment and they
  * differ; a missing id (local dev, a failed check) never raises the banner.

@@ -190,6 +190,7 @@ import {
 } from "@/lib/enrollment/column-totals";
 import { uploadAttachment } from "@/lib/tasks/upload-attachment";
 import { fetchJsonWithEtag, type EtagSnapshot } from "@/lib/http/etag-fetch";
+import { useHoverIntent } from "@/lib/ui/use-hover-intent";
 
 type SortKey =
   | "key"
@@ -3000,6 +3001,7 @@ function EnrollmentRowItem({
   onRequestReopen: (recordId: string, stageId: string) => void;
   now: Date;
 }) {
+  const hoverPrefetch = useHoverIntent(() => prefetchEnrollmentDetail(record.id));
   const stage = record.stage_id ? optionsById.get(record.stage_id) ?? null : null;
   const has = (key: EnrollmentColumn["key"]) => columns.some((column) => column.key === key);
   const customColumns = columns.filter(
@@ -3063,7 +3065,8 @@ function EnrollmentRowItem({
 
   return (
     <div
-      onMouseEnter={() => prefetchEnrollmentDetail(record.id)}
+      onMouseEnter={hoverPrefetch.onMouseEnter}
+      onMouseLeave={hoverPrefetch.onMouseLeave}
       onDoubleClick={() => onOpen(record.id)}
       className={`group flex min-h-11 items-stretch whitespace-nowrap transition ${
         pastDue

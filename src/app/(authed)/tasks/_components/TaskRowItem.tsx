@@ -36,6 +36,7 @@ import {
   stageElapsedSeconds,
 } from "@/lib/tasks/sla";
 import { prefetchTaskDetail } from "@/lib/tasks/detail-cache";
+import { useHoverIntent } from "@/lib/ui/use-hover-intent";
 // Dạng ngày giờ dùng chung cho mọi bảng (Enrollment, Leads, Provider bám theo
 // đúng dạng này) — xem lib/table-config/date-format.ts.
 import {
@@ -279,6 +280,7 @@ export function TaskRowItem({
   onUnlockOverdueRequest?: () => void;
   onReopenRequest?: () => void;
 }) {
+  const hoverPrefetch = useHoverIntent(() => prefetchTaskDetail(task.id));
   const fallbackLabelByEmail = new Map(
     assignees.map((assignee) => [
       assignee.email,
@@ -351,7 +353,8 @@ export function TaskRowItem({
 
   return (
     <div
-      onMouseEnter={() => prefetchTaskDetail(task.id)}
+      onMouseEnter={hoverPrefetch.onMouseEnter}
+      onMouseLeave={hoverPrefetch.onMouseLeave}
       onDoubleClick={() => {
         if (openOnDoubleClick) onOpen(task.id);
       }}

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
-import { APP_VERSION, isNewerDeployment } from "@/lib/app-version";
+import { APP_VERSION, isNewerDeployment, versionCheckDue } from "@/lib/app-version";
 
 const CHECK_EVERY_MS = 5 * 60 * 1000;
 
@@ -21,9 +21,13 @@ export function NewVersionBanner() {
   useEffect(() => {
     if (!APP_VERSION || outdated) return;
     let cancelled = false;
+    let lastCheckedAt: number | null = null;
 
     const check = async () => {
       if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (!versionCheckDue(lastCheckedAt, now)) return;
+      lastCheckedAt = now;
       try {
         const response = await fetch("/api/app-version", { cache: "no-store" });
         if (!response.ok) return;

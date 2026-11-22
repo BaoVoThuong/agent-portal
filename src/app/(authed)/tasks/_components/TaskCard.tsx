@@ -14,6 +14,7 @@ import {
 import { stageElapsedSeconds } from "@/lib/tasks/sla";
 import { taskCategoryBadgePalette } from "@/lib/tasks/category-colors";
 import { prefetchTaskDetail } from "@/lib/tasks/detail-cache";
+import { useHoverIntent } from "@/lib/ui/use-hover-intent";
 import { formatEmailAsName } from "@/lib/tasks/people";
 import {
   Initials,
@@ -60,6 +61,7 @@ export function TaskCard({
   onReopenRequest?: (id: string) => void;
   visibleColumnKeys: ReadonlySet<string>;
 }) {
+  const hoverPrefetch = useHoverIntent(() => prefetchTaskDetail(task.id));
   const isTerminal = task.status === "done" || task.status === "cancel";
   const primaryAssigneeEmail = task.assignees[0] ?? null;
   const primaryAssigneeLabel = primaryAssigneeEmail
@@ -95,7 +97,8 @@ export function TaskCard({
       role="button"
       tabIndex={0}
       onClick={() => onOpen(task.id)}
-      onMouseEnter={() => prefetchTaskDetail(task.id)}
+      onMouseEnter={hoverPrefetch.onMouseEnter}
+      onMouseLeave={hoverPrefetch.onMouseLeave}
       onKeyDown={(event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();

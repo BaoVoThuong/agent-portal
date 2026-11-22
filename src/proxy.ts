@@ -17,8 +17,9 @@ export const proxy = auth;
 
 // api/enrollment/import/dry-run, api/slack-bot/actions: Slack bot gọi từ server
 // khác, không có phiên đăng nhập; route tự kiểm BOT_PORTAL_SECRET (2026-11-14/15).
+// api/app-version chỉ trả deployment id công khai trong bundle JS.
 export const config = {
   matcher: [
-    "/((?!api/auth|api/cron|api/enrollment/import/dry-run|api/slack-bot/actions|signin|_next/static|_next/image|favicon.ico|image|images|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico)$).*)",
+    "/((?!api/auth|api/cron|api/app-version(?:/|$)|api/enrollment/import/dry-run|api/slack-bot/actions|signin|_next/static|_next/image|favicon.ico|image|images|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico)$).*)",
   ],
 };

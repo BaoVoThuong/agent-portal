@@ -413,7 +413,6 @@ export default function Sidebar({
                         <Link
                           key={child.label}
                           href={child.href ?? "#"}
-                          prefetch
                           className={`${styles.navItem} py-2 text-sm`}
                         >
                           {child.label}
@@ -438,11 +437,11 @@ export default function Sidebar({
               </span>
             );
           }
+          // Keep Next's default prefetch so dynamic pages stop at their loading boundary.
           return (
             <Link
               key={item.href ?? idx}
               href={item.href ?? "#"}
-              prefetch
               className={styles.navItem}
             >
               {item.label}
