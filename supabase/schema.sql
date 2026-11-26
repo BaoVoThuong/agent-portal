@@ -5768,6 +5768,8 @@ begin
   return 1;
 end;
 $$;
+revoke execute on function enrollment_close_open_cycle_internal(uuid, text, timestamptz, uuid, text) from public, anon, authenticated;
+grant execute on function enrollment_close_open_cycle_internal(uuid, text, timestamptz, uuid, text) to service_role;
 
 create or replace function enrollment_write_activity_internal(
   p_record_id uuid,
@@ -5807,6 +5809,8 @@ begin
   end loop;
 end;
 $$;
+revoke execute on function enrollment_write_activity_internal(uuid, text, jsonb, timestamptz) from public, anon, authenticated;
+grant execute on function enrollment_write_activity_internal(uuid, text, jsonb, timestamptz) to service_role;
 
 create or replace function patch_enrollment_atomic(
   p_record_id uuid,

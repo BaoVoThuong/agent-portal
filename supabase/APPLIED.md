@@ -13,6 +13,10 @@ Ba thư mục, ba vai trò khác nhau:
 
 ---
 
+## 2026-11-26 — Enrollment: thu quyền EXECUTE của 3 hàm nội bộ
+
+- Đã chạy `rollouts/2026-11-22-revoke-internal-enrollment-fns.sql` trên Portal production (user duyệt). Kiểm sau khi chạy: cả 3 chữ ký có ACL `{postgres=X/postgres,service_role=X/postgres}`, anon/authenticated không còn EXECUTE, service_role còn. `schema.sql` cập nhật theo.
+
 ## 2026-11-15 — Slack Bot: bảng yêu cầu chờ duyệt
 
 - Đã chạy `eps-slack-bot/sql/2026-11-15-pending-actions.sql` (repo bot) trên Portal production (user duyệt "chạy SQL + push"), TRƯỚC khi deploy code bot và route `/api/slack-bot/actions`. Tạo `slack_bot.pending_actions` (cột `event_id`, `idempotency_key`, trạng thái `interrupted`), index `pending_actions_status_idx`, `pending_actions_event_idx`, index duy nhất `pending_actions_once_idx`; `slack_bot_writer` được select/insert/update. Kiểm sau khi chạy: đủ cột, writer có quyền insert.

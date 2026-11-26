@@ -6,6 +6,11 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-26 — Thu quyền gọi trực tiếp 3 hàm nội bộ của Enrollment
+
+- `enrollment_close_open_cycle_internal` (2 overload) và `enrollment_write_activity_internal`: thu quyền EXECUTE của PUBLIC/anon/authenticated, chỉ còn postgres (chủ) và service_role.
+- App không đổi: chỉ `archive_enrollment_atomic`, `create_enrollment_atomic`, `patch_enrollment_atomic` (SECURITY DEFINER, chủ postgres) gọi các hàm này.
+
 ## 2026-11-15 — Slack bot: file import đã sửa đúng y file mẫu, dòng lỗi tô đỏ
 
 - Chạy thử import của bot (`POST /api/enrollment/import/dry-run`) với `fill_template: true` trả kèm file mẫu Import đã điền dữ liệu (`lib/enrollment/bot-template.ts`), dựng bằng đúng hàm của nút Download template: cùng sheet Data, cột và thứ tự, dropdown, cột Required tô vàng, dấu phiên bản. Bot đăng và import đúng file này. File có Record ID (cập nhật hồ sơ cũ) không chuyển được vì file mẫu không có cột ID.
