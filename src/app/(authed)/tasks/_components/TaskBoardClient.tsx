@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
+import { createBroadcastGate } from "@/lib/realtime/broadcast-gate";
 import {
   createTaskDataInvalidationSourceId,
   OPEN_TASK_EVENT,
@@ -840,6 +841,15 @@ export function TaskBoardClient({
       return () => window.clearTimeout(statusTimer);
     }
     let active = true;
+    // Gộp tín hiệu Realtime để giới hạn số lần làm mới danh sách.
+    const broadcastGate = createBroadcastGate<TaskReconcileScope>({
+      merge: mergeTaskReconcileScope,
+      fire: (scope) => {
+        if (!active) return;
+        clearCachedTaskDetails();
+        scheduleTaskReconcile(scope);
+      },
+    });
     const schedule = (message: { payload?: { sourceId?: unknown } }) => {
       if (!active) return;
       const sourceId =
@@ -851,8 +861,7 @@ export function TaskBoardClient({
         boardInvalidationSourceId,
       );
       if (!scope) return;
-      clearCachedTaskDetails();
-      scheduleTaskReconcile(scope);
+      broadcastGate.push(scope);
     };
     const channel = sb
       .channel(TASKS_TOPIC)
@@ -875,6 +884,7 @@ export function TaskBoardClient({
       });
     return () => {
       active = false;
+      broadcastGate.dispose();
       void sb.removeChannel(channel);
     };
   }, [boardInvalidationSourceId, reconcileTaskData, scheduleTaskReconcile]);

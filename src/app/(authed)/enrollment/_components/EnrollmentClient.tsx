@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { createPortal } from "react-dom";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
+import { createBroadcastGate } from "@/lib/realtime/broadcast-gate";
 import { isOwnRealtimeMutation } from "@/lib/tasks/realtime-topics";
 import {
   OPEN_ENROLLMENT_EVENT,
@@ -68,7 +69,10 @@ import {
   enrollmentBroadcastReconcileScope,
   enrollmentInvalidationReconcileScope,
   enrollmentLivePollInterval,
+  enrollmentTabTag,
+  mergeEnrollmentReconcileScope,
   type EnrollmentLiveStatus,
+  type EnrollmentReconcileScope,
   type EnrollmentRefetchReason,
 } from "@/lib/enrollment/live-sync";
 import { tableConfigTopic } from "@/lib/table-config/realtime-topics";
@@ -1440,7 +1444,7 @@ export function EnrollmentClient({
         const hadPendingAtIssue = pendingRef.current.size > 0;
         try {
           const result = await fetchJsonWithEtag(
-            `/api/enrollment?program=${program}&reason=${runReason}`,
+            `/api/enrollment?program=${program}&reason=${runReason}&tab=${enrollmentTabTag(liveSourceId)}`,
             program,
             recordsEtagRef,
           );
@@ -1478,7 +1482,7 @@ export function EnrollmentClient({
 
     recordsRefetchInFlightRef.current = operation;
     return operation;
-  }, [program]);
+  }, [liveSourceId, program]);
 
   // Re-run an update that was dropped because a write was in flight, so we
   // never trade "UI reverts" for "UI silently stale".
@@ -1581,6 +1585,11 @@ export function EnrollmentClient({
         if (scope === "full") void reloadOptions();
       }, ENROLLMENT_LIVE_EVENT_DEBOUNCE_MS);
     };
+    // Gộp tín hiệu Realtime để giới hạn số lần làm mới danh sách.
+    const broadcastGate = createBroadcastGate<EnrollmentReconcileScope>({
+      merge: mergeEnrollmentReconcileScope,
+      fire: (scope) => schedule(scope),
+    });
     const channel = sb
       .channel(enrollmentTopic(program))
       .on(
@@ -1596,7 +1605,7 @@ export function EnrollmentClient({
             sourceId,
             liveSourceId,
           );
-          if (scope) schedule(scope);
+          if (scope) broadcastGate.push(scope);
         },
       )
       .subscribe((status) => {
@@ -1616,6 +1625,7 @@ export function EnrollmentClient({
       });
     return () => {
       active = false;
+      broadcastGate.dispose();
       if (timer) clearTimeout(timer);
       void sb.removeChannel(channel);
     };

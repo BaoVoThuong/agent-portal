@@ -61,7 +61,7 @@ import {
 } from "@/lib/table-config/write-context";
 import { resolveEnrollmentScope } from "@/lib/enrollment/scope";
 import { RouteTiming } from "@/lib/server-timing";
-import { parseEnrollmentRefetchReason } from "@/lib/enrollment/live-sync";
+import { parseEnrollmentRefetchReason, parseEnrollmentTabTag } from "@/lib/enrollment/live-sync";
 import { jsonWithEtag } from "@/lib/http/json-etag";
 
 export const dynamic = "force-dynamic";
@@ -110,7 +110,9 @@ export async function GET(request: Request) {
   console.info(
     `[enrollment-list] reason=${parseEnrollmentRefetchReason(
       new URL(request.url).searchParams.get("reason"),
-    )} program=${program}`,
+    )} program=${program} tab=${parseEnrollmentTabTag(
+      new URL(request.url).searchParams.get("tab"),
+    )}`,
   );
   try {
     const scope = await timing.measure("scope", () =>

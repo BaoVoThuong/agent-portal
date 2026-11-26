@@ -34,6 +34,21 @@ export function parseEnrollmentRefetchReason(value: string | null): EnrollmentRe
     : "other";
 }
 
+/**
+ * Mã tab ngắn cho log `[enrollment-list]`: 8 ký tự đầu của phần UUID ngẫu nhiên
+ * trong liveSourceId. Chỉ để đo khoảng cách giữa các lượt tải trên cùng tab;
+ * không gắn với người dùng.
+ */
+export function enrollmentTabTag(sourceId: string): string {
+  const nonce = sourceId.split(":").pop() ?? "";
+  const tag = nonce.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8);
+  return tag || "none";
+}
+
+export function parseEnrollmentTabTag(value: string | null): string {
+  return value !== null && /^[a-z0-9]{1,8}$/.test(value) ? value : "none";
+}
+
 export function mergeEnrollmentReconcileScope(
   current: EnrollmentReconcileScope | null,
   incoming: EnrollmentReconcileScope,

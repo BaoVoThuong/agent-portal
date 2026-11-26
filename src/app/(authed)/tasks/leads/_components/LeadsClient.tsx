@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CircleAlert, Download, Plus, Search, Shuffle, Upload, UserPen, X } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase-browser";
+import { createBroadcastGate } from "@/lib/realtime/broadcast-gate";
 import { requestJson } from "@/lib/collaboration/optimistic";
 import type { PendingFile } from "@/lib/tasks/pending-attachments";
 import { leadDisplayKey } from "@/lib/leads/display";
@@ -625,6 +626,16 @@ export function LeadsClient({
       }
     };
 
+    // Gộp tín hiệu Realtime; tín hiệu không kèm id yêu cầu tải toàn bộ danh sách.
+    const broadcastGate = createBroadcastGate<string[] | "all">({
+      merge: (pending, incoming) => {
+        if (pending === "all" || incoming === "all") return "all";
+        if (pending === null) return incoming;
+        return [...new Set([...pending, ...incoming])];
+      },
+      fire: (ids) => requestReload(ids === "all" ? undefined : ids),
+    });
+
     const channel = supabase
       .channel(LEADS_TOPIC)
       .on("broadcast", { event: "changed" }, (message) => {
@@ -637,12 +648,13 @@ export function LeadsClient({
           typeof raw === "string"
             ? raw.split(",").map((value) => value.trim()).filter(Boolean)
             : undefined;
-        requestReload(ids);
+        broadcastGate.push(ids ?? "all");
       })
       .subscribe();
     document.addEventListener("visibilitychange", onVisible);
 
     return () => {
+      broadcastGate.dispose();
       window.clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisible);
       void supabase.removeChannel(channel);

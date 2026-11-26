@@ -5,10 +5,12 @@ import {
   enrollmentInvalidationReconcileScope,
   enrollmentLivePollInterval,
   enrollmentRefetchDisposition,
+  enrollmentTabTag,
   ENROLLMENT_LIST_RECONCILE_MS,
   ENROLLMENT_LIVE_RECONCILE_MS,
   mergeEnrollmentReconcileScope,
   parseEnrollmentRefetchReason,
+  parseEnrollmentTabTag,
 } from "./live-sync";
 
 describe("enrollment live sync", () => {
@@ -66,6 +68,21 @@ describe("enrollment live sync", () => {
     expect(parseEnrollmentRefetchReason("poll")).toBe("poll");
     expect(parseEnrollmentRefetchReason("x@example.com")).toBe("other");
     expect(parseEnrollmentRefetchReason(null)).toBe("other");
+  });
+
+  it("derives a short random tab tag from the live source id", () => {
+    expect(
+      enrollmentTabTag("enrollment-aca:m3k2:0f8e7d6c-1111-2222-3333-444455556666"),
+    ).toBe("0f8e7d6c");
+    expect(enrollmentTabTag("enrollment-aca:m3k2:Ab-12")).toBe("ab12");
+    expect(enrollmentTabTag("")).toBe("none");
+  });
+
+  it("accepts only short lowercase tab tags", () => {
+    expect(parseEnrollmentTabTag("0f8e7d6c")).toBe("0f8e7d6c");
+    expect(parseEnrollmentTabTag("x@example.com")).toBe("none");
+    expect(parseEnrollmentTabTag("0123456789")).toBe("none");
+    expect(parseEnrollmentTabTag(null)).toBe("none");
   });
 });
 

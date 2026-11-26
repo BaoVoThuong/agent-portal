@@ -6,6 +6,12 @@ format code, thay đổi test đơn thuần.
 
 Mới nhất ở trên cùng. Mỗi thay đổi logic → thêm 1 entry ngay trong lượt code đó.
 
+## 2026-11-26 — Gộp tín hiệu Realtime khi làm mới danh sách
+
+- Task Board, Enrollment và Leads gộp các tín hiệu `changed` đến gần nhau; lần đầu chạy ngay, các tín hiệu tiếp theo trong cửa sổ 5 giây thành một lần làm mới cuối cửa sổ.
+- Khi nhiều tín hiệu yêu cầu phạm vi khác nhau, phạm vi rộng hơn được giữ lại. Poll và lần làm mới khi tab hoạt động trở lại không đổi.
+- Log `[enrollment-list]` thêm `tab=<8 ký tự>`, mã ngẫu nhiên của từng tab (không gắn với người dùng), để đo khoảng cách giữa các lượt tải trên cùng tab.
+
 ## 2026-11-26 — Thu quyền gọi trực tiếp 3 hàm nội bộ của Enrollment
 
 - `enrollment_close_open_cycle_internal` (2 overload) và `enrollment_write_activity_internal`: thu quyền EXECUTE của PUBLIC/anon/authenticated, chỉ còn postgres (chủ) và service_role.
